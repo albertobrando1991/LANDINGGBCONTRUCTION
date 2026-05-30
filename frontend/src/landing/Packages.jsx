@@ -40,8 +40,8 @@ export default function Packages() {
                   {p.badge && (
                     <span className="absolute top-4 right-4 z-10 gold-gradient text-bg font-display font-bold uppercase text-[10px] px-3 py-1 rounded-full">{p.badge}</span>
                   )}
-                  <div className="aspect-square overflow-hidden">
-                    <img src={PROPOSAL_POSTERS[p.key]} alt={p.name} className="w-full h-full object-cover" loading="lazy" />
+                  <div className="overflow-hidden rounded-3xl">
+                    <img src={PROPOSAL_POSTERS[p.key]} alt={p.name} className="block w-full h-auto" loading="lazy" />
                   </div>
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/35 transition-colors flex items-center justify-center">
                     <span className="opacity-0 group-hover:opacity-100 transition-opacity font-display uppercase text-[11px] tracking-wider text-white bg-brand px-4 py-2 rounded-full inline-flex items-center gap-2">
