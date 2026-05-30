@@ -257,7 +257,7 @@ export default function Configurator({ onComplete }) {
                         ))}
                       </div>
                     )}
-                    <button onClick={() => set({ files: [] })} className="mt-4 font-body text-xs text-fog underline hover:text-ink">Salta questo passaggio</button>
+                    <button data-testid="config-skip-upload" onClick={() => onComplete({ ...cfg, files: [], has_files: false })} className="mt-4 font-body text-xs text-fog underline hover:text-ink">Salta questo passaggio</button>
                   </div>
                 )}
               </motion.div>

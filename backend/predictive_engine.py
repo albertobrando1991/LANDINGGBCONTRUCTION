@@ -8,26 +8,37 @@ from typing import Any, Dict, List
 from predictive_data import COEFFICIENTI, voci_as_dicts
 
 
+def _pick(inp: Dict[str, Any], key: str, default: Any) -> Any:
+    """Ritorna il valore esplicito solo se valorizzato, altrimenti il default.
+
+    I campi opzionali arrivano dall'API con valore None (Pydantic): in quel caso
+    NON vanno trattati come False/None, ma rimpiazzati con il default coerente
+    al livello del pacchetto.
+    """
+    v = inp.get(key, None)
+    return default if v is None else v
+
+
 def _normalize_flags(inp: Dict[str, Any]) -> Dict[str, Any]:
     """FASE 1-2: normalizzazione input -> namespace flag per le formule."""
     ambienti = inp.get("ambienti", []) or []
-    livello = inp.get("livello", "premium")
+    livello = inp.get("livello") or "premium"
     return {
-        "mq": float(inp.get("mq", 80) or 80),
-        "bagni": int(inp.get("bagni", 1) or 0),
-        "camere": int(inp.get("camere", 2) or 0),
-        "cucina": bool(inp.get("cucina", True)),
-        "soggiorno": bool(inp.get("soggiorno", "Soggiorno" in ambienti or True)),
-        "ingresso": bool(inp.get("ingresso", "Ingresso" in ambienti)),
-        "balconi": bool(inp.get("balconi", "Balconi/Terrazzi" in ambienti)),
-        "redistribuzione": bool(inp.get("redistribuzione", livello in ("premium", "luxury"))),
-        "rifacimento_elettrico": bool(inp.get("rifacimento_elettrico", True)),
-        "rifacimento_idrico": bool(inp.get("rifacimento_idrico", True)),
-        "rifacimento_termico": bool(inp.get("rifacimento_termico", livello != "essenziale")),
-        "controsoffitto": bool(inp.get("controsoffitto", livello in ("premium", "luxury"))),
-        "clima": inp.get("clima", "predisposizione" if livello != "essenziale" else "no"),
-        "infissi": inp.get("infissi", "completo" if livello == "luxury" else "parziale"),
-        "forniture_incluse": bool(inp.get("forniture_incluse", livello == "luxury")),
+        "mq": float(_pick(inp, "mq", 80) or 80),
+        "bagni": int(_pick(inp, "bagni", 1) or 0),
+        "camere": int(_pick(inp, "camere", 2) or 0),
+        "cucina": bool(_pick(inp, "cucina", True)),
+        "soggiorno": bool(_pick(inp, "soggiorno", "Soggiorno" in ambienti or True)),
+        "ingresso": bool(_pick(inp, "ingresso", "Ingresso" in ambienti)),
+        "balconi": bool(_pick(inp, "balconi", "Balconi/Terrazzi" in ambienti)),
+        "redistribuzione": bool(_pick(inp, "redistribuzione", livello in ("premium", "luxury"))),
+        "rifacimento_elettrico": bool(_pick(inp, "rifacimento_elettrico", True)),
+        "rifacimento_idrico": bool(_pick(inp, "rifacimento_idrico", True)),
+        "rifacimento_termico": bool(_pick(inp, "rifacimento_termico", livello != "essenziale")),
+        "controsoffitto": bool(_pick(inp, "controsoffitto", livello in ("premium", "luxury"))),
+        "clima": _pick(inp, "clima", "predisposizione" if livello != "essenziale" else "no"),
+        "infissi": _pick(inp, "infissi", "completo" if livello == "luxury" else "parziale"),
+        "forniture_incluse": bool(_pick(inp, "forniture_incluse", livello == "luxury")),
         "livello": livello,
         "coef": COEFFICIENTI,
     }
@@ -137,32 +148,62 @@ def _generate_alerts(flags: Dict[str, Any], voci: List[Dict[str, Any]]) -> List[
     return alerts
 
 
-def calcola_preventivo(inp: Dict[str, Any]) -> Dict[str, Any]:
-    flags = _normalize_flags(inp)
-    mq = flags["mq"]
+def _enforce_order(prev: Dict[str, Any], cur: Dict[str, Any], mq: float) -> None:
+    """Garantisce che il pacchetto `cur` mostri valori strettamente superiori
+    al `prev` su 'Da' (range_basso), 'a' (range_alto) e costo/mq.
+    Rete di sicurezza per casi limite: in condizioni normali non modifica nulla.
+    """
+    margine = round(mq * 30 / 100) * 100  # ~30 €/mq di separazione minima
+    floor_low = prev["range_basso"] + margine
+    if cur["range_basso"] < floor_low:
+        shift = floor_low - cur["range_basso"]
+        cur["range_basso"] += shift
+        cur["range_alto"] += shift
+    floor_high = prev["range_alto"] + margine
+    if cur["range_alto"] < floor_high:
+        cur["range_alto"] = floor_high
+    if cur["costo_mq"] <= prev["costo_mq"]:
+        cur["costo_mq"] = prev["costo_mq"] + 50
 
-    # Essenziale: superficie x range €/mq
+
+def calcola_preventivo(inp: Dict[str, Any]) -> Dict[str, Any]:
+    base_flags = _normalize_flags(inp)
+    mq = base_flags["mq"]
+
+    # Essenziale: superficie x range €/mq (sempre il pacchetto piu' economico)
     ess_min = round(mq * COEFFICIENTI["essenziale_mq_min"] / 100) * 100
     ess_max = round(mq * COEFFICIENTI["essenziale_mq_max"] / 100) * 100
 
-    # Premium: motore su PU premium
+    # Ogni pacchetto e' calcolato con il PROPRIO livello di intervento,
+    # indipendentemente da quello scelto dall'utente, cosi' da garantire uno
+    # scope (e un prezzo) crescente e coerente: Essenziale < Premium < Luxury.
+    premium_flags = _normalize_flags({**inp, "livello": "premium"})
+    luxury_flags = _normalize_flags({**inp, "livello": "luxury"})
+
     premium = _package_from_voci(
-        {**flags, "forniture_incluse": False},
+        premium_flags,
         "pu_premium",
         (COEFFICIENTI["premium_mq_min"], COEFFICIENTI["premium_mq_max"]),
     )
-
-    # Luxury: motore su PU luxury + forniture attive
     luxury = _package_from_voci(
-        {**flags, "forniture_incluse": True},
+        luxury_flags,
         "pu_luxury",
         (COEFFICIENTI["luxury_mq_min"], COEFFICIENTI["luxury_mq_max"] + 260),
     )
 
-    alerts = _generate_alerts(flags, premium["voci"])
+    # Guardia di coerenza sui valori mostrati: Essenziale < Premium < Luxury.
+    essenziale = {
+        "range_basso": ess_min,
+        "range_alto": ess_max,
+        "costo_mq": COEFFICIENTI["essenziale_mq_min"],
+    }
+    _enforce_order(essenziale, premium, mq)
+    _enforce_order(premium, luxury, mq)
+
+    alerts = _generate_alerts(base_flags, premium["voci"])
 
     return {
-        "input": {k: v for k, v in flags.items() if k != "coef"},
+        "input": {k: v for k, v in base_flags.items() if k != "coef"},
         "pacchetti": {
             "essenziale": {
                 "range_basso": ess_min,

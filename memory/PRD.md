@@ -34,6 +34,10 @@ Stack richiesto Next.js+Supabase → adattato a **React + FastAPI + MongoDB** (U
 - Sezione pacchetti dedicata `#soluzioni` + lightbox poster; recensioni cliccabili con lightbox.
 - Dati reali da gbconstruction.it: contatti (+39 389 658 4125, info@, Via San Giacomo 35 Casalnuovo di Napoli), social IG/FB, staff famiglia Brancale (Giuseppe Founder/Geometra, Giovanni Capo Cantiere, Vincenzo Coordinatore). Testing iter 3: frontend 100%.
 
+## Bugfix (2026-05-30)
+- Configuratore: il pulsante "Salta questo passaggio" (step 7 upload) ora procede alla stima (prima non faceva nulla). `config-skip-upload` chiama onComplete con files vuoti.
+- Motore predittivo: risolta incoerenza Essenziale > Premium. Causa: campi opzionali (redistribuzione/controsoffitto/termico) arrivavano None dall'API → Premium calcolato senza scope → clamp al minimo. Fix: helper `_pick` (None→default), ogni pacchetto calcolato col proprio livello, guardia `_enforce_order`. Ordine garantito ESS<PRE<LUX in tutti gli scenari.
+
 ## Mocked / non implementato- Email, WhatsApp, Cal.com, generazione PDF preventivo, render visivo AI, trascrizione note vocali → solo UI placeholder.
 
 ## Backlog (P1/P2)
