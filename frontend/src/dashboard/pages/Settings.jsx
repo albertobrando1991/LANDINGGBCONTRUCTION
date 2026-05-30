@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import client, { formatApiErrorDetail } from "@/lib/api";
-import { initials } from "@/dashboard/leadMeta";
+import { Avatar } from "@/dashboard/Avatar";
 
 export default function Settings() {
   const qc = useQueryClient();
@@ -47,7 +47,7 @@ export default function Settings() {
             <div className="space-y-2">
               {staff.map((u) => (
                 <div key={u.id} className="flex items-center gap-3 bg-bg border border-stroke rounded-xl px-3 py-2">
-                  <div className="w-9 h-9 rounded-full bg-brand/20 text-brand flex items-center justify-center font-display font-bold text-sm">{initials(u.name)}</div>
+                  <Avatar name={u.name} photo={u.photo} size={36} />
                   <div className="flex-1"><div className="font-display uppercase text-xs text-ink">{u.name}</div><div className="font-body text-[11px] text-fog">{u.email}</div></div>
                   <span className="font-display uppercase text-[10px] bg-brand/15 text-brand px-3 py-1 rounded-full">{u.role}</span>
                 </div>

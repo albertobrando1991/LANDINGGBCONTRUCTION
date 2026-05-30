@@ -84,17 +84,20 @@ async def seed_users(db):
     """Crea admin + utenti staff/operations demo (idempotente)."""
     defaults = [
         (os.environ.get("ADMIN_EMAIL", "admin@gbconstruction.it"),
-         os.environ.get("ADMIN_PASSWORD", "GBadmin2026!"), "Giuseppe Bianco", "admin"),
-        ("staff@gbconstruction.it", "GBstaff2026!", "Marco Esposito", "staff"),
-        ("operations@gbconstruction.it", "GBops2026!", "Antonio Russo", "operations"),
+         os.environ.get("ADMIN_PASSWORD", "GBadmin2026!"), "Giuseppe Bianco", "admin",
+         "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/ycum27ay_RITRATTO%20GIUSEPPE.png"),
+        ("staff@gbconstruction.it", "GBstaff2026!", "Vincenzo Bianco", "staff",
+         "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/f2u1glj0_RITRATTO%20VINCENZO.png"),
+        ("operations@gbconstruction.it", "GBops2026!", "Salvatore Bianco", "operations",
+         "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/jmpctbmn_RITRATTO%20PADRE.png"),
     ]
-    for email, password, name, role in defaults:
+    for email, password, name, role, photo in defaults:
         email = email.lower()
         existing = await db.users.find_one({"email": email})
         if existing is None:
             await db.users.insert_one({
                 "email": email, "password_hash": hash_password(password),
-                "name": name, "role": role,
+                "name": name, "role": role, "photo": photo,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
         elif role == "admin" and not verify_password(password, existing["password_hash"]):

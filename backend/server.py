@@ -412,7 +412,7 @@ async def sopralluoghi(user: dict = Depends(current_user)):
             "id": d["id"], "cliente": d["nome"], "telefono": d.get("telefono"),
             "citta": d.get("citta"), "indirizzo": f"{d.get('citta')}",
             "tipo_immobile": d.get("tipo_immobile"), "mq": d.get("mq"),
-            "tecnico": d.get("owner") or "Antonio Russo",
+            "tecnico": d.get("owner") or "Salvatore Bianco",
             "data": data.isoformat(),
             "completato": d.get("status") == "sopralluogo_fatto",
             "estimate": d.get("estimate"),

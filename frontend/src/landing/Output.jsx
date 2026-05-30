@@ -2,7 +2,7 @@ import { motion } from "framer-motion";
 import { Check, X, Calendar, MessageCircle, ShieldCheck } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatEuro } from "@/lib/format";
-import { WHATSAPP } from "@/lib/assets";
+import { WHATSAPP, PROPOSAL_POSTERS } from "@/lib/assets";
 
 const PACKAGES = [
   {
@@ -46,6 +46,9 @@ export default function Output({ estimate }) {
                 data-testid={`output-card-${p.key}`}
                 className={`relative bg-surface border-2 ${p.border} rounded-3xl p-7 ${p.luxury ? "gold-gradient/5" : ""}`}>
                 {p.badge && <span className="absolute -top-3 left-1/2 -translate-x-1/2 gold-gradient text-bg font-display font-bold uppercase text-[10px] px-4 py-1 rounded-full">{p.badge}</span>}
+                <div className="rounded-2xl overflow-hidden border border-stroke mb-5 aspect-[16/10]">
+                  <img src={PROPOSAL_POSTERS[p.key]} alt={p.titolo} className="w-full h-full object-cover" loading="lazy" />
+                </div>
                 <h3 className={`font-display font-bold uppercase text-xl ${p.color}`}>{p.titolo}</h3>
                 <p className="font-display uppercase text-xs text-fog mt-1 mb-5">{p.tagline}</p>
 

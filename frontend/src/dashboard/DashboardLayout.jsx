@@ -5,7 +5,7 @@ import {
   BarChart3, Settings as SettingsIcon, Menu, Bell, LogOut, Search, X,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { initials } from "@/dashboard/leadMeta";
+import { Avatar } from "@/dashboard/Avatar";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   DropdownMenuLabel, DropdownMenuSeparator,
@@ -44,9 +44,7 @@ function SidebarContent({ user, onNav }) {
       </nav>
       <div className="p-3 border-t border-stroke">
         <div className="flex items-center gap-3 px-2 py-2">
-          <div className="w-9 h-9 rounded-full bg-brand/20 text-brand flex items-center justify-center font-display font-bold text-sm">
-            {initials(user?.name)}
-          </div>
+          <Avatar name={user?.name} photo={user?.photo} size={36} />
           <div className="min-w-0">
             <div className="font-display uppercase text-xs text-ink truncate">{user?.name}</div>
             <div className="font-body text-[10px] text-fog truncate">{user?.role}</div>
@@ -107,8 +105,8 @@ export default function DashboardLayout() {
             <button className="relative text-fog hover:text-ink"><Bell className="w-5 h-5" /><span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-brand text-white text-[9px] flex items-center justify-center">3</span></button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button data-testid="account-menu" className="w-9 h-9 rounded-full bg-brand/20 text-brand flex items-center justify-center font-display font-bold text-sm">
-                  {initials(user?.name)}
+                <button data-testid="account-menu" className="rounded-full overflow-hidden border border-stroke">
+                  <Avatar name={user?.name} photo={user?.photo} size={36} />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="bg-surface border-stroke">

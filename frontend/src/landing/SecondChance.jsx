@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { ASSETS } from "@/lib/assets";
+import { AMBIENT } from "@/lib/assets";
 import client, { formatApiErrorDetail } from "@/lib/api";
 
 const PROJECTS = [
@@ -58,7 +58,7 @@ export default function SecondChance() {
               key={i}
               className={`relative break-inside-avoid rounded-2xl overflow-hidden border border-stroke group cursor-pointer ${p.tall ? "h-80" : "h-56"}`}
             >
-              <img src={ASSETS.cemento} alt={p.nome} className="w-full h-full object-cover opacity-75 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700" />
+              <img src={AMBIENT[i % AMBIENT.length]} alt={p.nome} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/85 to-transparent" />
               <div className="absolute bottom-4 left-4">
                 <div className="font-display font-semibold uppercase text-sm text-brand">{p.nome}</div>

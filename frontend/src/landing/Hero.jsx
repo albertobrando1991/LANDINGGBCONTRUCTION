@@ -1,16 +1,33 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { gsap } from "gsap";
 import { ArrowRight } from "lucide-react";
 import { ASSETS } from "@/lib/assets";
+import HlsVideo from "@/components/HlsVideo";
 
 const ROLES = ["appartamento", "ufficio", "condominio", "negozio", "capannone"];
 
 export default function Hero() {
   const [roleIdx, setRoleIdx] = useState(0);
+  const eyebrowRef = useRef(null);
+  const headlineRef = useRef(null);
+  const descRef = useRef(null);
+  const ctaRef = useRef(null);
 
   useEffect(() => {
     const id = setInterval(() => setRoleIdx((i) => (i + 1) % ROLES.length), 2000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      gsap.timeline({ defaults: { ease: "power3.out" } })
+        .fromTo(eyebrowRef.current, { opacity: 0, filter: "blur(10px)", y: 20 }, { opacity: 1, filter: "blur(0px)", y: 0, duration: 0.6 }, 0)
+        .fromTo(headlineRef.current, { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 1.2 }, 0.2)
+        .fromTo(descRef.current, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.8 }, 0.6)
+        .fromTo(ctaRef.current, { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.6 }, 0.9);
+    });
+    return () => ctx.revert();
   }, []);
 
   const scrollToConfig = () =>
@@ -18,37 +35,35 @@ export default function Hero() {
 
   return (
     <section id="hero" className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      {/* Background video */}
-      <video
+      {/* Background video HLS + fallback nativo */}
+      <HlsVideo
         className="absolute inset-0 w-full h-full object-cover scale-105"
         src={ASSETS.heroVideo}
-        autoPlay
-        muted
-        loop
-        playsInline
       />
-      <div className="absolute inset-0 bg-black/60" />
-      <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-bg to-transparent" />
+      {/* Overlay cinematografico */}
+      <div className="absolute inset-0 bg-black/55" />
+      <img src={ASSETS.cemento} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover opacity-[0.12] mix-blend-overlay pointer-events-none" />
       <div className="absolute inset-0 blueprint-grid opacity-[0.04] mix-blend-screen animate-blueprint" />
+      {/* Vignettatura laterale */}
+      <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,0.7) 100%)" }} />
+      <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-bg to-transparent" />
 
       <div className="relative z-10 px-6 text-center max-w-5xl mx-auto pt-24 pb-32">
-        <motion.div
-          initial={{ opacity: 0, filter: "blur(8px)" }}
-          animate={{ opacity: 1, filter: "blur(0px)" }}
-          transition={{ duration: 0.6 }}
+        <div
+          ref={eyebrowRef}
+          style={{ opacity: 0 }}
           className="font-display font-semibold uppercase tracking-[0.3em] text-xs text-brand mb-8"
         >
           ANTEPRIMA 2026 · NAPOLI &amp; CAMPANIA
-        </motion.div>
+        </div>
 
-        <motion.h1
-          initial={{ opacity: 0, y: 60 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1.2, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        <h1
+          ref={headlineRef}
+          style={{ opacity: 0 }}
           className="font-display font-bold uppercase text-5xl md:text-7xl lg:text-8xl leading-[0.95] tracking-tight text-ink"
         >
           Scopri quanto costa ristrutturare <span className="text-brand">casa tua</span>. In 60 secondi.
-        </motion.h1>
+        </h1>
 
         <div className="mt-6 font-display font-semibold uppercase tracking-[0.1em] text-lg md:text-2xl text-ink/70">
           Per il tuo{" "}
@@ -64,20 +79,18 @@ export default function Hero() {
           a Napoli e Campania.
         </div>
 
-        <motion.p
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.6 }}
+        <p
+          ref={descRef}
+          style={{ opacity: 0 }}
           className="mt-8 font-body text-base md:text-lg text-fog max-w-2xl mx-auto"
         >
           Compila pochi dati sul tuo immobile. Ricevi una stima personalizzata su 3 livelli,
           un'anteprima visiva del progetto e una proposta di sopralluogo gratuito.
-        </motion.p>
+        </p>
 
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.6, delay: 0.9 }}
+        <div
+          ref={ctaRef}
+          style={{ opacity: 0 }}
           className="mt-10"
         >
           <button
@@ -89,7 +102,7 @@ export default function Hero() {
             Avvia stima gratuita
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </button>
-        </motion.div>
+        </div>
 
         <div className="mt-8 font-display font-normal uppercase tracking-[0.2em] text-xs text-fog">
           +200 cantieri · +15 anni in Campania · Sopralluogo sempre gratuito

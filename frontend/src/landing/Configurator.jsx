@@ -5,7 +5,8 @@ import {
   Check, UploadCloud, Plus, Minus, Flame,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { formatEuro } from "@/lib/format";
+import HlsVideo from "@/components/HlsVideo";
+import { STYLE_VIDEOS } from "@/lib/assets";
 
 const TIPI = [
   { id: "appartamento", label: "Appartamento", Icon: Home },
@@ -212,7 +213,7 @@ export default function Configurator({ onComplete }) {
                         return (
                           <button key={s} data-testid={`stile-${s.split(" ")[0].toLowerCase()}`} onClick={() => set({ stile: s })}
                             className={`relative aspect-[4/5] rounded-2xl overflow-hidden border-2 transition-all ${sel ? "ring-4 ring-brand border-brand" : "border-stroke hover:scale-105"}`}>
-                            <img src="https://customer-assets.emergentagent.com/job_c4006264-05f3-4029-a8e6-437abc41f35f/artifacts/s1ik9bjg_Texture%20cemento%20scuro%20premium.png" alt={s} className="w-full h-full object-cover opacity-70" />
+                            <HlsVideo src={STYLE_VIDEOS[s]} className="w-full h-full object-cover" />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
                             <span className="absolute bottom-3 left-3 right-3 font-display font-semibold uppercase text-sm text-ink">{s}</span>
                           </button>
