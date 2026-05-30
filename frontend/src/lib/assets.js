@@ -7,12 +7,12 @@ export const ASSETS = {
   beforeAfter2: "https://customer-assets.emergentagent.com/job_c4006264-05f3-4029-a8e6-437abc41f35f/artifacts/4ssxi0pv_Before_and_after_renovation_video_202605301347.mp4",
 };
 
-// Video render per stile (configuratore step 5 + carousel)
+// Video render per stile (configuratore step 5 + carousel) — uno per stile
 export const STYLE_VIDEOS = {
-  "Moderno minimal": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/i0i4ulri_C1.%20Stile%201%20%E2%80%94%20moderno%20minimal1.mp4",
-  "Classico elegante": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/0rjs66wv_C4.mp4",
-  "Industrial loft": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/d44yy74j_C6.mp4",
-  "Contemporaneo caldo": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/1tevjkxu_Before_and_after_renovation_video_202605301347.mp4",
+  "Moderno minimal": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/b3nguqz8_C1.%20Stile%201%20%E2%80%94%20moderno%20minimal1.mp4",
+  "Classico elegante": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/56ocyx6y_C2.%20Stile%202%20%E2%80%94%20classico%20elegante.mp4",
+  "Industrial loft": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/rauqcxny_C3.%20Stile%203%20%E2%80%94%20industrial%20loft.mp4",
+  "Contemporaneo caldo": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/2kh4oxo6_C4%20CONTEMPORANEO%20CALDO.mp4",
 };
 
 // Foto staff GB Construction (nomi reali: famiglia Brancale)
