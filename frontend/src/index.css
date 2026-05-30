@@ -1,0 +1,147 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Montserrat:wght@300;400;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    /* GB Construction brand tokens */
+    --gb-bg: 240 7% 5%;
+    --gb-surface: 240 4% 9%;
+    --gb-surface-2: 240 3% 14%;
+    --gb-text: 0 0% 96%;
+    --gb-muted: 0 0% 53%;
+    --gb-stroke: 240 2% 18%;
+    --gb-accent: 0 64% 47%;
+    --gb-accent-dark: 0 64% 28%;
+    --gb-gold: 41 56% 52%;
+    --gb-success: 142 70% 45%;
+    --gb-warning: 38 92% 50%;
+
+    /* shadcn variables mapped to GB dark palette (forced dark) */
+    --background: 240 7% 5%;
+    --foreground: 0 0% 96%;
+    --card: 240 4% 9%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 4% 9%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 64% 47%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 3% 14%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 3% 14%;
+    --muted-foreground: 0 0% 53%;
+    --accent: 240 3% 14%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 64% 47%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 2% 18%;
+    --input: 240 2% 18%;
+    --ring: 0 64% 47%;
+    --chart-1: 0 64% 47%;
+    --chart-2: 41 56% 52%;
+    --chart-3: 0 0% 53%;
+    --chart-4: 142 70% 45%;
+    --chart-5: 38 92% 50%;
+    --radius: 0.75rem;
+}
+
+* {
+    border-color: hsl(var(--border));
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    background-color: hsl(var(--gb-bg));
+    color: hsl(var(--gb-text));
+    font-family: 'Montserrat', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+    background: hsl(var(--gb-accent));
+    color: #fff;
+}
+
+/* ---------- Gradient utilities ---------- */
+.accent-gradient {
+    background: linear-gradient(90deg, #C62828 0%, #7A1818 100%);
+}
+.accent-metallic {
+    background: linear-gradient(135deg, #C62828 0%, #6E6E6E 50%, #C62828 100%);
+    background-size: 200% 200%;
+}
+.gold-gradient {
+    background: linear-gradient(135deg, #D4A847 0%, #8B6914 100%);
+}
+.text-accent-gradient {
+    background: linear-gradient(90deg, #C62828 0%, #E04848 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* ---------- Blueprint grid overlay ---------- */
+.blueprint-grid {
+    background-image:
+        linear-gradient(hsla(0, 0%, 100%, 0.5) 1px, transparent 1px),
+        linear-gradient(90deg, hsla(0, 0%, 100%, 0.5) 1px, transparent 1px);
+    background-size: 40px 40px;
+}
+
+/* ---------- Keyframes ---------- */
+@keyframes scroll-down {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(200%); }
+}
+@keyframes fade-up {
+    0% { opacity: 0; transform: translateY(30px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+@keyframes blueprint-drift {
+    0% { background-position: 0 0; }
+    100% { background-position: 40px 40px; }
+}
+@keyframes marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 hsla(142, 70%, 45%, 0.6); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 8px hsla(142, 70%, 45%, 0); }
+}
+
+.animate-scroll-down { animation: scroll-down 1.5s ease-in-out infinite; }
+.animate-fade-up { animation: fade-up 0.6s ease-out both; }
+.animate-gradient-shift { animation: gradient-shift 6s ease infinite; }
+.animate-blueprint { animation: blueprint-drift 30s linear infinite; }
+.animate-marquee { animation: marquee 40s linear infinite; }
+.animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+.font-display { font-family: 'Oswald', sans-serif; }
+.font-body { font-family: 'Montserrat', sans-serif; }
+
+.text-outline {
+    -webkit-text-stroke: 2px hsl(var(--gb-accent));
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+}
+
+/* thin scrollbar dark */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: hsl(var(--gb-surface)); }
+::-webkit-scrollbar-thumb { background: hsl(var(--gb-stroke)); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--gb-accent)); }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

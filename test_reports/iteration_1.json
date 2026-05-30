@@ -1,0 +1,47 @@
+{
+  "summary": "Full end-to-end test of GB Construction Lead Engine - both interfaces. Backend pytest: 31/31 passed (after fixing 1 backend bug). Frontend Playwright: complete landing flow (loading→hero→7-step configurator→contact gate→3 output cards with euro prices) verified; full dashboard journey (login→Today→Lead Inbox→Lead Detail with status/timeline/AI suggest→Pipeline→Sopralluoghi→Preventivi→Cantieri→Report with AI insights→Settings) verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/reports & POST /api/reports/insights", "issue": "Returned 500 due to sorted([dict,dict]) without key in server.py timeline build. FIXED by adding key=lambda x: x['data']."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Hero", "issue": "Expected data-testid='hero-cta' is MISSING on the 'Avvia stima gratuita' button (tests fall back to text). Add data-testid for stable automation.", "selector": "hero CTA button", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ContactGate", "issues": ["Form Citta dropdown contains only Campania cities (Napoli/Caserta/Salerno/...). The original spec test mentioned selecting 'Milano' but Milano is not in the list - if multi-region is intended, expand options; otherwise this is by design (GB Construction operates in Campania)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_gb_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Add data-testid='hero-cta' to the Hero 'Avvia stima gratuita' button for stable test selectors.",
+    "Confirm intended scope: ContactGate city dropdown lists only Campania cities (no Milano/Roma/etc.). Update spec or expand list if national coverage was intended."
+  ],
+  "critical_code_review_comments": [
+    "server.py reports() had a sort-without-key bug on list of dicts -> ValueError under Python 3. Fixed in this iteration.",
+    "Multiple cities in gate dropdown imply Campania-only operation; confirm with PM before any expansion.",
+    "AI endpoints (suggest, insights) respond within ~5-10s using gpt-4o via Emergent LLM Key - working correctly.",
+    "JWT httpOnly cookie auth confirmed working; CORS with credentials OK; 401 on wrong creds; 403 on staff trying admin-only routes.",
+    "Predictive engine returns 3 packages essenziale/premium/luxury with range_basso/alto/costo_mq and dettaglio voci as expected.",
+    "12 seeded leads + 3 cantieri + 86 voci + coefficienti all present per spec."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (line 489: added key=lambda for sorted)",
+    "/app/backend/tests/test_gb_backend.py (new)",
+    "/app/backend/tests/conftest.py (new)"
+  ],
+  "success_rate": {"backend": "100% (31/31 after fix)", "frontend": "100% of tested flows"},
+  "test_credentials": "admin@gbconstruction.it / GBadmin2026! ; staff@gbconstruction.it / GBstaff2026! - all verified working",
+  "seed_data_creation": "Created 1 test lead via UI (Mario Rossi UI Test, uitest_mario@example.com, Napoli) + 1 callback (TEST Callback) + 1 staff user (test_pytest_*@example.com) + several TEST_ prefixed leads via API tests",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/test_gb_backend.py - use as regression. Mocked features (email/whatsapp/calendar/pdf/render/voice) intentionally not tested. The reports sorted-bug fix is the only backend code change. Hero CTA lacks data-testid - tests use button name 'AVVIA STIMA GRATUITA' as fallback.",
+  "rca of the issue": "GET /api/reports returned 500. Root cause: server.py:489 used sorted([{...},{...}]) without a key function; in Python 3, dicts are not orderable so comparison raises TypeError. Fix: added key=lambda x: x['data']. Verified by re-running pytest TestReports -> all 3 pass including admin-only check and AI insights generation."
+}
