@@ -34,7 +34,7 @@ export const TESTIMONIAL_IMAGES = [
 export const PROPOSAL_POSTERS = {
   essenziale: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/z8mllw02_GB%20ESSENZIALE.png",
   premium: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/060srhgj_GB%20PREMIUM.png",
-  luxury: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/4vzru3q8_GB%20LUXURY.png",
+  luxury: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/g9x12su0_GB_LUXURY_formato_3_4.png",
 };
 
 // Immagini ambient cantiere/architettura (gallery + sfondi sezioni)
