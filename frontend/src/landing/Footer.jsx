@@ -61,10 +61,10 @@ export default function Footer() {
         <div>
           <h4 className="font-display font-semibold uppercase tracking-[0.15em] text-sm text-ink mb-4">Contatti</h4>
           <ul className="space-y-3 font-body text-sm text-fog">
-            <li className="flex items-start gap-2"><MapPin className="w-4 h-4 text-brand mt-0.5" /> Via Toledo 256, Napoli (NA)</li>
-            <li className="flex items-center gap-2"><Phone className="w-4 h-4 text-brand" /> +39 333 123 4567</li>
-            <li className="flex items-center gap-2"><MessageCircle className="w-4 h-4 text-brand" /> WhatsApp Business</li>
-            <li className="flex items-center gap-2"><Mail className="w-4 h-4 text-brand" /> info@gbconstruction.it</li>
+            <li className="flex items-start gap-2"><MapPin className="w-4 h-4 text-brand mt-0.5" /> Via San Giacomo 35, 80013 Casalnuovo di Napoli (NA)</li>
+            <li className="flex items-center gap-2"><Phone className="w-4 h-4 text-brand" /> <a href="tel:+393896584125" className="hover:text-ink">+39 389 658 4125</a></li>
+            <li className="flex items-center gap-2"><MessageCircle className="w-4 h-4 text-brand" /> <a href={WHATSAPP} target="_blank" rel="noreferrer" className="hover:text-ink">WhatsApp Business</a></li>
+            <li className="flex items-center gap-2"><Mail className="w-4 h-4 text-brand" /> <a href="mailto:info@gbconstruction.it" className="hover:text-ink">info@gbconstruction.it</a></li>
           </ul>
         </div>
 
@@ -86,8 +86,13 @@ export default function Footer() {
 
       <div className="relative max-w-7xl mx-auto px-6 mt-14 pt-6 border-t border-stroke flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          {[Instagram, Facebook, Linkedin, Youtube].map((Icon, i) => (
-            <a key={i} href={WHATSAPP} target="_blank" rel="noreferrer" className="text-fog hover:text-brand transition-colors">
+          {[
+            { Icon: Instagram, href: "https://www.instagram.com/gbconstructionsrl/" },
+            { Icon: Facebook, href: "https://www.facebook.com/gbconstructionsrls" },
+            { Icon: Linkedin, href: WHATSAPP },
+            { Icon: Youtube, href: WHATSAPP },
+          ].map(({ Icon, href }, i) => (
+            <a key={i} href={href} target="_blank" rel="noreferrer" className="text-fog hover:text-brand transition-colors">
               <Icon className="w-5 h-5" />
             </a>
           ))}
@@ -97,7 +102,7 @@ export default function Footer() {
           Sopralluoghi disponibili questa settimana
         </div>
         <div className="font-body text-xs text-fog text-center">
-          P.IVA 09876543210 · Privacy · Cookie · © 2026 GB Construction S.R.L.
+          P.IVA · © 2026 GB Construction S.R.L.S. · Casalnuovo di Napoli (NA) · Privacy · Cookie
         </div>
       </div>
     </footer>

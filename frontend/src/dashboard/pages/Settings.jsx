@@ -32,12 +32,12 @@ export default function Settings() {
 
         <TabsContent value="azienda" className="mt-5">
           <div className="bg-surface border border-stroke rounded-2xl p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Ragione sociale" value="GB Construction S.R.L." />
-            <Field label="P.IVA" value="09876543210" />
-            <Field label="Sede" value="Via Toledo 256, Napoli (NA)" />
-            <Field label="Telefono" value="+39 333 123 4567" />
+            <Field label="Ragione sociale" value="GB Construction S.R.L.S." />
+            <Field label="Sede" value="Via San Giacomo 35, 80013 Casalnuovo di Napoli (NA)" />
+            <Field label="Telefono" value="+39 389 658 4125" />
             <Field label="Email" value="info@gbconstruction.it" />
-            <Field label="Zone operative" value="Napoli e Campania" />
+            <Field label="Social" value="@gbconstructionsrl" />
+            <Field label="Zone operative" value="Napoli e tutta la Campania" />
           </div>
         </TabsContent>
 

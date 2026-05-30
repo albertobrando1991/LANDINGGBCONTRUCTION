@@ -1,12 +1,13 @@
 import { useState, useRef } from "react";
 import LoadingScreen from "@/landing/LoadingScreen";
 import Navbar from "@/landing/Navbar";
-import Hero from "@/landing/Hero";
+import ImmersiveHero from "@/landing/ImmersiveHero";
 import SocialProof from "@/landing/SocialProof";
 import Configurator from "@/landing/Configurator";
 import ContactGate from "@/landing/ContactGate";
 import Output from "@/landing/Output";
 import SecondChance from "@/landing/SecondChance";
+import Team from "@/landing/Team";
 import Footer from "@/landing/Footer";
 
 export default function Landing() {
@@ -35,7 +36,7 @@ export default function Landing() {
     <div className="bg-bg text-ink min-h-screen">
       {loading && <LoadingScreen onDone={() => setLoading(false)} />}
       <Navbar />
-      <Hero />
+      <ImmersiveHero />
       <SocialProof />
 
       <div ref={flowRef}>
@@ -45,6 +46,7 @@ export default function Landing() {
       </div>
 
       <SecondChance />
+      <Team />
       <Footer />
     </div>
   );

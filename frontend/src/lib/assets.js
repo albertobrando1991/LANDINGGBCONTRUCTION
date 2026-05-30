@@ -15,11 +15,11 @@ export const STYLE_VIDEOS = {
   "Contemporaneo caldo": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/1tevjkxu_Before_and_after_renovation_video_202605301347.mp4",
 };
 
-// Foto staff GB Construction
+// Foto staff GB Construction (nomi reali: famiglia Brancale)
 export const STAFF_PHOTOS = {
-  "Giuseppe Bianco": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/ycum27ay_RITRATTO%20GIUSEPPE.png",
-  "Salvatore Bianco": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/jmpctbmn_RITRATTO%20PADRE.png",
-  "Vincenzo Bianco": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/f2u1glj0_RITRATTO%20VINCENZO.png",
+  "Giuseppe Brancale": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/ycum27ay_RITRATTO%20GIUSEPPE.png",
+  "Giovanni Brancale": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/jmpctbmn_RITRATTO%20PADRE.png",
+  "Vincenzo Brancale": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/f2u1glj0_RITRATTO%20VINCENZO.png",
 };
 
 // Testimonianze (card grafiche fornite)
@@ -44,10 +44,11 @@ export const AMBIENT = [
   "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/5n53upe5_hf_20260530_103427_e144f7ad-8474-43b5-bfa1-a7f47353fbcd.png",
 ];
 
-export const WHATSAPP = "https://wa.me/393331234567";
+export const WHATSAPP = "https://wa.me/393896584125";
 
+// Città principali Campania + zone reali progetti GB
 export const CITTA_CAMPANIA = [
-  "Napoli", "Caserta", "Salerno", "Avellino", "Benevento",
-  "Pozzuoli", "Casoria", "Aversa", "Castellammare di Stabia",
+  "Napoli", "Casalnuovo di Napoli", "Caserta", "Salerno", "Avellino", "Benevento",
+  "Pozzuoli", "Quarto", "Casoria", "Aversa", "Castellammare di Stabia",
   "Giugliano in Campania", "Sorrento", "Altro",
 ];
