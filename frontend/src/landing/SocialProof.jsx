@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { Maximize2 } from "lucide-react";
 import HlsVideo from "@/components/HlsVideo";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ASSETS, STYLE_VIDEOS, AMBIENT, TESTIMONIAL_IMAGES } from "@/lib/assets";
 
 const CARDS = [
@@ -94,6 +94,7 @@ export default function SocialProof() {
       {/* Lightbox recensione */}
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <DialogContent className="max-w-2xl bg-surface border-stroke p-2" data-testid="testimonial-dialog">
+          <DialogTitle className="sr-only">Recensione cliente GB Construction</DialogTitle>
           {selected && (
             <img src={selected.src} alt={`Recensione ${selected.nome}`} className="w-full h-auto rounded-xl" />
           )}

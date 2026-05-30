@@ -26,10 +26,15 @@ Stack richiesto Next.js+Supabase → adattato a **React + FastAPI + MongoDB** (U
 - Motore predittivo: Essenziale/Premium/Luxury con range €/mq, dettaglio computo per categoria, alert tecnici, lead scoring 1-100.
 - Dashboard: Oggi, Lead Inbox (filtri+ricerca+tabella), Scheda Lead (3 colonne, timeline, cambio stato, note, **AI suggerisci azione**),
   Pipeline Kanban drag&drop, Sopralluoghi, Preventivi, Cantieri, Report (KPI+grafici+**AI insight**), Impostazioni (staff/coefficienti/86 voci).
-- Auth JWT con seed admin/staff/operations. Testing: backend 31/31, frontend tutti i flussi OK.
+- Auth JWT con seed admin/staff/operations. Testing: backend 36/36, frontend tutti i flussi OK.
 
-## Mocked / non implementato
-- Email, WhatsApp, Cal.com, generazione PDF preventivo, render visivo AI, trascrizione note vocali → solo UI placeholder.
+## Iterazioni successive (2026-05-30)
+- Hero immersiva "fly-into-render" (GSAP ScrollTrigger + video walkthrough, parallasse mouse lerp, vignetta; headline rivelata dopo il volo).
+- Effetto 3D (Tilt3D) su: sezione Team (foto staff reali) e sezione "Tre Soluzioni" con i 3 poster pacchetti.
+- Sezione pacchetti dedicata `#soluzioni` + lightbox poster; recensioni cliccabili con lightbox.
+- Dati reali da gbconstruction.it: contatti (+39 389 658 4125, info@, Via San Giacomo 35 Casalnuovo di Napoli), social IG/FB, staff famiglia Brancale (Giuseppe Founder/Geometra, Giovanni Capo Cantiere, Vincenzo Coordinatore). Testing iter 3: frontend 100%.
+
+## Mocked / non implementato- Email, WhatsApp, Cal.com, generazione PDF preventivo, render visivo AI, trascrizione note vocali → solo UI placeholder.
 
 ## Backlog (P1/P2)
 - P1: Integrazione reale Email (Resend) + WhatsApp + Cal.com per CTA sopralluogo.

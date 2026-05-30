@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Maximize2, ArrowRight } from "lucide-react";
 import Tilt3D from "@/components/Tilt3D";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PROPOSAL_POSTERS } from "@/lib/assets";
 
 const PACKAGES = [
@@ -70,6 +70,7 @@ export default function Packages() {
       {/* Lightbox poster pacchetto */}
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <DialogContent className="max-w-xl bg-surface border-stroke p-2 max-h-[92vh] overflow-y-auto" data-testid="package-dialog">
+          <DialogTitle className="sr-only">{selected ? selected.name : "Soluzione GB"}</DialogTitle>
           {selected && (
             <>
               <img src={PROPOSAL_POSTERS[selected.key]} alt={selected.name} className="w-full h-auto rounded-xl" />
