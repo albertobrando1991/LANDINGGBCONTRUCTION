@@ -3,6 +3,7 @@ import LoadingScreen from "@/landing/LoadingScreen";
 import Navbar from "@/landing/Navbar";
 import ImmersiveHero from "@/landing/ImmersiveHero";
 import SocialProof from "@/landing/SocialProof";
+import Packages from "@/landing/Packages";
 import Configurator from "@/landing/Configurator";
 import ContactGate from "@/landing/ContactGate";
 import Output from "@/landing/Output";
@@ -38,6 +39,7 @@ export default function Landing() {
       <Navbar />
       <ImmersiveHero />
       <SocialProof />
+      <Packages />
 
       <div ref={flowRef}>
         {phase === "config" && <Configurator onComplete={handleConfigDone} />}

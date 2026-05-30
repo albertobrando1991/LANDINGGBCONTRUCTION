@@ -30,11 +30,11 @@ export const TESTIMONIAL_IMAGES = [
   { src: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/b6g2ocxb_TESTIMONIANZA%203.png", nome: "Marianna D." },
 ];
 
-// Poster proposte commerciali (output)
+// Poster proposte commerciali (sezione pacchetti + output)
 export const PROPOSAL_POSTERS = {
-  essenziale: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/8illcfja_GB%20ESSENZIALE.png",
-  premium: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/2u3jw7e9_GB%20PREMIUM.png",
-  luxury: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/283d20u1_GB%20LUXURY.png",
+  essenziale: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/z8mllw02_GB%20ESSENZIALE.png",
+  premium: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/060srhgj_GB%20PREMIUM.png",
+  luxury: "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/4vzru3q8_GB%20LUXURY.png",
 };
 
 // Immagini ambient cantiere/architettura (gallery + sfondi sezioni)

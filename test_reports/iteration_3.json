@@ -1,0 +1,29 @@
+{
+  "summary": "Frontend-only smoke for landing iteration 3: SocialProof testimonial lightbox + new Packages 'Tre Soluzioni GB' section. All required interactions PASS. Landing loads cleanly (post 2.7s loader). #soluzioni renders heading 'Tre proposte. Una sola qualità.' and 3 cards (package-essenziale/premium/luxury) with poster images loading (naturalWidth >=1086 for all). Clicking package-premium and package-luxury opens [data-testid=package-dialog] with full poster image and 'Avvia la stima gratuita' CTA; closes via Escape. package-cta-essenziale scrolls to #configuratore (verified in viewport). All 4 testimonial cards present with images loaded; clicking testimonial-0 opens [data-testid=testimonial-dialog] with the full review image (naturalWidth=1122) and closes cleanly. No 404s observed on poster/testimonial images.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dialog (package-dialog & testimonial-dialog)", "issues": ["A11y: Radix Dialog logs 'DialogContent requires a DialogTitle' and missing 'Description or aria-describedby'. Non-blocking but should add a VisuallyHidden DialogTitle for screen-reader compliance."]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_3.json"],
+  "action_items": [
+    "Optional a11y polish: wrap a VisuallyHidden <DialogTitle> inside both <DialogContent> in Packages.jsx and SocialProof.jsx and add aria-describedby/DialogDescription to silence Radix warnings."
+  ],
+  "critical_code_review_comments": [
+    "Packages.jsx and SocialProof.jsx are concise and well-structured; selected state correctly drives the controlled Dialog (open={!!selected}).",
+    "Posters and testimonial images use loading='lazy' which is good.",
+    "Tilt3D wrapping the button works; click still triggers selection (verified).",
+    "Minor a11y: shadcn DialogContent requires DialogTitle - currently absent in both new dialogs (warnings in console)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "100% (6/6 scripted checks pass)"},
+  "test_credentials": "Not required for landing.",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 3 verified: package lightboxes (premium/luxury) + testimonial-0 lightbox open; package-cta-essenziale scrolls to #configuratore. Only outstanding item is a11y DialogTitle in both new Dialog instances. Backend untouched (last 36/36 in iter 2).",
+  "rca of the issue": "N/A - no functional bugs found."
+}

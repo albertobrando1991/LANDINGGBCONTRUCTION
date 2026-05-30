@@ -1,6 +1,8 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import useEmblaCarousel from "embla-carousel-react";
+import { Maximize2 } from "lucide-react";
 import HlsVideo from "@/components/HlsVideo";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ASSETS, STYLE_VIDEOS, AMBIENT, TESTIMONIAL_IMAGES } from "@/lib/assets";
 
 const CARDS = [
@@ -16,6 +18,7 @@ const BADGES = ["Bonus Ristrutturazioni", "Ecobonus", "Sismabonus", "Partner Dr 
 
 export default function SocialProof() {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "start" });
+  const [selected, setSelected] = useState(null);
 
   const autoplay = useCallback(() => {
     if (emblaApi) emblaApi.scrollNext();
@@ -59,12 +62,22 @@ export default function SocialProof() {
           </div>
         </div>
 
-        {/* Testimonials (card grafiche reali) */}
+        {/* Testimonials (card grafiche reali) — cliccabili per la lettura */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-12">
           {TESTIMONIAL_IMAGES.map((t, i) => (
-            <div key={i} className="rounded-2xl overflow-hidden border border-stroke bg-surface/50 hover:border-brand transition-colors">
-              <img src={t.src} alt={`Testimonianza ${t.nome}`} className="w-full h-auto object-cover" loading="lazy" />
-            </div>
+            <button
+              key={i}
+              data-testid={`testimonial-${i}`}
+              onClick={() => setSelected(t)}
+              className="group relative rounded-2xl overflow-hidden border border-stroke bg-surface/50 hover:border-brand transition-colors text-left"
+            >
+              <img src={t.src} alt={`Recensione ${t.nome}`} className="w-full h-auto object-cover" loading="lazy" />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/45 transition-colors flex items-center justify-center">
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity font-display uppercase text-[11px] tracking-wider text-white bg-brand px-4 py-2 rounded-full inline-flex items-center gap-2">
+                  <Maximize2 className="w-3.5 h-3.5" /> Leggi la recensione
+                </span>
+              </div>
+            </button>
           ))}
         </div>
 
@@ -77,6 +90,15 @@ export default function SocialProof() {
           ))}
         </div>
       </div>
+
+      {/* Lightbox recensione */}
+      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
+        <DialogContent className="max-w-2xl bg-surface border-stroke p-2" data-testid="testimonial-dialog">
+          {selected && (
+            <img src={selected.src} alt={`Recensione ${selected.nome}`} className="w-full h-auto rounded-xl" />
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
