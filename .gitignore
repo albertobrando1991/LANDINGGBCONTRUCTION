@@ -89,6 +89,7 @@ backend/storage/
 .cache/
 
 memory/test_credentials.md
+memory/AI_Architect_Stato_Attuale.md
 
 # Mobile development
 android-sdk/frontend/node_modules/.cache/default-development/8.pack
