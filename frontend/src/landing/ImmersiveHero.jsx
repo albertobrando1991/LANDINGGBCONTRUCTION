@@ -1,4 +1,11 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ArrowRight, ChevronDown } from "lucide-react";
@@ -7,8 +14,11 @@ import { ASSETS } from "@/lib/assets";
 gsap.registerPlugin(ScrollTrigger);
 
 const TOTAL_FRAMES = 190;
-const FINAL_FRAME_HOLD_START = 0.88;
-const SCENE_SNAP_POINTS = [0, 0.22, 0.42, 0.66, FINAL_FRAME_HOLD_START, 1];
+const FINAL_FRAME_HOLD_START = 0.91;
+const SCENE_MARKER_POINTS = [0, 0.24, 0.46, 0.68, FINAL_FRAME_HOLD_START, 1];
+const OVERLAY_ENTER_DURATION = 0.055;
+const OVERLAY_WORD_DURATION = 0.085;
+const OVERLAY_EXIT_DURATION = 0.055;
 const PUBLIC_MEDIA_BASE = `${process.env.PUBLIC_URL || ""}/cantieri`;
 const PLANIMETRIA_OVERLAY_SRC = `${PUBLIC_MEDIA_BASE}/planimetria-napoli-overlay.png`;
 
@@ -16,31 +26,31 @@ const STORY_OVERLAYS = [
   {
     key: "potential",
     start: 0.05,
-    exit: 0.17,
+    exit: 0.235,
     placement: "items-start justify-center text-center pt-[16vh] px-6",
     eyebrow: "GB Construction",
     lines: ["Ristrutturiamo il potenziale", "della tua casa"],
   },
   {
     key: "analysis",
-    start: 0.22,
-    exit: 0.34,
+    start: 0.245,
+    exit: 0.445,
     placement: "items-end justify-start text-left pb-[16vh] pl-[8vw] pr-6",
     eyebrow: "Analisi tecnica",
     lines: ["Prima di costruire,", "analizziamo ogni spazio."],
   },
   {
     key: "layout",
-    start: 0.4,
-    exit: 0.61,
+    start: 0.47,
+    exit: 0.685,
     placement: "items-center justify-end text-right pr-[8vw] pl-6",
     eyebrow: "Nuova distribuzione",
     lines: ["Proporzioni, luce,", "funzione per ogni metro."],
   },
   {
     key: "site",
-    start: 0.66,
-    exit: 0.84,
+    start: 0.705,
+    exit: 0.895,
     placement: "items-center justify-start text-left pl-[8vw] pr-6",
     eyebrow: "Cantiere organizzato",
     lines: ["Metodo, materiali,", "dettagli sotto controllo."],
@@ -118,20 +128,16 @@ async function loadBitmap(src) {
 
 export default function ImmersiveHero() {
   const prefersReducedMotion = useMemo(
-    () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    []
-  );
-  const shouldSnapScroll = useMemo(
     () =>
       typeof window !== "undefined" &&
-      !prefersReducedMotion &&
-      window.matchMedia("(min-width: 769px)").matches,
-    [prefersReducedMotion]
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    [],
   );
 
   const frameSettings = useMemo(() => {
     const isMobile =
-      typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches;
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 768px)").matches;
 
     return isMobile
       ? {
@@ -152,7 +158,10 @@ export default function ImmersiveHero() {
         };
   }, []);
 
-  const frameSources = useMemo(() => createFrameSources(frameSettings), [frameSettings]);
+  const frameSources = useMemo(
+    () => createFrameSources(frameSettings),
+    [frameSettings],
+  );
   const [loadProgress, setLoadProgress] = useState(0);
   const [firstFrameReady, setFirstFrameReady] = useState(false);
   const [initialBufferReady, setInitialBufferReady] = useState(false);
@@ -213,7 +222,7 @@ export default function ImmersiveHero() {
         cache.delete(key);
       }
     },
-    [frameSettings.maxDecodedFrames]
+    [frameSettings.maxDecodedFrames],
   );
 
   const ensureFrame = useCallback(
@@ -253,13 +262,17 @@ export default function ImmersiveHero() {
       loadingFramesRef.current.set(index, promise);
       return promise;
     },
-    [frameSources, trimFrameCache]
+    [frameSources, trimFrameCache],
   );
 
   const prefetchAround = useCallback(
     (index) => {
       const order = [index];
-      for (let offset = 1; offset <= frameSettings.prefetchRadius; offset += 1) {
+      for (
+        let offset = 1;
+        offset <= frameSettings.prefetchRadius;
+        offset += 1
+      ) {
         order.push(index + offset, index - offset);
       }
 
@@ -269,7 +282,7 @@ export default function ImmersiveHero() {
         }
       });
     },
-    [ensureFrame, frameSettings.prefetchRadius, frameSources.length]
+    [ensureFrame, frameSettings.prefetchRadius, frameSources.length],
   );
 
   const drawFrame = useCallback(
@@ -312,7 +325,7 @@ export default function ImmersiveHero() {
       ctx.drawImage(frame, drawX, drawY, drawWidth, drawHeight);
       currentFrameKeyRef.current = frameKey;
     },
-    [ensureFrame, frameSources.length, getNearestFrame, prefetchAround]
+    [ensureFrame, frameSources.length, getNearestFrame, prefetchAround],
   );
 
   useEffect(() => {
@@ -358,7 +371,10 @@ export default function ImmersiveHero() {
   useEffect(() => {
     let cancelled = false;
     const initialIndices = [
-      ...Array.from({ length: Math.min(frameSettings.initialBuffer, frameSources.length) }, (_, i) => i),
+      ...Array.from(
+        { length: Math.min(frameSettings.initialBuffer, frameSources.length) },
+        (_, i) => i,
+      ),
       frameSources.length - 1,
     ].filter((value, index, values) => values.indexOf(value) === index);
 
@@ -371,10 +387,12 @@ export default function ImmersiveHero() {
         ensureFrame(index).finally(() => {
           completed += 1;
           if (!cancelled) {
-            setLoadProgress(Math.round((completed / initialIndices.length) * 100));
+            setLoadProgress(
+              Math.round((completed / initialIndices.length) * 100),
+            );
           }
-        })
-      )
+        }),
+      ),
     ).then(() => {
       if (!cancelled) {
         setFirstFrameReady(true);
@@ -387,7 +405,12 @@ export default function ImmersiveHero() {
     return () => {
       cancelled = true;
     };
-  }, [drawFrame, ensureFrame, frameSettings.initialBuffer, frameSources.length]);
+  }, [
+    drawFrame,
+    ensureFrame,
+    frameSettings.initialBuffer,
+    frameSources.length,
+  ]);
 
   useEffect(() => {
     const loadingFrames = loadingFramesRef.current;
@@ -406,14 +429,25 @@ export default function ImmersiveHero() {
     const ctx = gsap.context(() => {
       gsap.set("[data-hero-overlay]", { autoAlpha: 0, y: 24 });
       gsap.set(".hero-word", { autoAlpha: 0, y: 18, filter: "blur(8px)" });
-      gsap.set(finalContentRef.current, { autoAlpha: 0, y: 56, filter: "blur(14px)" });
+      gsap.set(finalContentRef.current, {
+        autoAlpha: 0,
+        y: 56,
+        filter: "blur(14px)",
+      });
       gsap.set(depthLayerRef.current, { autoAlpha: 0.08 });
       gsap.set(lightSweepRef.current, { autoAlpha: 0 });
-      gsap.set(planRef.current, { autoAlpha: 0, y: 24, scale: 0.96, filter: "blur(10px)" });
+      gsap.set(planRef.current, {
+        autoAlpha: 0,
+        y: 24,
+        scale: 0.96,
+        filter: "blur(10px)",
+      });
 
       const planImage = planRef.current?.querySelector("[data-plan-image]");
       const planScan = planRef.current?.querySelector("[data-plan-scan]");
-      const planDetails = planRef.current ? gsap.utils.toArray("[data-plan-detail]", planRef.current) : [];
+      const planDetails = planRef.current
+        ? gsap.utils.toArray("[data-plan-detail]", planRef.current)
+        : [];
 
       gsap.set(planImage, { "--plan-reveal": "0%" });
       gsap.set(planScan, { xPercent: -115, autoAlpha: 0 });
@@ -425,23 +459,21 @@ export default function ImmersiveHero() {
           trigger: wrapRef.current,
           start: "top top",
           end: "bottom bottom",
-          scrub: 1,
+          scrub: 1.15,
           invalidateOnRefresh: true,
-          snap: shouldSnapScroll
-            ? {
-                snapTo: SCENE_SNAP_POINTS,
-                duration: { min: 0.1, max: 0.24 },
-                delay: 0.08,
-                ease: "power2.out",
-              }
-            : false,
+          snap: false,
           onUpdate: (self) => {
             const finalVisible = self.progress > FINAL_FRAME_HOLD_START + 0.035;
             if (finalContentRef.current) {
-              finalContentRef.current.style.pointerEvents = finalVisible ? "auto" : "none";
+              finalContentRef.current.style.pointerEvents = finalVisible
+                ? "auto"
+                : "none";
             }
             if (progressRef.current) {
-              progressRef.current.style.setProperty("--hero-progress", self.progress.toFixed(4));
+              progressRef.current.style.setProperty(
+                "--hero-progress",
+                self.progress.toFixed(4),
+              );
             }
             drawFrame(Math.round(playheadRef.current.frame));
           },
@@ -456,7 +488,7 @@ export default function ImmersiveHero() {
           ease: "none",
           onUpdate: () => drawFrame(Math.round(playheadRef.current.frame)),
         },
-        0
+        0,
       );
 
       tl.to(
@@ -467,59 +499,136 @@ export default function ImmersiveHero() {
           ease: "none",
           onUpdate: () => drawFrame(frameSources.length - 1),
         },
-        FINAL_FRAME_HOLD_START
+        FINAL_FRAME_HOLD_START,
       );
 
-      tl.to(hintRef.current, { autoAlpha: 0, y: -18, duration: 0.055, ease: "none" }, 0.055);
-      tl.fromTo(vignetteRef.current, { opacity: 0.38 }, { opacity: 0.86, duration: 1, ease: "none" }, 0);
+      tl.to(
+        hintRef.current,
+        { autoAlpha: 0, y: -18, duration: 0.055, ease: "none" },
+        0.055,
+      );
+      tl.fromTo(
+        vignetteRef.current,
+        { opacity: 0.38 },
+        { opacity: 0.86, duration: 1, ease: "none" },
+        0,
+      );
       tl.fromTo(
         canvasLayerRef.current,
         { "--hero-scale": 1.015 },
         { "--hero-scale": 1.045, duration: 1, ease: "none" },
-        0
+        0,
       );
       tl.fromTo(
         depthLayerRef.current,
         { "--depth-x": "-28px", "--depth-y": "18px", autoAlpha: 0.05 },
-        { "--depth-x": "26px", "--depth-y": "-14px", autoAlpha: 0.18, duration: 1, ease: "none" },
-        0
+        {
+          "--depth-x": "26px",
+          "--depth-y": "-14px",
+          autoAlpha: 0.18,
+          duration: 1,
+          ease: "none",
+        },
+        0,
       );
       tl.fromTo(
         lightSweepRef.current,
         { xPercent: -140, autoAlpha: 0 },
         { xPercent: 260, autoAlpha: 0.22, duration: 0.42, ease: "none" },
-        0.16
+        0.16,
       );
-      tl.to(lightSweepRef.current, { autoAlpha: 0, duration: 0.12, ease: "none" }, 0.62);
+      tl.to(
+        lightSweepRef.current,
+        { autoAlpha: 0, duration: 0.12, ease: "none" },
+        0.62,
+      );
 
-      tl.to(planRef.current, { autoAlpha: 1, y: 0, scale: 1, filter: "blur(0px)", duration: 0.07 }, 0.19);
-      tl.to(planImage, { "--plan-reveal": "100%", duration: 0.22, ease: "none" }, 0.215);
-      tl.to(planScan, { xPercent: 120, autoAlpha: 0.42, duration: 0.18, ease: "none" }, 0.225);
-      tl.to(planScan, { autoAlpha: 0, duration: 0.04, ease: "none" }, 0.405);
-      tl.to(planDetails, { autoAlpha: 1, y: 0, stagger: 0.012, duration: 0.07 }, 0.34);
-      tl.to(planRef.current, { autoAlpha: 0, y: -18, scale: 1.045, duration: 0.085, ease: "power2.in" }, 0.575);
+      tl.to(
+        planRef.current,
+        { autoAlpha: 1, y: 0, scale: 1, filter: "blur(0px)", duration: 0.09 },
+        0.2,
+      );
+      tl.to(
+        planImage,
+        { "--plan-reveal": "100%", duration: 0.3, ease: "none" },
+        0.24,
+      );
+      tl.to(
+        planScan,
+        { xPercent: 120, autoAlpha: 0.42, duration: 0.24, ease: "none" },
+        0.25,
+      );
+      tl.to(planScan, { autoAlpha: 0, duration: 0.05, ease: "none" }, 0.49);
+      tl.to(
+        planDetails,
+        { autoAlpha: 1, y: 0, stagger: 0.018, duration: 0.09 },
+        0.44,
+      );
+      tl.to(
+        planRef.current,
+        {
+          autoAlpha: 0,
+          y: -18,
+          scale: 1.045,
+          duration: 0.1,
+          ease: "power2.in",
+        },
+        0.64,
+      );
 
       STORY_OVERLAYS.forEach((overlay) => {
-        const overlayEl = wrapRef.current.querySelector(`[data-hero-overlay="${overlay.key}"]`);
+        const overlayEl = wrapRef.current.querySelector(
+          `[data-hero-overlay="${overlay.key}"]`,
+        );
         const words = overlayEl?.querySelectorAll(".hero-word");
         if (!overlayEl || !words?.length) return;
 
-        tl.to(overlayEl, { autoAlpha: 1, y: 0, duration: 0.035 }, overlay.start);
-        tl.to(words, { autoAlpha: 1, y: 0, filter: "blur(0px)", stagger: 0.004, duration: 0.05 }, overlay.start + 0.012);
-        tl.to(overlayEl, { autoAlpha: 0, y: -18, duration: 0.035, ease: "power2.in" }, overlay.exit);
+        tl.to(
+          overlayEl,
+          { autoAlpha: 1, y: 0, duration: OVERLAY_ENTER_DURATION },
+          overlay.start,
+        );
+        tl.to(
+          words,
+          {
+            autoAlpha: 1,
+            y: 0,
+            filter: "blur(0px)",
+            stagger: 0.006,
+            duration: OVERLAY_WORD_DURATION,
+          },
+          overlay.start + 0.018,
+        );
+        tl.to(
+          overlayEl,
+          {
+            autoAlpha: 0,
+            y: -18,
+            duration: OVERLAY_EXIT_DURATION,
+            ease: "power2.in",
+          },
+          overlay.exit,
+        );
       });
 
-      const finalWords = finalContentRef.current?.querySelectorAll(".hero-word");
+      const finalWords =
+        finalContentRef.current?.querySelectorAll(".hero-word");
       tl.to(
         finalContentRef.current,
         { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.07 },
-        FINAL_FRAME_HOLD_START + 0.025
+        FINAL_FRAME_HOLD_START + 0.025,
       );
       if (finalWords?.length) {
         tl.to(
           finalWords,
-          { autoAlpha: 1, y: 0, filter: "blur(0px)", stagger: 0.006, duration: 0.045 },
-          FINAL_FRAME_HOLD_START + 0.045
+          {
+            autoAlpha: 1,
+            y: 0,
+            filter: "blur(0px)",
+            stagger: 0.006,
+            duration: 0.045,
+          },
+          FINAL_FRAME_HOLD_START + 0.045,
         );
       }
     }, wrapRef);
@@ -529,7 +638,7 @@ export default function ImmersiveHero() {
       clearTimeout(refresh);
       ctx.revert();
     };
-  }, [drawFrame, frameSources.length, shouldSnapScroll]);
+  }, [drawFrame, frameSources.length]);
 
   useEffect(() => {
     if (prefersReducedMotion) return undefined;
@@ -543,8 +652,10 @@ export default function ImmersiveHero() {
     let raf;
 
     const loop = () => {
-      currentMouseRef.current.x += (mouseRef.current.x - currentMouseRef.current.x) * 0.055;
-      currentMouseRef.current.y += (mouseRef.current.y - currentMouseRef.current.y) * 0.055;
+      currentMouseRef.current.x +=
+        (mouseRef.current.x - currentMouseRef.current.x) * 0.055;
+      currentMouseRef.current.y +=
+        (mouseRef.current.y - currentMouseRef.current.y) * 0.055;
 
       const x = currentMouseRef.current.x;
       const y = currentMouseRef.current.y;
@@ -554,12 +665,24 @@ export default function ImmersiveHero() {
         canvasLayerRef.current.style.setProperty("--hero-py", `${y * -10}px`);
       }
       if (depthLayerRef.current) {
-        depthLayerRef.current.style.setProperty("--depth-mouse-x", `${x * 18}px`);
-        depthLayerRef.current.style.setProperty("--depth-mouse-y", `${y * 12}px`);
+        depthLayerRef.current.style.setProperty(
+          "--depth-mouse-x",
+          `${x * 18}px`,
+        );
+        depthLayerRef.current.style.setProperty(
+          "--depth-mouse-y",
+          `${y * 12}px`,
+        );
       }
       if (finalParallaxRef.current) {
-        finalParallaxRef.current.style.setProperty("--hero-text-px", `${x * 10}px`);
-        finalParallaxRef.current.style.setProperty("--hero-text-py", `${y * 7}px`);
+        finalParallaxRef.current.style.setProperty(
+          "--hero-text-px",
+          `${x * 10}px`,
+        );
+        finalParallaxRef.current.style.setProperty(
+          "--hero-text-py",
+          `${y * 7}px`,
+        );
       }
 
       raf = requestAnimationFrame(loop);
@@ -575,19 +698,31 @@ export default function ImmersiveHero() {
   useEffect(() => {
     if (!initialBufferReady || !loadingRef.current) return;
     drawFrame(Math.round(playheadRef.current.frame), true);
-    gsap.to(loadingRef.current, { autoAlpha: 0, duration: 0.45, ease: "power2.out" });
+    gsap.to(loadingRef.current, {
+      autoAlpha: 0,
+      duration: 0.45,
+      ease: "power2.out",
+    });
   }, [drawFrame, initialBufferReady]);
 
   const scrollToConfig = () =>
-    document.getElementById("configuratore")?.scrollIntoView({ behavior: "smooth" });
+    document
+      .getElementById("configuratore")
+      ?.scrollIntoView({ behavior: "smooth" });
 
   return (
-    <section id="hero" ref={wrapRef} className="relative h-[800vh] bg-bg">
-      <div ref={pinRef} className="sticky top-0 h-screen overflow-hidden bg-black">
+    <section id="hero" ref={wrapRef} className="relative h-[1100vh] bg-bg">
+      <div
+        ref={pinRef}
+        className="sticky top-0 h-screen overflow-hidden bg-black"
+      >
         <div
           ref={canvasLayerRef}
           className="absolute inset-0 will-change-transform"
-          style={{ transform: "translate3d(var(--hero-px,0), var(--hero-py,0), 0) scale(var(--hero-scale,1.02))" }}
+          style={{
+            transform:
+              "translate3d(var(--hero-px,0), var(--hero-py,0), 0) scale(var(--hero-scale,1.02))",
+          }}
         >
           <canvas
             ref={canvasRef}
@@ -606,8 +741,16 @@ export default function ImmersiveHero() {
           aria-hidden
           className="absolute inset-0 w-full h-full object-cover opacity-[0.09] mix-blend-overlay pointer-events-none"
         />
-        <div ref={depthLayerRef} className="hero-depth-field absolute inset-0 pointer-events-none" aria-hidden />
-        <div ref={lightSweepRef} className="hero-light-sweep absolute inset-y-0 -left-1/3 w-1/2 pointer-events-none" aria-hidden />
+        <div
+          ref={depthLayerRef}
+          className="hero-depth-field absolute inset-0 pointer-events-none"
+          aria-hidden
+        />
+        <div
+          ref={lightSweepRef}
+          className="hero-light-sweep absolute inset-y-0 -left-1/3 w-1/2 pointer-events-none"
+          aria-hidden
+        />
         <div className="absolute inset-0 blueprint-grid opacity-[0.045] mix-blend-screen animate-blueprint pointer-events-none" />
         <div
           ref={planRef}
@@ -643,7 +786,8 @@ export default function ImmersiveHero() {
           ref={vignetteRef}
           className="absolute inset-0 pointer-events-none"
           style={{
-            background: "radial-gradient(ellipse at center, transparent 34%, rgba(0,0,0,0.92) 100%)",
+            background:
+              "radial-gradient(ellipse at center, transparent 34%, rgba(0,0,0,0.92) 100%)",
             opacity: 0.4,
           }}
         />
@@ -655,18 +799,30 @@ export default function ImmersiveHero() {
         >
           <span className="hero-progress-track" />
           <span className="hero-progress-fill" />
-          {SCENE_SNAP_POINTS.slice(1, -1).map((point) => (
-            <span key={point} className="hero-progress-tick" style={{ top: `${point * 100}%` }} />
+          {SCENE_MARKER_POINTS.slice(1, -1).map((point) => (
+            <span
+              key={point}
+              className="hero-progress-tick"
+              style={{ top: `${point * 100}%` }}
+            />
           ))}
         </div>
 
-        <div ref={loadingRef} className="absolute inset-0 z-20 bg-bg flex items-center justify-center px-6">
+        <div
+          ref={loadingRef}
+          className="absolute inset-0 z-20 bg-bg flex items-center justify-center px-6"
+        >
           <div className="w-full max-w-xs text-center">
-            <p className="font-display uppercase tracking-[0.32em] text-xs text-brand mb-5">GB Construction</p>
+            <p className="font-display uppercase tracking-[0.32em] text-xs text-brand mb-5">
+              GB Construction
+            </p>
             <div className="h-[2px] bg-white/[0.12] overflow-hidden rounded-full">
               <div
                 className="h-full bg-brand transition-all duration-200"
-                style={{ width: `${loadProgress}%`, boxShadow: "0 0 18px rgba(198,40,40,0.5)" }}
+                style={{
+                  width: `${loadProgress}%`,
+                  boxShadow: "0 0 18px rgba(198,40,40,0.5)",
+                }}
               />
             </div>
             <p className="mt-4 font-display uppercase tracking-[0.24em] text-[10px] text-fog">
@@ -675,7 +831,10 @@ export default function ImmersiveHero() {
           </div>
         </div>
 
-        <div ref={hintRef} className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center px-6 pointer-events-none">
+        <div
+          ref={hintRef}
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center px-6 pointer-events-none"
+        >
           <div className="font-display font-semibold uppercase tracking-[0.18em] md:tracking-[0.3em] text-[10px] md:text-xs text-brand mb-4 max-w-[92vw]">
             GB Construction - Napoli &amp; Campania
           </div>
@@ -684,7 +843,9 @@ export default function ImmersiveHero() {
             <span className="block text-brand">progetto.</span>
           </h2>
           <div className="mt-10 flex flex-col items-center gap-2">
-            <span className="font-display uppercase tracking-[0.3em] text-[10px] text-fog">Scorri per trasformare</span>
+            <span className="font-display uppercase tracking-[0.3em] text-[10px] text-fog">
+              Scorri per trasformare
+            </span>
             <ChevronDown className="w-5 h-5 text-brand animate-bounce" />
           </div>
         </div>
@@ -723,40 +884,49 @@ export default function ImmersiveHero() {
           <div
             ref={finalParallaxRef}
             className="max-w-6xl"
-            style={{ transform: "translate3d(var(--hero-text-px,0), var(--hero-text-py,0), 0)" }}
+            style={{
+              transform:
+                "translate3d(var(--hero-text-px,0), var(--hero-text-py,0), 0)",
+            }}
           >
             <div className="font-display font-semibold uppercase tracking-[0.3em] text-xs text-brand mb-6">
               Preventivo smart GB - anteprima reale
             </div>
             <h1 className="font-display font-bold uppercase text-5xl md:text-7xl lg:text-8xl leading-[0.92] tracking-tight text-ink drop-shadow-[0_24px_70px_rgba(0,0,0,0.62)]">
-              {splitWords(["Questo costa", "ristrutturare casa tua."]).map((line, lineIndex, lines) => (
-                <Fragment key={`final-${lineIndex}`}>
-                  <span className="block">
-                    {line.map((word, wordIndex) => (
-                      <Fragment key={`${word}-${wordIndex}`}>
-                        <span
-                          className={`hero-word inline-block ${
-                            word.toLowerCase().startsWith("ristrutturare") ? "text-brand" : ""
-                          }`}
-                        >
-                          {word}
-                        </span>
-                        {wordIndex < line.length - 1 ? " " : ""}
-                      </Fragment>
-                    ))}
-                  </span>
-                  {lineIndex < lines.length - 1 ? " " : ""}
-                </Fragment>
-              ))}
+              {splitWords(["Questo costa", "ristrutturare casa tua."]).map(
+                (line, lineIndex, lines) => (
+                  <Fragment key={`final-${lineIndex}`}>
+                    <span className="block">
+                      {line.map((word, wordIndex) => (
+                        <Fragment key={`${word}-${wordIndex}`}>
+                          <span
+                            className={`hero-word inline-block ${
+                              word.toLowerCase().startsWith("ristrutturare")
+                                ? "text-brand"
+                                : ""
+                            }`}
+                          >
+                            {word}
+                          </span>
+                          {wordIndex < line.length - 1 ? " " : ""}
+                        </Fragment>
+                      ))}
+                    </span>
+                    {lineIndex < lines.length - 1 ? " " : ""}
+                  </Fragment>
+                ),
+              )}
             </h1>
             <p
               className="mt-7 font-body text-base md:text-lg font-semibold text-white/90 max-w-2xl mx-auto"
               style={{ textShadow: "0 8px 28px rgba(0,0,0,0.92)" }}
             >
-              <span className="block">Compila pochi dati sul tuo immobile.</span>
               <span className="block">
-                Ricevi una stima personalizzata su 3 livelli, un'anteprima visiva del progetto
-                e una proposta di sopralluogo gratuito.
+                Compila pochi dati sul tuo immobile.
+              </span>
+              <span className="block">
+                Ricevi una stima personalizzata su 3 livelli, un'anteprima
+                visiva del progetto e una proposta di sopralluogo gratuito.
               </span>
             </p>
             <div className="mt-9">
