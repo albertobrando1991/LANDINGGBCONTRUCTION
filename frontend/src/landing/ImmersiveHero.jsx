@@ -8,7 +8,9 @@ gsap.registerPlugin(ScrollTrigger);
 
 const TOTAL_FRAMES = 190;
 const FINAL_FRAME_HOLD_START = 0.88;
+const SCENE_SNAP_POINTS = [0, 0.22, 0.42, 0.66, FINAL_FRAME_HOLD_START, 1];
 const PUBLIC_MEDIA_BASE = `${process.env.PUBLIC_URL || ""}/cantieri`;
+const PLANIMETRIA_OVERLAY_SRC = `${PUBLIC_MEDIA_BASE}/planimetria-napoli-overlay.png`;
 
 const STORY_OVERLAYS = [
   {
@@ -29,20 +31,27 @@ const STORY_OVERLAYS = [
   },
   {
     key: "layout",
-    start: 0.42,
-    exit: 0.54,
+    start: 0.4,
+    exit: 0.61,
     placement: "items-center justify-end text-right pr-[8vw] pl-6",
     eyebrow: "Nuova distribuzione",
     lines: ["Proporzioni, luce,", "funzione per ogni metro."],
   },
   {
     key: "site",
-    start: 0.63,
-    exit: 0.75,
+    start: 0.66,
+    exit: 0.84,
     placement: "items-center justify-start text-left pl-[8vw] pr-6",
     eyebrow: "Cantiere organizzato",
     lines: ["Metodo, materiali,", "dettagli sotto controllo."],
   },
+];
+
+const PLAN_DETAILS = [
+  "Progetto architettonico reale",
+  "Distribuzione ambienti",
+  "Arredi e impianti",
+  "Quote e aperture",
 ];
 
 const padFrame = (frame) => String(frame).padStart(4, "0");
@@ -108,6 +117,18 @@ async function loadBitmap(src) {
 }
 
 export default function ImmersiveHero() {
+  const prefersReducedMotion = useMemo(
+    () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    []
+  );
+  const shouldSnapScroll = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      !prefersReducedMotion &&
+      window.matchMedia("(min-width: 769px)").matches,
+    [prefersReducedMotion]
+  );
+
   const frameSettings = useMemo(() => {
     const isMobile =
       typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches;
@@ -140,6 +161,10 @@ export default function ImmersiveHero() {
   const pinRef = useRef(null);
   const canvasRef = useRef(null);
   const canvasLayerRef = useRef(null);
+  const depthLayerRef = useRef(null);
+  const lightSweepRef = useRef(null);
+  const planRef = useRef(null);
+  const progressRef = useRef(null);
   const loadingRef = useRef(null);
   const hintRef = useRef(null);
   const vignetteRef = useRef(null);
@@ -382,6 +407,17 @@ export default function ImmersiveHero() {
       gsap.set("[data-hero-overlay]", { autoAlpha: 0, y: 24 });
       gsap.set(".hero-word", { autoAlpha: 0, y: 18, filter: "blur(8px)" });
       gsap.set(finalContentRef.current, { autoAlpha: 0, y: 56, filter: "blur(14px)" });
+      gsap.set(depthLayerRef.current, { autoAlpha: 0.08 });
+      gsap.set(lightSweepRef.current, { autoAlpha: 0 });
+      gsap.set(planRef.current, { autoAlpha: 0, y: 24, scale: 0.96, filter: "blur(10px)" });
+
+      const planImage = planRef.current?.querySelector("[data-plan-image]");
+      const planScan = planRef.current?.querySelector("[data-plan-scan]");
+      const planDetails = planRef.current ? gsap.utils.toArray("[data-plan-detail]", planRef.current) : [];
+
+      gsap.set(planImage, { "--plan-reveal": "0%" });
+      gsap.set(planScan, { xPercent: -115, autoAlpha: 0 });
+      gsap.set(planDetails, { autoAlpha: 0, y: 10 });
 
       const tl = gsap.timeline({
         defaults: { ease: "power3.out" },
@@ -391,10 +427,21 @@ export default function ImmersiveHero() {
           end: "bottom bottom",
           scrub: 1,
           invalidateOnRefresh: true,
+          snap: shouldSnapScroll
+            ? {
+                snapTo: SCENE_SNAP_POINTS,
+                duration: { min: 0.1, max: 0.24 },
+                delay: 0.08,
+                ease: "power2.out",
+              }
+            : false,
           onUpdate: (self) => {
             const finalVisible = self.progress > FINAL_FRAME_HOLD_START + 0.035;
             if (finalContentRef.current) {
               finalContentRef.current.style.pointerEvents = finalVisible ? "auto" : "none";
+            }
+            if (progressRef.current) {
+              progressRef.current.style.setProperty("--hero-progress", self.progress.toFixed(4));
             }
             drawFrame(Math.round(playheadRef.current.frame));
           },
@@ -431,6 +478,26 @@ export default function ImmersiveHero() {
         { "--hero-scale": 1.045, duration: 1, ease: "none" },
         0
       );
+      tl.fromTo(
+        depthLayerRef.current,
+        { "--depth-x": "-28px", "--depth-y": "18px", autoAlpha: 0.05 },
+        { "--depth-x": "26px", "--depth-y": "-14px", autoAlpha: 0.18, duration: 1, ease: "none" },
+        0
+      );
+      tl.fromTo(
+        lightSweepRef.current,
+        { xPercent: -140, autoAlpha: 0 },
+        { xPercent: 260, autoAlpha: 0.22, duration: 0.42, ease: "none" },
+        0.16
+      );
+      tl.to(lightSweepRef.current, { autoAlpha: 0, duration: 0.12, ease: "none" }, 0.62);
+
+      tl.to(planRef.current, { autoAlpha: 1, y: 0, scale: 1, filter: "blur(0px)", duration: 0.07 }, 0.19);
+      tl.to(planImage, { "--plan-reveal": "100%", duration: 0.22, ease: "none" }, 0.215);
+      tl.to(planScan, { xPercent: 120, autoAlpha: 0.42, duration: 0.18, ease: "none" }, 0.225);
+      tl.to(planScan, { autoAlpha: 0, duration: 0.04, ease: "none" }, 0.405);
+      tl.to(planDetails, { autoAlpha: 1, y: 0, stagger: 0.012, duration: 0.07 }, 0.34);
+      tl.to(planRef.current, { autoAlpha: 0, y: -18, scale: 1.045, duration: 0.085, ease: "power2.in" }, 0.575);
 
       STORY_OVERLAYS.forEach((overlay) => {
         const overlayEl = wrapRef.current.querySelector(`[data-hero-overlay="${overlay.key}"]`);
@@ -462,9 +529,11 @@ export default function ImmersiveHero() {
       clearTimeout(refresh);
       ctx.revert();
     };
-  }, [drawFrame, frameSources.length]);
+  }, [drawFrame, frameSources.length, shouldSnapScroll]);
 
   useEffect(() => {
+    if (prefersReducedMotion) return undefined;
+
     const onMove = (event) => {
       mouseRef.current.x = (event.clientX / window.innerWidth - 0.5) * 2;
       mouseRef.current.y = (event.clientY / window.innerHeight - 0.5) * 2;
@@ -484,6 +553,10 @@ export default function ImmersiveHero() {
         canvasLayerRef.current.style.setProperty("--hero-px", `${x * -14}px`);
         canvasLayerRef.current.style.setProperty("--hero-py", `${y * -10}px`);
       }
+      if (depthLayerRef.current) {
+        depthLayerRef.current.style.setProperty("--depth-mouse-x", `${x * 18}px`);
+        depthLayerRef.current.style.setProperty("--depth-mouse-y", `${y * 12}px`);
+      }
       if (finalParallaxRef.current) {
         finalParallaxRef.current.style.setProperty("--hero-text-px", `${x * 10}px`);
         finalParallaxRef.current.style.setProperty("--hero-text-py", `${y * 7}px`);
@@ -497,7 +570,7 @@ export default function ImmersiveHero() {
       window.removeEventListener("mousemove", onMove);
       cancelAnimationFrame(raf);
     };
-  }, []);
+  }, [prefersReducedMotion]);
 
   useEffect(() => {
     if (!initialBufferReady || !loadingRef.current) return;
@@ -533,7 +606,39 @@ export default function ImmersiveHero() {
           aria-hidden
           className="absolute inset-0 w-full h-full object-cover opacity-[0.09] mix-blend-overlay pointer-events-none"
         />
+        <div ref={depthLayerRef} className="hero-depth-field absolute inset-0 pointer-events-none" aria-hidden />
+        <div ref={lightSweepRef} className="hero-light-sweep absolute inset-y-0 -left-1/3 w-1/2 pointer-events-none" aria-hidden />
         <div className="absolute inset-0 blueprint-grid opacity-[0.045] mix-blend-screen animate-blueprint pointer-events-none" />
+        <div
+          ref={planRef}
+          className="absolute inset-0 z-10 hidden md:flex items-center justify-center px-8 pointer-events-none"
+          aria-hidden
+        >
+          <div className="floor-plan-board relative w-[min(78vw,980px)]">
+            <div className="floor-plan-board-header">
+              <span>Progetto architettonico</span>
+              <span>Zio Imma Napoli</span>
+            </div>
+            <div className="floor-plan-image-wrap">
+              <img
+                src={PLANIMETRIA_OVERLAY_SRC}
+                alt=""
+                data-plan-image
+                className="floor-plan-image"
+                loading="eager"
+                decoding="async"
+              />
+              <span data-plan-scan className="floor-plan-scan" />
+            </div>
+            <div className="floor-plan-board-footer">
+              {PLAN_DETAILS.map((detail) => (
+                <span key={detail} data-plan-detail>
+                  {detail}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
         <div
           ref={vignetteRef}
           className="absolute inset-0 pointer-events-none"
@@ -543,6 +648,17 @@ export default function ImmersiveHero() {
           }}
         />
         <div className="absolute bottom-0 left-0 right-0 h-72 bg-gradient-to-t from-bg via-bg/45 to-transparent pointer-events-none" />
+        <div
+          ref={progressRef}
+          className="hero-progress-rail absolute right-5 top-1/2 z-30 hidden h-52 -translate-y-1/2 md:block pointer-events-none"
+          aria-hidden
+        >
+          <span className="hero-progress-track" />
+          <span className="hero-progress-fill" />
+          {SCENE_SNAP_POINTS.slice(1, -1).map((point) => (
+            <span key={point} className="hero-progress-tick" style={{ top: `${point * 100}%` }} />
+          ))}
+        </div>
 
         <div ref={loadingRef} className="absolute inset-0 z-20 bg-bg flex items-center justify-center px-6">
           <div className="w-full max-w-xs text-center">
@@ -560,11 +676,12 @@ export default function ImmersiveHero() {
         </div>
 
         <div ref={hintRef} className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center px-6 pointer-events-none">
-          <div className="font-display font-semibold uppercase tracking-[0.3em] text-xs text-brand mb-4">
+          <div className="font-display font-semibold uppercase tracking-[0.18em] md:tracking-[0.3em] text-[10px] md:text-xs text-brand mb-4 max-w-[92vw]">
             GB Construction - Napoli &amp; Campania
           </div>
-          <h2 className="font-display font-bold uppercase text-4xl md:text-6xl lg:text-7xl text-ink/90 leading-[0.95] max-w-3xl">
-            Entra nel tuo <span className="text-brand">progetto</span>.
+          <h2 className="font-display font-bold uppercase text-[clamp(2rem,9vw,4.5rem)] md:text-6xl lg:text-7xl text-ink/90 leading-[0.95] max-w-[92vw] md:max-w-3xl">
+            <span className="block">Entra nel tuo</span>
+            <span className="block text-brand">progetto.</span>
           </h2>
           <div className="mt-10 flex flex-col items-center gap-2">
             <span className="font-display uppercase tracking-[0.3em] text-[10px] text-fog">Scorri per trasformare</span>

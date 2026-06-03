@@ -94,6 +94,170 @@ body {
     background-size: 40px 40px;
 }
 
+.hero-depth-field {
+    --depth-x: 0px;
+    --depth-y: 0px;
+    --depth-mouse-x: 0px;
+    --depth-mouse-y: 0px;
+    z-index: 4;
+    background-image:
+        linear-gradient(96deg, transparent 0%, transparent 47%, hsla(0, 0%, 100%, 0.16) 49%, transparent 52%, transparent 100%),
+        repeating-linear-gradient(90deg, hsla(0, 0%, 100%, 0.15) 0 1px, transparent 1px 124px),
+        repeating-linear-gradient(0deg, hsla(0, 0%, 100%, 0.12) 0 1px, transparent 1px 92px);
+    mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 82%, transparent 100%);
+    mix-blend-mode: screen;
+    transform-origin: center bottom;
+    transform: perspective(900px) rotateX(64deg)
+        translate3d(
+            calc(var(--depth-x) + var(--depth-mouse-x)),
+            calc(var(--depth-y) + var(--depth-mouse-y)),
+            0
+        )
+        scale(1.35);
+    will-change: transform, opacity;
+}
+
+.hero-light-sweep {
+    z-index: 5;
+    background: linear-gradient(104deg, transparent 0%, hsla(0, 0%, 100%, 0.22) 44%, hsla(0, 64%, 47%, 0.2) 52%, transparent 100%);
+    filter: blur(22px);
+    mix-blend-mode: screen;
+    will-change: transform, opacity;
+}
+
+.floor-plan-board {
+    border: 1px solid hsla(0, 0%, 100%, 0.13);
+    background:
+        linear-gradient(180deg, hsla(240, 7%, 5%, 0.68), hsla(240, 7%, 5%, 0.24)),
+        radial-gradient(circle at 50% 42%, hsla(0, 64%, 47%, 0.16), transparent 58%);
+    box-shadow:
+        0 30px 120px hsla(0, 0%, 0%, 0.46),
+        inset 0 0 0 1px hsla(41, 56%, 52%, 0.08);
+    padding: 18px;
+    backdrop-filter: blur(9px);
+}
+
+.floor-plan-board::before,
+.floor-plan-board::after {
+    content: "";
+    position: absolute;
+    width: 72px;
+    height: 72px;
+    border-color: hsla(41, 56%, 52%, 0.38);
+    pointer-events: none;
+}
+
+.floor-plan-board::before {
+    top: -1px;
+    left: -1px;
+    border-top: 1px solid;
+    border-left: 1px solid;
+}
+
+.floor-plan-board::after {
+    right: -1px;
+    bottom: -1px;
+    border-right: 1px solid;
+    border-bottom: 1px solid;
+}
+
+.floor-plan-board-header,
+.floor-plan-board-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    color: hsla(0, 0%, 100%, 0.68);
+    font-family: 'Oswald', sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    line-height: 1.2;
+    text-transform: uppercase;
+}
+
+.floor-plan-board-header {
+    padding: 0 2px 12px;
+}
+
+.floor-plan-board-footer {
+    flex-wrap: wrap;
+    padding: 13px 2px 0;
+}
+
+.floor-plan-board-footer span {
+    color: hsla(0, 0%, 100%, 0.56);
+}
+
+.floor-plan-image-wrap {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid hsla(0, 0%, 100%, 0.08);
+    background:
+        linear-gradient(hsla(0, 0%, 100%, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, hsla(0, 0%, 100%, 0.035) 1px, transparent 1px),
+        hsla(240, 7%, 5%, 0.42);
+    background-size: 28px 28px;
+}
+
+.floor-plan-image {
+    --plan-reveal: 0%;
+    display: block;
+    width: 100%;
+    height: auto;
+    opacity: 0.88;
+    filter:
+        drop-shadow(0 0 11px hsla(0, 64%, 47%, 0.22))
+        drop-shadow(0 0 18px hsla(41, 56%, 52%, 0.1));
+    clip-path: inset(0 calc(100% - var(--plan-reveal)) 0 0);
+    will-change: clip-path;
+}
+
+.floor-plan-scan {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 26%;
+    background: linear-gradient(90deg, transparent 0%, hsla(0, 0%, 100%, 0.2) 44%, hsla(0, 64%, 47%, 0.22) 52%, transparent 100%);
+    filter: blur(14px);
+    mix-blend-mode: screen;
+    pointer-events: none;
+    will-change: transform, opacity;
+}
+
+.hero-progress-rail {
+    --hero-progress: 0;
+    width: 18px;
+}
+
+.hero-progress-track,
+.hero-progress-fill {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 1px;
+    height: 100%;
+    transform: translateX(-50%);
+}
+
+.hero-progress-track {
+    background: hsla(0, 0%, 100%, 0.18);
+}
+
+.hero-progress-fill {
+    background: linear-gradient(to bottom, hsl(var(--gb-gold)), hsl(var(--gb-accent)));
+    box-shadow: 0 0 14px hsla(0, 64%, 47%, 0.34);
+    transform: translateX(-50%) scaleY(var(--hero-progress));
+    transform-origin: top;
+}
+
+.hero-progress-tick {
+    position: absolute;
+    left: 50%;
+    width: 9px;
+    height: 1px;
+    background: hsla(0, 0%, 100%, 0.42);
+    transform: translate(-50%, -50%);
+}
+
 /* ---------- Keyframes ---------- */
 @keyframes scroll-down {
     0% { transform: translateY(-100%); }
