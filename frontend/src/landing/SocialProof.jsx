@@ -3,31 +3,26 @@ import useEmblaCarousel from "embla-carousel-react";
 import { Maximize2 } from "lucide-react";
 import HlsVideo from "@/components/HlsVideo";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { ASSETS, STYLE_VIDEOS, AMBIENT, TESTIMONIAL_IMAGES } from "@/lib/assets";
+import { CANTIERE_VIDEOS, TESTIMONIAL_IMAGES } from "@/lib/assets";
 
-const CARDS = [
-  { type: "video", src: ASSETS.beforeAfter1, nome: "Attico Posillipo", citta: "Napoli", label: "Prima / Dopo" },
-  { type: "video", src: STYLE_VIDEOS["Moderno minimal"], nome: "Render Moderno", citta: "Napoli", label: "Render 3D" },
-  { type: "video", src: STYLE_VIDEOS["Classico elegante"], nome: "Render Classico", citta: "Caserta", label: "Render 3D" },
-  { type: "video", src: STYLE_VIDEOS["Industrial loft"], nome: "Render Industrial", citta: "Napoli", label: "Render 3D" },
-  { type: "img", src: AMBIENT[0], nome: "Cantiere Vomero", citta: "Napoli" },
-  { type: "img", src: AMBIENT[2], nome: "Ufficio Direzionale", citta: "Napoli" },
-];
+const CARDS = CANTIERE_VIDEOS;
 
 const BADGES = ["Bonus Ristrutturazioni", "Ecobonus", "Sismabonus", "Partner Dr Soluzioni Finanziarie"];
 
 export default function SocialProof() {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "start" });
   const [selected, setSelected] = useState(null);
+  const [selectedVideo, setSelectedVideo] = useState(null);
 
   const autoplay = useCallback(() => {
     if (emblaApi) emblaApi.scrollNext();
   }, [emblaApi]);
 
   useEffect(() => {
+    if (selectedVideo) return undefined;
     const id = setInterval(autoplay, 4000);
     return () => clearInterval(id);
-  }, [autoplay]);
+  }, [autoplay, selectedVideo]);
 
   return (
     <section className="py-12 md:py-16 px-6 bg-bg">
@@ -38,14 +33,20 @@ export default function SocialProof() {
 
         <div className="overflow-hidden" ref={emblaRef}>
           <div className="flex gap-4">
-            {CARDS.map((c, i) => (
-              <div key={i} className="flex-[0_0_70%] sm:flex-[0_0_45%] lg:flex-[0_0_30%] min-w-0">
-                <div className="relative aspect-[4/5] rounded-2xl overflow-hidden border border-stroke group">
-                  {c.type === "video" ? (
-                    <HlsVideo src={c.src} className="w-full h-full object-cover" />
-                  ) : (
-                    <img src={c.src} alt={c.nome} className="w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-700" />
-                  )}
+            {CARDS.map((c) => (
+              <div key={c.nome} className="flex-[0_0_70%] sm:flex-[0_0_45%] lg:flex-[0_0_30%] min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setSelectedVideo(c)}
+                  aria-label={`Apri video completo ${c.nome}`}
+                  className="relative aspect-[4/5] w-full rounded-2xl overflow-hidden border border-stroke group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                >
+                  <HlsVideo
+                    src={c.src}
+                    poster={c.poster}
+                    preload="metadata"
+                    className="w-full h-full object-cover"
+                  />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                   {c.label && (
                     <div className="absolute top-3 left-3 font-display font-semibold uppercase tracking-wider text-[10px] bg-brand text-white px-2 py-1 rounded">
@@ -56,7 +57,10 @@ export default function SocialProof() {
                     <div className="font-display font-semibold uppercase text-sm text-brand">{c.nome}</div>
                     <div className="font-body text-xs text-ink/70">{c.citta}</div>
                   </div>
-                </div>
+                  <div className="absolute right-4 bottom-4 size-9 rounded-full bg-black/50 border border-white/20 text-white opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity grid place-items-center">
+                    <Maximize2 className="w-4 h-4" />
+                  </div>
+                </button>
               </div>
             ))}
           </div>
@@ -90,6 +94,30 @@ export default function SocialProof() {
           ))}
         </div>
       </div>
+
+      {/* Lightbox video cantiere */}
+      <Dialog open={!!selectedVideo} onOpenChange={(o) => !o && setSelectedVideo(null)}>
+        <DialogContent className="max-w-5xl bg-surface border-stroke p-2" data-testid="cantiere-video-dialog">
+          <DialogTitle className="sr-only">
+            {selectedVideo ? `Video cantiere ${selectedVideo.nome}` : "Video cantiere"}
+          </DialogTitle>
+          {selectedVideo && (
+            <div className="overflow-hidden rounded-xl bg-black">
+              <HlsVideo
+                key={selectedVideo.src}
+                src={selectedVideo.src}
+                poster={selectedVideo.poster}
+                className="w-full max-h-[82vh] object-contain"
+                autoPlay
+                muted={false}
+                loop={false}
+                controls
+                preload="metadata"
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Lightbox recensione */}
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   Home, Inbox, KanbanSquare, CalendarDays, FileText, HardHat,
-  BarChart3, Settings as SettingsIcon, Menu, Bell, LogOut, Search, X,
+  BarChart3, Settings as SettingsIcon, Menu, Bell, LogOut, Search, X, Brain,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/dashboard/Avatar";
@@ -10,6 +11,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import client from "@/lib/api";
 
 const NAV = [
   { to: "/dashboard", label: "Oggi", Icon: Home, end: true },
@@ -18,6 +20,7 @@ const NAV = [
   { to: "/dashboard/sopralluoghi", label: "Sopralluoghi", Icon: CalendarDays },
   { to: "/dashboard/preventivi", label: "Preventivi", Icon: FileText },
   { to: "/dashboard/cantieri", label: "Cantieri attivi", Icon: HardHat },
+  { to: "/dashboard/ai-architect", label: "AI Architect", Icon: Brain },
   { to: "/dashboard/report", label: "Report", Icon: BarChart3, admin: true },
   { to: "/dashboard/impostazioni", label: "Impostazioni", Icon: SettingsIcon, admin: true },
 ];
@@ -60,6 +63,12 @@ export default function DashboardLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const { data: leadCounts } = useQuery({
+    queryKey: ["lead-counts"],
+    queryFn: async () => (await client.get("/leads/counts")).data,
+    refetchInterval: 30000,
+  });
+  const newLeadCount = leadCounts?.counts?.nuovo || 0;
 
   const crumb = NAV.find((n) => n.to === location.pathname)?.label ||
     (location.pathname.includes("/lead/") ? "Scheda lead" : "Dashboard");
@@ -102,7 +111,14 @@ export default function DashboardLayout() {
               <input placeholder="Cerca lead, città…" className="bg-transparent outline-none text-ink placeholder:text-fog w-full text-sm"
                 onKeyDown={(e) => e.key === "Enter" && e.target.value && navigate(`/dashboard/inbox?q=${encodeURIComponent(e.target.value)}`)} />
             </div>
-            <button className="relative text-fog hover:text-ink"><Bell className="w-5 h-5" /><span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-brand text-white text-[9px] flex items-center justify-center">3</span></button>
+            <button className="relative text-fog hover:text-ink">
+              <Bell className="w-5 h-5" />
+              {newLeadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-brand text-white text-[9px] flex items-center justify-center">
+                  {newLeadCount > 99 ? "99+" : newLeadCount}
+                </span>
+              )}
+            </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button data-testid="account-menu" className="rounded-full overflow-hidden border border-stroke">

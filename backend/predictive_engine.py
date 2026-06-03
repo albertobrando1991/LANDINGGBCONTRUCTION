@@ -188,7 +188,10 @@ def calcola_preventivo(inp: Dict[str, Any]) -> Dict[str, Any]:
     luxury = _package_from_voci(
         luxury_flags,
         "pu_luxury",
-        (COEFFICIENTI["luxury_mq_min"], COEFFICIENTI["luxury_mq_max"] + 260),
+        # Tetto luxury calibrato sui preventivi GB reali (anchor FUSCATI ~905 EUR/mq,
+        # rapporto stesso-immobile premium->luxury ~1,28x): 841 + 120 = 961 EUR/mq.
+        # Resta sopra premium_mq_max (871) + guard 50 per non violare l'ordinamento.
+        (COEFFICIENTI["luxury_mq_min"], COEFFICIENTI["luxury_mq_max"] + 120),
     )
 
     # Guardia di coerenza sui valori mostrati: Essenziale < Premium < Luxury.

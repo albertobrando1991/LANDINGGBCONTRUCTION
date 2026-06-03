@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import client, { formatApiErrorDetail } from "@/lib/api";
 import { CITTA_CAMPANIA } from "@/lib/assets";
+import { captureTrackingParams, getLeadTracking } from "@/lib/tracking";
 
 const PHRASES = [
   "Analizzo le voci di cantierizzazione...",
@@ -38,6 +39,8 @@ function buildConfig(cfg) {
     tipo_immobile: cfg.tipo_immobile, mq: cfg.mq, livello: cfg.livello,
     bagni: cfg.bagni, camere: cfg.camere, cucina: cfg.cucina, ambienti,
     stile: cfg.stile, tempistiche: cfg.tempistiche, has_files: cfg.has_files,
+    ai_architect_job_id: cfg.ai_architect_job_id,
+    ai_architect_summary: cfg.ai_architect_summary,
   };
 }
 
@@ -61,17 +64,28 @@ export default function ContactGate({ config, onSubmit }) {
   }, []);
 
   useEffect(() => {
+    captureTrackingParams();
+  }, []);
+
+  useEffect(() => {
     const id = setInterval(() => setPhraseIdx((i) => (i + 1) % PHRASES.length), 800);
     return () => clearInterval(id);
   }, []);
 
   const submit = async (values) => {
     try {
-      const { data } = await client.post("/leads", {
+      const payload = {
         nome: values.nome, email: values.email, telefono: values.telefono,
         citta: values.citta, privacy: values.privacy, newsletter: !!values.newsletter,
+        tracking: getLeadTracking(),
         config: buildConfig(config),
-      });
+      };
+      const { data } = config?.ai_architect_job_id
+        ? await client.post("/quote/from-ai-project", {
+            ...payload,
+            ai_architect_job_id: config.ai_architect_job_id,
+          })
+        : await client.post("/leads", payload);
       toast.success("Stima generata!");
       onSubmit(data, values);
     } catch (err) {
@@ -122,6 +136,7 @@ export default function ContactGate({ config, onSubmit }) {
             <p>Dove vuoi riceverla? Ti inviamo subito:</p>
             <p className="text-ink">✓ Stima dettagliata su Essenziale, Premium e Luxury</p>
             <p className="text-ink">✓ Anteprima visiva del progetto</p>
+            {config?.ai_architect_job_id && <p className="text-ink">✓ Report AI Architect collegato alla richiesta</p>}
             <p className="text-ink">✓ Proposta di sopralluogo gratuito questa settimana</p>
           </div>
 

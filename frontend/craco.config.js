@@ -2,6 +2,9 @@
 const path = require("path");
 require("dotenv").config();
 
+const cantieriMediaDir = path.resolve(__dirname, "..", "PUBLIC");
+const cantieriMediaPublicPath = "/cantieri";
+
 // Check if we're in development/preview mode (not production build)
 // Craco sets NODE_ENV=development for start, NODE_ENV=production for build
 const isDevServer = process.env.NODE_ENV !== "production";
@@ -61,6 +64,21 @@ let webpackConfig = {
 };
 
 webpackConfig.devServer = (devServerConfig) => {
+  const existingStatic = Array.isArray(devServerConfig.static)
+    ? devServerConfig.static
+    : devServerConfig.static
+      ? [devServerConfig.static]
+      : [];
+
+  devServerConfig.static = [
+    ...existingStatic,
+    {
+      directory: cantieriMediaDir,
+      publicPath: cantieriMediaPublicPath,
+      watch: false,
+    },
+  ];
+
   // Add health check endpoints if enabled
   if (config.enableHealthCheck && setupHealthEndpoints && healthPluginInstance) {
     const originalSetupMiddlewares = devServerConfig.setupMiddlewares;

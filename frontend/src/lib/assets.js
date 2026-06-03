@@ -15,6 +15,72 @@ export const STYLE_VIDEOS = {
   "Contemporaneo caldo": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/2kh4oxo6_C4%20CONTEMPORANEO%20CALDO.mp4",
 };
 
+const cantiereAsset = (fileName) =>
+  `${process.env.PUBLIC_URL || ""}/cantieri/${encodeURIComponent(fileName).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  )}`;
+
+// Video reali dei cantieri presenti nella cartella root PUBLIC.
+export const CANTIERE_VIDEOS = [
+  {
+    src: cantiereAsset("ACERRA.mp4"),
+    poster: cantiereAsset("ACERRA.png"),
+    nome: "Acerra",
+    citta: "Acerra",
+    label: "Video reale",
+  },
+  {
+    src: cantiereAsset("CASALNUOVO.mp4"),
+    poster: cantiereAsset("CASALNUOVO.png"),
+    nome: "Casalnuovo",
+    citta: "Casalnuovo di Napoli",
+    label: "Video reale",
+  },
+  {
+    src: cantiereAsset("CASALNUOVO 2.mp4"),
+    poster: cantiereAsset("CASALNUOVO 2 (2).png"),
+    nome: "Casalnuovo 2",
+    citta: "Casalnuovo di Napoli",
+    label: "Video reale",
+  },
+  {
+    src: cantiereAsset("MEDAGLIE D'ORO.mp4"),
+    poster: cantiereAsset("medaglie d'oro.png"),
+    nome: "Medaglie d'Oro",
+    citta: "Napoli",
+    label: "Video reale",
+  },
+  {
+    src: cantiereAsset("POMIGLIANO.mp4"),
+    poster: cantiereAsset("POMIGLIANO.png"),
+    nome: "Pomigliano",
+    citta: "Pomigliano d'Arco",
+    label: "Video reale",
+  },
+  {
+    src: cantiereAsset("TAVERNANOVA.mp4"),
+    poster: cantiereAsset("TAVERNANOVA.png"),
+    nome: "Tavernanova",
+    citta: "Casalnuovo di Napoli",
+    label: "Video reale",
+  },
+  {
+    src: cantiereAsset("VOLLA.mp4"),
+    poster: cantiereAsset("VOLLA.png"),
+    nome: "Volla",
+    citta: "Volla",
+    label: "Video reale",
+  },
+  {
+    src: cantiereAsset("ZONA OSPEDALIERA.mp4"),
+    poster: cantiereAsset("ZONA OSPEDALIERA.png"),
+    nome: "Zona Ospedaliera",
+    citta: "Napoli",
+    label: "Video reale",
+  },
+];
+
 // Foto staff GB Construction (nomi reali: famiglia Brancale)
 export const STAFF_PHOTOS = {
   "Giuseppe Brancale": "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/ycum27ay_RITRATTO%20GIUSEPPE.png",

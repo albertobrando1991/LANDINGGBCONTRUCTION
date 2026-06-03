@@ -4,6 +4,7 @@ import { Flame, Phone, MessageCircle, CalendarDays, FileWarning, AlertTriangle, 
 import client from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { formatEuro, relativeDate } from "@/lib/format";
+import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { priority, STATI } from "@/dashboard/leadMeta";
 
 function Card({ title, badge, children, testId }) {
@@ -24,6 +25,7 @@ export default function Today() {
   const { data, isLoading } = useQuery({
     queryKey: ["today"],
     queryFn: async () => (await client.get("/dashboard/today")).data,
+    refetchInterval: 30000,
   });
 
   if (isLoading) return <div className="text-fog font-display uppercase animate-pulse">Caricamento…</div>;
@@ -96,7 +98,11 @@ export default function Today() {
                     {l.giorni_silenzio}gg
                   </span>
                 </div>
-                <a href={`https://wa.me/`} target="_blank" rel="noreferrer" className="text-success"><MessageCircle className="w-4 h-4" /></a>
+                {buildWhatsappUrl(l.telefono, l.nome) ? (
+                  <a href={buildWhatsappUrl(l.telefono, l.nome)} target="_blank" rel="noreferrer" className="text-success"><MessageCircle className="w-4 h-4" /></a>
+                ) : (
+                  <span className="text-fog/40"><MessageCircle className="w-4 h-4" /></span>
+                )}
               </div>
             ))}
             {(!d.preventivi_attesa || d.preventivi_attesa.length === 0) && <p className="font-body text-sm text-fog">Nessun preventivo in attesa.</p>}

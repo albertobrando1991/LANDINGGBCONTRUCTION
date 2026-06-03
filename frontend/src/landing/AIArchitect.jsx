@@ -1,0 +1,589 @@
+import { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Brain,
+  CheckCircle2,
+  Download,
+  FileText,
+  Image as ImageIcon,
+  Layers3,
+  Loader2,
+  MessageCircle,
+  RotateCw,
+  Sparkles,
+  UploadCloud,
+} from "lucide-react";
+import { toast } from "sonner";
+import client, { BACKEND_URL, formatApiErrorDetail } from "@/lib/api";
+import { WHATSAPP } from "@/lib/assets";
+
+const PLAN_TYPES = [
+  { id: "existing_state", label: "Stato attuale dell'immobile" },
+  { id: "defined_project", label: "Progetto gia definito" },
+  { id: "auto", label: "Non lo so, analizzala automaticamente" },
+];
+
+const STYLES = [
+  "Moderno luxury",
+  "Minimal contemporaneo",
+  "Japandi",
+  "Wabi-sabi",
+  "Classico contemporaneo",
+  "Industrial",
+  "Mediterraneo",
+  "Su misura GB Construction",
+];
+
+const GOALS = [
+  "Ristrutturazione completa",
+  "Nuova distribuzione degli spazi",
+  "Restyling",
+  "Arredo e interior design",
+  "Valorizzazione per vendita/affitto",
+  "Hospitality/B&B",
+];
+
+const PRIORITIES = [
+  "piu spazio",
+  "piu luce",
+  "cucina piu grande",
+  "open space",
+  "piu camere",
+  "cabina armadio",
+  "bagno aggiuntivo",
+  "lavanderia",
+  "piu contenimento",
+  "immagine luxury",
+];
+
+const PROCESS_STEPS = [
+  { key: "upload", label: "Upload planimetria", Icon: UploadCloud },
+  { key: "analysis", label: "Analisi architettonica", Icon: Brain },
+  { key: "proposal_2d", label: "Generazione proposta 2D", Icon: FileText },
+  { key: "review", label: "Approvazione concept", Icon: CheckCircle2 },
+  { key: "topdown_3d", label: "Generazione planimetria 3D", Icon: Layers3 },
+  { key: "renders", label: "Generazione render", Icon: ImageIcon },
+  { key: "advice", label: "Consigli finali", Icon: Sparkles },
+];
+
+const initialForm = {
+  file: null,
+  planType: "auto",
+  style: "Moderno luxury",
+  goal: "Ristrutturazione completa",
+  priorities: ["piu luce", "open space", "immagine luxury"],
+  sqm: "",
+  residents: "",
+  budget: "",
+  notes: "",
+};
+
+function assetUrl(url) {
+  if (!url) return "";
+  if (url.startsWith("http")) return url;
+  return `${BACKEND_URL}${url}`;
+}
+
+function byType(outputs, type) {
+  return outputs.filter((o) => o.output_type === type);
+}
+
+function latest(outputs, type) {
+  const items = byType(outputs, type);
+  return items[items.length - 1];
+}
+
+function ToggleButton({ active, children, onClick, className = "" }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-4 py-2.5 font-display text-xs font-semibold uppercase tracking-wide transition-colors ${
+        active ? "border-brand bg-brand text-white" : "border-stroke bg-surface text-ink hover:border-brand"
+      } ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState(initialForm);
+  const [job, setJob] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+
+  const outputs = job?.outputs || [];
+  const analysis = latest(outputs, "analysis");
+  const clean2d = latest(outputs, "clean_2d_plan");
+  const redistributed2d = latest(outputs, "redistributed_2d_plan");
+  const topdown = latest(outputs, "topdown_3d_plan");
+  const advice = latest(outputs, "advice");
+  const report = latest(outputs, "pdf_report");
+  const renders = byType(outputs, "room_render");
+  const analysisBusy = ["queued", "processing", "analysis_failed", "needs_confirmation"].includes(job?.status);
+
+  const currentProcessIndex = useMemo(() => {
+    if (!job) return 0;
+    if (job.status === "completed") return PROCESS_STEPS.length;
+    return Math.max(0, PROCESS_STEPS.findIndex((s) => s.key === job.current_step));
+  }, [job]);
+
+  useEffect(() => {
+    if (!job || !["queued", "processing"].includes(job.status)) return undefined;
+    const id = setInterval(async () => {
+      try {
+        const { data } = await client.get(`/ai-architect/jobs/${job.id}`);
+        setJob(data);
+        if (data.status === "completed") setStep(4);
+      } catch (err) {
+        toast.error(formatApiErrorDetail(err.response?.data?.detail));
+      }
+    }, 1400);
+    return () => clearInterval(id);
+  }, [job]);
+
+  const update = (patch) => setForm((current) => ({ ...current, ...patch }));
+
+  const togglePriority = (priority) => {
+    update({
+      priorities: form.priorities.includes(priority)
+        ? form.priorities.filter((p) => p !== priority)
+        : [...form.priorities, priority],
+    });
+  };
+
+  const canGoNext = () => {
+    if (step === 1) return !!form.file && !!form.planType && !!form.style && !!form.goal;
+    return true;
+  };
+
+  const createJob = async () => {
+    if (!form.file) return;
+    setSubmitting(true);
+    try {
+      const payload = new FormData();
+      payload.append("planimetria", form.file);
+      payload.append("plan_type_selected", form.planType);
+      payload.append("style_selected", form.style);
+      payload.append("project_goal", form.goal);
+      payload.append("priorities", JSON.stringify(form.priorities));
+      if (form.sqm) payload.append("sqm", form.sqm);
+      if (form.residents) payload.append("residents", form.residents);
+      if (form.budget) payload.append("budget", form.budget);
+      if (form.notes) payload.append("notes", form.notes);
+      const { data } = await client.post("/ai-architect/jobs", payload, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setJob(data);
+      setStep(3);
+      toast.success("Analisi AI Architect avviata");
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const approveConcept = async () => {
+    if (!job) return;
+    setApproving(true);
+    try {
+      const { data } = await client.post(`/ai-architect/jobs/${job.id}/approve`, {
+        reviewer: "GB Construction",
+        notes: "Concept 2D approvato per generazione render.",
+      });
+      setJob(data);
+      toast.success("Concept approvato. Generazione render avviata.");
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const regenerateStyle = async () => {
+    if (!job) return;
+    setRegenerating(true);
+    try {
+      const { data } = await client.post(`/ai-architect/jobs/${job.id}/regenerate`, {
+        style_selected: form.style,
+        output_types: ["topdown_3d_plan", "room_render", "advice", "pdf_report"],
+      });
+      setJob(data);
+      setStep(3);
+      toast.success("Rigenerazione stile avviata");
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const downloadReport = () => {
+    if (!job) return;
+    window.open(`${BACKEND_URL}/api/ai-architect/jobs/${job.id}/report`, "_blank", "noopener,noreferrer");
+  };
+
+  const continueToQuote = () => {
+    if (!job) return;
+    onComplete({
+      ...job,
+      ai_architect_job_id: job.id,
+      ai_architect_summary: `${form.goal} - ${form.style}`,
+      selected_style: form.style,
+    });
+  };
+
+  const goNext = () => {
+    if (step === 1) setStep(2);
+    if (step === 2) createJob();
+  };
+
+  return (
+    <section id="ai-architect" className="relative min-h-screen py-20 px-6 bg-bg overflow-hidden">
+      <div className="absolute inset-0 blueprint-grid opacity-[0.025]" />
+      <div className="relative max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-[0.85fr_1.15fr] gap-10 items-start">
+          <div className="lg:sticky lg:top-8">
+            <p className="font-display font-semibold uppercase tracking-[0.3em] text-xs text-brand mb-3">
+              AI Architect Layout & Render
+            </p>
+            <h2 className="font-display font-bold uppercase text-4xl md:text-6xl tracking-tight text-ink leading-none">
+              Carica la tua planimetria e visualizza il progetto con l'AI
+            </h2>
+            <p className="font-body text-fog mt-5 max-w-xl">
+              Analisi preliminare, concept 2D, vista top-down e render degli ambienti principali prima della richiesta preventivo.
+            </p>
+            <div className="mt-8">
+              <div className="flex justify-between font-display text-xs uppercase text-fog mb-2">
+                <span>Step {step} di 4</span>
+                <span>{Math.round((step / 4) * 100)}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-stroke overflow-hidden">
+                <div className="h-full accent-gradient transition-all" style={{ width: `${(step / 4) * 100}%` }} />
+              </div>
+            </div>
+            <p className="font-body text-xs text-fog mt-5">
+              Concept preliminare generato con AI, da verificare con tecnico abilitato.
+            </p>
+          </div>
+
+          <div className="bg-surface border border-stroke rounded-3xl p-5 md:p-8">
+            <AnimatePresence mode="wait">
+              {step === 1 && (
+                <motion.div key="ai-step-1" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }}>
+                  <div className="flex items-center gap-3 mb-6">
+                    <UploadCloud className="w-6 h-6 text-brand" />
+                    <h3 className="font-display font-bold uppercase text-2xl text-ink">Planimetria e direzione creativa</h3>
+                  </div>
+
+                  <label className="block rounded-2xl border-2 border-dashed border-stroke bg-bg/60 px-6 py-10 cursor-pointer hover:border-brand transition-colors">
+                    <input
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg,.webp"
+                      className="hidden"
+                      onChange={(e) => update({ file: e.target.files?.[0] || null })}
+                    />
+                    <UploadCloud className="w-11 h-11 text-brand mx-auto mb-4" />
+                    <p className="font-display font-semibold uppercase text-center text-ink">
+                      {form.file ? form.file.name : "Upload planimetria"}
+                    </p>
+                    <p className="font-body text-xs text-fog text-center mt-2">PDF, PNG, JPG, JPEG, WEBP</p>
+                  </label>
+
+                  <div className="mt-7 space-y-6">
+                    <div>
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">Tipo planimetria</p>
+                      <div className="flex flex-wrap gap-3">
+                        {PLAN_TYPES.map((item) => (
+                          <ToggleButton key={item.id} active={form.planType === item.id} onClick={() => update({ planType: item.id })}>
+                            {item.label}
+                          </ToggleButton>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">Stile desiderato</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {STYLES.map((style) => (
+                          <ToggleButton key={style} active={form.style === style} onClick={() => update({ style })} className="w-full">
+                            {style}
+                          </ToggleButton>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">Obiettivo</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {GOALS.map((goal) => (
+                          <ToggleButton key={goal} active={form.goal === goal} onClick={() => update({ goal })} className="w-full">
+                            {goal}
+                          </ToggleButton>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {step === 2 && (
+                <motion.div key="ai-step-2" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }}>
+                  <div className="flex items-center gap-3 mb-6">
+                    <Sparkles className="w-6 h-6 text-brand" />
+                    <h3 className="font-display font-bold uppercase text-2xl text-ink">Priorita e dati utili</h3>
+                  </div>
+
+                  <p className="font-display font-semibold uppercase text-sm text-ink mb-3">Priorita progettuali</p>
+                  <div className="flex flex-wrap gap-3 mb-7">
+                    {PRIORITIES.map((priority) => (
+                      <ToggleButton key={priority} active={form.priorities.includes(priority)} onClick={() => togglePriority(priority)}>
+                        {priority}
+                      </ToggleButton>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <input
+                      value={form.sqm}
+                      onChange={(e) => update({ sqm: e.target.value })}
+                      type="number"
+                      min="1"
+                      placeholder="Metri quadri (opz.)"
+                      className="bg-bg border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
+                    />
+                    <input
+                      value={form.residents}
+                      onChange={(e) => update({ residents: e.target.value })}
+                      type="number"
+                      min="1"
+                      placeholder="Persone in casa (opz.)"
+                      className="bg-bg border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
+                    />
+                    <input
+                      value={form.budget}
+                      onChange={(e) => update({ budget: e.target.value })}
+                      placeholder="Budget indicativo (opz.)"
+                      className="bg-bg border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
+                    />
+                  </div>
+                  <textarea
+                    value={form.notes}
+                    onChange={(e) => update({ notes: e.target.value })}
+                    placeholder="Note del cliente, vincoli, desideri, stanze da valorizzare..."
+                    rows={5}
+                    className="mt-4 w-full bg-bg border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand resize-none"
+                  />
+                </motion.div>
+              )}
+
+              {step === 3 && (
+                <motion.div key="ai-step-3" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }}>
+                  <div className="flex items-center justify-between gap-4 mb-6">
+                    <div>
+                      <h3 className="font-display font-bold uppercase text-2xl text-ink">AI Architect al lavoro</h3>
+                      <p className="font-body text-sm text-fog mt-1">Analisi professionale della planimetria in corso.</p>
+                    </div>
+                    {analysisBusy ? (
+                      <Loader2 className="w-7 h-7 text-brand animate-spin" />
+                    ) : null}
+                  </div>
+
+                  <div className="h-2 rounded-full bg-bg overflow-hidden mb-6">
+                    <div className="h-full accent-gradient transition-all" style={{ width: `${job?.progress_percentage || 0}%` }} />
+                  </div>
+
+                  {analysisBusy && (
+                    <div className="mb-6 rounded-2xl border border-brand/40 bg-brand/10 p-4">
+                      <div className="flex items-start gap-3">
+                        <Brain className="w-5 h-5 text-brand mt-0.5 shrink-0" />
+                        <div>
+                          <p className="font-display font-semibold uppercase text-sm text-ink">Lettura avanzata in corso</p>
+                          <p className="mt-1 font-body text-xs leading-relaxed text-fog">
+                            Stiamo leggendo ambienti, aperture, vincoli e priorita progettuali per generare un concept preliminare coerente.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid gap-3">
+                    {PROCESS_STEPS.map(({ key, label, Icon }, index) => {
+                      const done = job?.status === "completed" || index < currentProcessIndex;
+                      const active = key === job?.current_step;
+                      return (
+                        <div key={key} className={`flex items-center gap-4 rounded-2xl border px-4 py-4 ${active ? "border-brand bg-brand/10" : "border-stroke bg-bg/40"}`}>
+                          <div className={`w-10 h-10 rounded-full grid place-items-center ${done ? "bg-success/20 text-success" : active ? "bg-brand/20 text-brand" : "bg-surface-2 text-fog"}`}>
+                            {done ? <CheckCircle2 className="w-5 h-5" /> : <Icon className="w-5 h-5" />}
+                          </div>
+                          <span className="font-display font-semibold uppercase text-sm text-ink">{label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {job?.status === "needs_review" && (
+                    <div className="mt-6 rounded-2xl border border-brand/50 bg-brand/10 p-5">
+                      <div className="flex items-start gap-3">
+                        <CheckCircle2 className="w-6 h-6 text-brand shrink-0" />
+                        <div className="w-full">
+                          <p className="font-display font-semibold uppercase text-ink">Concept pronto per approvazione</p>
+                          <p className="font-body text-sm text-fog mt-1">
+                            Analisi e planimetria 2D sono pronte. I render fotorealistici partono solo dopo approvazione, cosi evitiamo costi su output non verificati.
+                          </p>
+                          {(redistributed2d || clean2d)?.image_url && (
+                            <img
+                              src={assetUrl((redistributed2d || clean2d).image_url)}
+                              alt="Concept 2D da approvare"
+                              className="mt-4 w-full max-h-72 rounded-xl border border-stroke object-contain bg-bg"
+                            />
+                          )}
+                          <div className="flex flex-wrap gap-3 mt-4">
+                            <button
+                              type="button"
+                              onClick={approveConcept}
+                              disabled={approving}
+                              className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                            >
+                              {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                              Approva e genera render
+                            </button>
+                            <button
+                              type="button"
+                              onClick={downloadReport}
+                              className="bg-surface border border-stroke text-ink rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2"
+                            >
+                              <Download className="w-4 h-4" /> Scarica report preliminare
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {job?.status === "completed" && (
+                    <button type="button" onClick={() => setStep(4)} className="mt-6 w-full bg-brand text-white rounded-full py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2">
+                      Vedi anteprima risultati <ArrowRight className="w-5 h-5" />
+                    </button>
+                  )}
+                </motion.div>
+              )}
+
+              {step === 4 && (
+                <motion.div key="ai-step-4" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }}>
+                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-5 mb-7">
+                    <div>
+                      <p className="font-display font-semibold uppercase tracking-[0.2em] text-xs text-brand mb-2">Anteprima risultati</p>
+                      <h3 className="font-display font-bold uppercase text-3xl text-ink">Concept AI pronto</h3>
+                      <p className="font-body text-sm text-fog mt-2">
+                        {analysis?.text_content || "Analisi completata e output collegati al job."}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      <select
+                        value={form.style}
+                        onChange={(e) => update({ style: e.target.value })}
+                        className="bg-bg border border-stroke rounded-full px-4 py-3 font-display font-semibold uppercase text-xs text-ink focus:outline-none focus:border-brand"
+                      >
+                        {STYLES.map((style) => (
+                          <option key={style} value={style}>{style}</option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={downloadReport} className="bg-surface border border-stroke text-ink rounded-full px-4 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2">
+                        <Download className="w-4 h-4" /> Scarica report PDF
+                      </button>
+                      <button type="button" onClick={regenerateStyle} disabled={regenerating} className="bg-surface border border-stroke text-ink rounded-full px-4 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60">
+                        <RotateCw className={`w-4 h-4 ${regenerating ? "animate-spin" : ""}`} /> Rigenera stile
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    {[redistributed2d || clean2d, topdown].filter(Boolean).map((output) => (
+                      <div key={output.id} className="rounded-2xl overflow-hidden border border-stroke bg-bg">
+                        <img src={assetUrl(output.image_url)} alt={output.output_type} className="w-full aspect-[4/3] object-cover" />
+                        <div className="p-4">
+                          <p className="font-display font-semibold uppercase text-sm text-ink">
+                            {output.output_type === "topdown_3d_plan" ? "Planimetria 3D/top-down" : "Planimetria 2D"}
+                          </p>
+                          <p className="font-body text-xs text-fog mt-1">{output.text_content}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {renders.length > 0 && (
+                    <div className="mt-6">
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">Render ambienti principali</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {renders.map((render) => (
+                          <div key={render.id} className="rounded-2xl overflow-hidden border border-stroke bg-bg">
+                            <img src={assetUrl(render.image_url)} alt={render.room_name || "Render ambiente"} className="w-full aspect-video object-cover" />
+                            <div className="p-3">
+                              <p className="font-display font-semibold uppercase text-xs text-brand">{render.room_name}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {advice?.text_content && (
+                    <div className="mt-6 rounded-2xl border border-stroke bg-bg p-5">
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-2">Consigli progettuali</p>
+                      <p className="font-body text-sm text-fog leading-relaxed">{advice.text_content}</p>
+                    </div>
+                  )}
+
+                  <div className="mt-7 rounded-3xl border border-brand/40 bg-brand/10 p-6 text-center">
+                    <h4 className="font-display font-bold uppercase text-2xl text-ink">
+                      Vuoi trasformare questa proposta in un progetto reale?
+                    </h4>
+                    <p className="font-body text-sm text-fog mt-2">Richiedi una consulenza con GB Construction.</p>
+                    <div className="flex flex-col sm:flex-row justify-center gap-3 mt-5">
+                      <button type="button" onClick={continueToQuote} className="bg-brand text-white rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2">
+                        Richiedi preventivo su questo progetto <ArrowRight className="w-5 h-5" />
+                      </button>
+                      <a href={WHATSAPP} target="_blank" rel="noreferrer" className="bg-surface border border-stroke text-ink rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2">
+                        <MessageCircle className="w-5 h-5 text-success" /> Parla con un consulente
+                      </a>
+                    </div>
+                    {report?.image_url && (
+                      <p className="font-body text-xs text-fog mt-4">Report e output salvati nel job AI Architect.</p>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {step < 3 && (
+              <div className="flex items-center justify-between mt-8">
+                <button
+                  type="button"
+                  onClick={() => (step === 1 ? onSkip() : setStep((s) => s - 1))}
+                  className="font-display font-semibold uppercase text-sm text-fog hover:text-ink inline-flex items-center gap-2"
+                >
+                  <ArrowLeft className="w-4 h-4" /> {step === 1 ? "Continua senza AI" : "Indietro"}
+                </button>
+                <button
+                  type="button"
+                  onClick={goNext}
+                  disabled={!canGoNext() || submitting}
+                  className="bg-brand text-white rounded-full px-8 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center gap-2 disabled:opacity-40"
+                >
+                  {submitting ? "Avvio..." : step === 2 ? "Avvia AI Architect" : "Continua"} <ArrowRight className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

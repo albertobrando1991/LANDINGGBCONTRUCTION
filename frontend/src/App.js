@@ -15,6 +15,7 @@ import Preventivi from "@/dashboard/pages/Preventivi";
 import Cantieri from "@/dashboard/pages/Cantieri";
 import Report from "@/dashboard/pages/Report";
 import Settings from "@/dashboard/pages/Settings";
+import AIArchitectReview from "@/dashboard/pages/AIArchitectReview";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -54,6 +55,7 @@ function App() {
               <Route path="sopralluoghi" element={<Sopralluoghi />} />
               <Route path="preventivi" element={<Preventivi />} />
               <Route path="cantieri" element={<Cantieri />} />
+              <Route path="ai-architect" element={<AIArchitectReview />} />
               <Route path="report" element={<Report />} />
               <Route path="impostazioni" element={<Settings />} />
             </Route>

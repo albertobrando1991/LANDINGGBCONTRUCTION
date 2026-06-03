@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { MessageCircle, FileText } from "lucide-react";
 import client from "@/lib/api";
 import { formatEuro } from "@/lib/format";
+import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { STATI } from "@/dashboard/leadMeta";
 
 export default function Preventivi() {
@@ -10,6 +11,7 @@ export default function Preventivi() {
   const { data: list = [], isLoading } = useQuery({
     queryKey: ["preventivi"],
     queryFn: async () => (await client.get("/preventivi")).data,
+    refetchInterval: 30000,
   });
 
   if (isLoading) return <div className="text-fog font-display uppercase animate-pulse">Caricamento…</div>;
@@ -50,7 +52,11 @@ export default function Preventivi() {
                 <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-2 text-fog">
                     <button className="hover:text-ink"><FileText className="w-4 h-4" /></button>
-                    <a href="https://wa.me/" target="_blank" rel="noreferrer" className="hover:text-success"><MessageCircle className="w-4 h-4" /></a>
+                    {buildWhatsappUrl(p.telefono, p.cliente) ? (
+                      <a href={buildWhatsappUrl(p.telefono, p.cliente)} target="_blank" rel="noreferrer" className="hover:text-success"><MessageCircle className="w-4 h-4" /></a>
+                    ) : (
+                      <span className="opacity-30"><MessageCircle className="w-4 h-4" /></span>
+                    )}
                   </div>
                 </td>
               </tr>

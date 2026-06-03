@@ -8,6 +8,7 @@ import {
 import { toast } from "sonner";
 import client, { formatApiErrorDetail } from "@/lib/api";
 import { formatEuro, formatDateTime } from "@/lib/format";
+import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { STATI, PIPELINE_ORDER, priority, initials } from "@/dashboard/leadMeta";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -47,6 +48,7 @@ export default function LeadDetail() {
   const est = lead.estimate?.pacchetti || {};
   const pkg = est[lead.livello] || {};
   const alerts = lead.estimate?.alerts || [];
+  const whatsappUrl = buildWhatsappUrl(lead.telefono, lead.nome);
 
   return (
     <div className="space-y-5">
@@ -67,7 +69,11 @@ export default function LeadDetail() {
             </div>
             <div className="grid grid-cols-3 gap-2 mb-4">
               <a href={`tel:${lead.telefono}`} className="flex flex-col items-center gap-1 bg-bg border border-stroke rounded-xl py-2 text-fog hover:text-ink hover:border-brand transition-colors"><Phone className="w-4 h-4" /><span className="text-[10px] font-display uppercase">Chiama</span></a>
-              <a href="https://wa.me/" target="_blank" rel="noreferrer" className="flex flex-col items-center gap-1 bg-bg border border-stroke rounded-xl py-2 text-fog hover:text-success hover:border-success transition-colors"><MessageCircle className="w-4 h-4" /><span className="text-[10px] font-display uppercase">WhatsApp</span></a>
+              {whatsappUrl ? (
+                <a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex flex-col items-center gap-1 bg-bg border border-stroke rounded-xl py-2 text-fog hover:text-success hover:border-success transition-colors"><MessageCircle className="w-4 h-4" /><span className="text-[10px] font-display uppercase">WhatsApp</span></a>
+              ) : (
+                <span className="flex flex-col items-center gap-1 bg-bg border border-stroke rounded-xl py-2 text-fog/40"><MessageCircle className="w-4 h-4" /><span className="text-[10px] font-display uppercase">WhatsApp</span></span>
+              )}
               <a href={`mailto:${lead.email}`} className="flex flex-col items-center gap-1 bg-bg border border-stroke rounded-xl py-2 text-fog hover:text-ink hover:border-brand transition-colors"><Mail className="w-4 h-4" /><span className="text-[10px] font-display uppercase">Email</span></a>
             </div>
             <div className="space-y-1 font-body text-xs text-fog">

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Home, Building2, Briefcase, Store, Warehouse, ArrowRight, ArrowLeft,
-  Check, UploadCloud, Plus, Minus, Flame,
+  Check, Plus, Minus, Flame,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import HlsVideo from "@/components/HlsVideo";
@@ -39,7 +39,7 @@ const MICRO = ["Perfetto...", "Ottima scelta...", "Manca poco...", "Quasi pronto
 
 const initial = {
   tipo_immobile: "", mq: 80, livello: "", cucina: true, bagni: 1, camere: 2,
-  soggiorno: true, ingresso: false, balconi: false, stile: "", tempistiche: "", files: [],
+  soggiorno: true, ingresso: false, balconi: false, stile: "", tempistiche: "",
 };
 
 export default function Configurator({ onComplete }) {
@@ -59,14 +59,14 @@ export default function Configurator({ onComplete }) {
   };
 
   const next = () => {
-    if (step === 7) {
-      onComplete({ ...cfg, has_files: cfg.files.length > 0 });
+    if (step === 6) {
+      onComplete({ ...cfg, has_files: false });
       return;
     }
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      setStep((s) => Math.min(s + 1, 7));
+      setStep((s) => Math.min(s + 1, 6));
     }, 600);
   };
   const prev = () => setStep((s) => Math.max(s - 1, 1));
@@ -109,17 +109,17 @@ export default function Configurator({ onComplete }) {
           <h2 className="font-display font-bold uppercase text-4xl md:text-6xl tracking-tight text-ink">
             Configura. <span className="text-brand">Visualizza.</span> Ricevi.
           </h2>
-          <p className="font-body text-fog mt-3">60 secondi. 7 domande. Tre proposte personalizzate.</p>
+          <p className="font-body text-fog mt-3">60 secondi. 6 domande. Tre proposte personalizzate.</p>
         </div>
 
         {/* Progress */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-2">
-            <span className="font-display font-semibold uppercase text-xs text-ink">Step {step} di 7</span>
-            <span className="font-display text-xs text-fog">{Math.round((step / 7) * 100)}%</span>
+            <span className="font-display font-semibold uppercase text-xs text-ink">Step {step} di 6</span>
+            <span className="font-display text-xs text-fog">{Math.round((step / 6) * 100)}%</span>
           </div>
           <div className="h-1 bg-stroke rounded-full overflow-hidden">
-            <motion.div className="h-full accent-gradient" animate={{ width: `${(step / 7) * 100}%` }} transition={{ duration: 0.4 }} />
+            <motion.div className="h-full accent-gradient" animate={{ width: `${(step / 6) * 100}%` }} transition={{ duration: 0.4 }} />
           </div>
         </div>
 
@@ -239,27 +239,6 @@ export default function Configurator({ onComplete }) {
                     </div>
                   </>
                 )}
-
-                {step === 7 && (
-                  <div className="text-center">
-                    <h3 className="font-display font-bold uppercase text-2xl text-ink mb-6">Vuoi caricare planimetria o foto? <span className="text-fog">(opzionale)</span></h3>
-                    <label className="block max-w-2xl mx-auto border-2 border-dashed border-stroke rounded-3xl py-16 px-6 cursor-pointer hover:border-brand hover:bg-brand/5 transition-all">
-                      <input data-testid="upload-input" type="file" multiple accept=".jpg,.jpeg,.png,.pdf,.dwg" className="hidden"
-                        onChange={(e) => set({ files: Array.from(e.target.files).slice(0, 5) })} />
-                      <UploadCloud className="w-12 h-12 text-brand mx-auto mb-4" />
-                      <p className="font-display font-semibold uppercase text-ink">Trascina qui o clicca per caricare</p>
-                      <p className="font-body text-xs text-fog mt-2">jpg, png, pdf, dwg · max 5 file</p>
-                    </label>
-                    {cfg.files.length > 0 && (
-                      <div className="mt-4 flex flex-wrap justify-center gap-2">
-                        {cfg.files.map((f, i) => (
-                          <span key={i} className="bg-surface border border-brand text-ink font-body text-xs px-3 py-1.5 rounded-full">{f.name}</span>
-                        ))}
-                      </div>
-                    )}
-                    <button data-testid="config-skip-upload" onClick={() => onComplete({ ...cfg, files: [], has_files: false })} className="mt-4 font-body text-xs text-fog underline hover:text-ink">Salta questo passaggio</button>
-                  </div>
-                )}
               </motion.div>
             </AnimatePresence>
           )}
@@ -272,8 +251,8 @@ export default function Configurator({ onComplete }) {
             <ArrowLeft className="w-4 h-4" /> Indietro
           </button>
           <button data-testid="config-next" onClick={next} disabled={!canContinue()}
-            className={`bg-brand text-white rounded-full font-display font-semibold uppercase tracking-wider inline-flex items-center gap-2 transition-all disabled:opacity-40 hover:scale-105 ${step === 7 ? "px-10 py-5 text-lg animate-pulse-dot" : "px-8 py-4"}`}>
-            {step === 7 ? "Vedi la mia stima" : "Continua"} <ArrowRight className="w-5 h-5" />
+            className="bg-brand text-white rounded-full font-display font-semibold uppercase tracking-wider inline-flex items-center gap-2 transition-all disabled:opacity-40 hover:scale-105 px-8 py-4">
+            Continua <ArrowRight className="w-5 h-5" />
           </button>
         </div>
       </div>

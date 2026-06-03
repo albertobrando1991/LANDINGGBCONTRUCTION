@@ -4,7 +4,12 @@ Funzioni interne: suggerimento prossima azione commerciale e insight report.
 """
 import os
 import uuid
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+try:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+except ImportError:
+    LlmChat = None
+    UserMessage = None
 
 MODEL_PROVIDER = "openai"
 MODEL_NAME = "gpt-4o"
@@ -14,7 +19,17 @@ def _key() -> str:
     return os.environ["EMERGENT_LLM_KEY"]
 
 
+def _emergent_available() -> bool:
+    return LlmChat is not None and UserMessage is not None and bool(os.environ.get("EMERGENT_LLM_KEY"))
+
+
 async def suggest_next_action(lead: dict) -> str:
+    if not _emergent_available():
+        return (
+            "Contatta il cliente via WhatsApp entro 2 ore, richiamando metratura, zona e soluzione scelta. "
+            "Proponi subito un sopralluogo gratuito con due fasce orarie concrete."
+        )
+
     timeline = lead.get("timeline", [])
     eventi = "\n".join(f"- {e.get('ts','')[:10]}: {e.get('testo','')}" for e in timeline[:8]) or "Nessun evento registrato."
     system = (
@@ -38,6 +53,12 @@ async def suggest_next_action(lead: dict) -> str:
 
 
 async def generate_insights(stats: dict) -> str:
+    if not _emergent_available():
+        return (
+            "Priorita: richiamare i lead nuovi entro 2 ore e fissare sopralluoghi sui contatti con score alto. "
+            "Controlla i preventivi in follow-up: sono il punto piu vicino alla conversione."
+        )
+
     system = (
         "Sei un analista business di GB Construction. Dai 2-3 insight azionabili e concisi (in italiano) "
         "sui dati del funnel di vendita per migliorare la conversione. Niente preamboli."

@@ -1,17 +1,13 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { AMBIENT } from "@/lib/assets";
+import { CANTIERE_VIDEOS } from "@/lib/assets";
 import client, { formatApiErrorDetail } from "@/lib/api";
 
-const PROJECTS = [
-  { nome: "Attico Posillipo", citta: "Napoli", tall: true },
-  { nome: "Loft Vomero", citta: "Napoli", tall: false },
-  { nome: "Villa Caserta", citta: "Caserta", tall: false },
-  { nome: "Ufficio Direzionale", citta: "Napoli", tall: true },
-  { nome: "Boutique Chiaia", citta: "Napoli", tall: false },
-  { nome: "Casa Pozzuoli", citta: "Pozzuoli", tall: false },
-];
+const PROJECTS = CANTIERE_VIDEOS.map((project, index) => ({
+  ...project,
+  tall: index === 0 || index === 3 || index === 6,
+}));
 
 const FAQ = [
   { q: "Quanto dura una ristrutturazione?", a: "Dipende dalla superficie e dal livello di intervento: una ristrutturazione completa va dai 60 ai 150 giorni. In sopralluogo definiamo un cronoprogramma preciso fase per fase." },
@@ -58,8 +54,13 @@ export default function SecondChance() {
               key={i}
               className={`relative break-inside-avoid rounded-2xl overflow-hidden border border-stroke group cursor-pointer ${p.tall ? "h-80" : "h-56"}`}
             >
-              <img src={AMBIENT[i % AMBIENT.length]} alt={p.nome} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700" />
+              <img src={p.poster} alt={`Copertina video cantiere ${p.nome}`} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700" loading="lazy" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/85 to-transparent" />
+              {p.label && (
+                <div className="absolute top-3 left-3 font-display font-semibold uppercase tracking-wider text-[10px] bg-brand text-white px-2 py-1 rounded">
+                  {p.label}
+                </div>
+              )}
               <div className="absolute bottom-4 left-4">
                 <div className="font-display font-semibold uppercase text-sm text-brand">{p.nome}</div>
                 <div className="font-body text-xs text-ink/70">{p.citta}</div>

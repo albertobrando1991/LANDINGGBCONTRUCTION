@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Phone, MessageCircle, Mail, Eye, Search } from "lucide-react";
 import client from "@/lib/api";
 import { formatEuro, relativeDate } from "@/lib/format";
+import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { STATI, priority, initials } from "@/dashboard/leadMeta";
 
 const TABS = [
@@ -16,15 +17,25 @@ const TABS = [
   { key: "persi", label: "Persi" },
 ];
 
+const SOURCES = [
+  { key: "tutte", label: "Tutte fonti" },
+  { key: "meta_ads", label: "Meta Ads" },
+  { key: "landing", label: "Landing" },
+  { key: "callback", label: "Callback" },
+  { key: "ai_architect", label: "AI Architect" },
+];
+
 export default function LeadInbox() {
   const [params] = useSearchParams();
   const [tab, setTab] = useState("tutti");
+  const [origine, setOrigine] = useState(params.get("origine") || "tutte");
   const [q, setQ] = useState(params.get("q") || "");
   const navigate = useNavigate();
 
   const { data: leads = [], isLoading } = useQuery({
-    queryKey: ["leads", tab, q],
-    queryFn: async () => (await client.get("/leads", { params: { status: tab, q: q || undefined } })).data,
+    queryKey: ["leads", tab, q, origine],
+    queryFn: async () => (await client.get("/leads", { params: { status: tab, q: q || undefined, origine } })).data,
+    refetchInterval: 30000,
   });
 
   return (
@@ -38,6 +49,17 @@ export default function LeadInbox() {
               tab === t.key ? "bg-brand text-white border-brand" : "bg-surface text-fog border-stroke hover:text-ink"
             }`}>
             {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {SOURCES.map((s) => (
+          <button key={s.key} onClick={() => setOrigine(s.key)}
+            className={`font-display uppercase text-[10px] tracking-wider px-3 py-1.5 rounded-full border transition-colors ${
+              origine === s.key ? "bg-ink text-bg border-ink" : "bg-surface text-fog border-stroke hover:text-ink"
+            }`}>
+            {s.label}
           </button>
         ))}
       </div>
@@ -83,7 +105,11 @@ export default function LeadInbox() {
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-2 text-fog">
                       <a href={`tel:${l.telefono}`} className="hover:text-ink"><Phone className="w-4 h-4" /></a>
-                      <a href={`https://wa.me/`} target="_blank" rel="noreferrer" className="hover:text-success"><MessageCircle className="w-4 h-4" /></a>
+                      {buildWhatsappUrl(l.telefono, l.nome) ? (
+                        <a href={buildWhatsappUrl(l.telefono, l.nome)} target="_blank" rel="noreferrer" className="hover:text-success"><MessageCircle className="w-4 h-4" /></a>
+                      ) : (
+                        <span className="opacity-30"><MessageCircle className="w-4 h-4" /></span>
+                      )}
                       <a href={`mailto:${l.email}`} className="hover:text-ink"><Mail className="w-4 h-4" /></a>
                       <button onClick={() => navigate(`/dashboard/lead/${l.id}`)} className="hover:text-brand"><Eye className="w-4 h-4" /></button>
                     </div>

@@ -11,11 +11,24 @@ export default function Settings() {
   const { data: staff = [] } = useQuery({ queryKey: ["staff"], queryFn: async () => (await client.get("/staff")).data });
   const { data: coef = {} } = useQuery({ queryKey: ["coef"], queryFn: async () => (await client.get("/coefficienti")).data });
   const { data: voci = [] } = useQuery({ queryKey: ["voci"], queryFn: async () => (await client.get("/voci")).data });
+  const { data: metaStatus = {} } = useQuery({
+    queryKey: ["meta-status"],
+    queryFn: async () => (await client.get("/integrations/meta/status")).data,
+    refetchInterval: 30000,
+  });
 
   const [form, setForm] = useState({ nome: "", email: "", password: "", role: "staff" });
   const createStaff = useMutation({
     mutationFn: (b) => client.post("/staff", b),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["staff"] }); setForm({ nome: "", email: "", password: "", role: "staff" }); toast.success("Utente creato"); },
+    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
+  });
+  const retryMeta = useMutation({
+    mutationFn: () => client.post("/integrations/meta/retry-failed"),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["meta-status"] });
+      toast.success(`${res.data.queued || 0} eventi Meta rimessi in coda`);
+    },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
 
@@ -26,6 +39,7 @@ export default function Settings() {
         <TabsList className="bg-surface border border-stroke flex-wrap h-auto">
           <TabsTrigger value="azienda">Azienda</TabsTrigger>
           <TabsTrigger value="staff">Staff</TabsTrigger>
+          <TabsTrigger value="meta">Meta Ads</TabsTrigger>
           <TabsTrigger value="motore">Motore predittivo</TabsTrigger>
           <TabsTrigger value="voci">Voci standard</TabsTrigger>
         </TabsList>
@@ -67,6 +81,37 @@ export default function Settings() {
             </div>
             <button data-testid="staff-create" onClick={() => createStaff.mutate(form)} disabled={!form.nome || !form.email || !form.password}
               className="mt-4 bg-brand text-white rounded-full px-6 py-2.5 font-display uppercase text-xs tracking-wider hover:scale-105 transition-transform disabled:opacity-50">Crea utente</button>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="meta" className="mt-5">
+          <div className="bg-surface border border-stroke rounded-2xl p-6 space-y-5">
+            <div>
+              <h3 className="font-display font-semibold uppercase text-sm text-ink">Integrazione Meta Lead Ads</h3>
+              <p className="font-body text-xs text-fog mt-1">Webhook: /api/webhooks/meta</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <StatusPill label="Verify token" active={metaStatus.configured?.verify_token} />
+              <StatusPill label="App secret" active={metaStatus.configured?.app_secret} />
+              <StatusPill label="Page token" active={metaStatus.configured?.page_access_token} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Field label="Versione Graph" value={metaStatus.graph_version || "v23.0"} />
+              <Field label="Lead Meta importati" value={String(metaStatus.meta_leads || 0)} />
+              <Field label="Eventi falliti" value={String(metaStatus.failed_events || 0)} />
+            </div>
+            {metaStatus.last_event && (
+              <div className="bg-bg border border-stroke rounded-xl px-4 py-3">
+                <div className="font-display uppercase text-[10px] text-fog mb-1">Ultimo evento</div>
+                <div className="font-body text-xs text-ink">
+                  {metaStatus.last_event.leadgen_id || "-"} · {metaStatus.last_event.status || "-"}
+                </div>
+              </div>
+            )}
+            <button onClick={() => retryMeta.mutate()} disabled={retryMeta.isPending || !metaStatus.failed_events}
+              className="bg-brand text-white rounded-full px-5 py-2 font-display uppercase text-xs tracking-wider hover:scale-105 transition-transform disabled:opacity-50">
+              Ritenta eventi falliti
+            </button>
           </div>
         </TabsContent>
 
@@ -120,6 +165,19 @@ function Field({ label, value }) {
     <div>
       <div className="font-display uppercase text-[10px] text-fog mb-1">{label}</div>
       <div className="bg-bg border border-stroke rounded-xl px-4 py-2.5 text-ink text-sm">{value}</div>
+    </div>
+  );
+}
+
+function StatusPill({ label, active }) {
+  return (
+    <div className="bg-bg border border-stroke rounded-xl px-4 py-3">
+      <div className="font-display uppercase text-[10px] text-fog mb-1">{label}</div>
+      <span className={`font-display uppercase text-[10px] px-3 py-1 rounded-full ${
+        active ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
+      }`}>
+        {active ? "Configurato" : "Mancante"}
+      </span>
     </div>
   );
 }

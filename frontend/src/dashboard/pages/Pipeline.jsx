@@ -15,6 +15,7 @@ export default function Pipeline() {
   const { data, isLoading } = useQuery({
     queryKey: ["pipeline"],
     queryFn: async () => (await client.get("/pipeline")).data,
+    refetchInterval: 30000,
   });
 
   const move = useMutation({
