@@ -85,11 +85,11 @@ async def seed_users(db):
     defaults = [
         (os.environ.get("ADMIN_EMAIL", "admin@gbconstruction.it"),
          os.environ.get("ADMIN_PASSWORD", "GBadmin2026!"), "Giuseppe Brancale", "admin",
-         "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/ycum27ay_RITRATTO%20GIUSEPPE.png"),
+         "/brand/staff-giuseppe.png"),
         ("staff@gbconstruction.it", "GBstaff2026!", "Vincenzo Brancale", "staff",
-         "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/f2u1glj0_RITRATTO%20VINCENZO.png"),
+         "/brand/staff-vincenzo.png"),
         ("operations@gbconstruction.it", "GBops2026!", "Giovanni Brancale", "operations",
-         "https://customer-assets.emergentagent.com/job_cantiere-smart-1/artifacts/jmpctbmn_RITRATTO%20PADRE.png"),
+         "/brand/staff-giovanni.png"),
     ]
     for email, password, name, role, photo in defaults:
         email = email.lower()
@@ -100,6 +100,11 @@ async def seed_users(db):
                 "name": name, "role": role, "photo": photo,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
-        elif role == "admin" and not verify_password(password, existing["password_hash"]):
-            await db.users.update_one({"email": email},
-                                      {"$set": {"password_hash": hash_password(password)}})
+        else:
+            updates = {}
+            if role == "admin" and not verify_password(password, existing["password_hash"]):
+                updates["password_hash"] = hash_password(password)
+            if (existing.get("photo") or "").startswith("https://"):
+                updates["photo"] = photo
+            if updates:
+                await db.users.update_one({"email": email}, {"$set": updates})

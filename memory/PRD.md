@@ -8,7 +8,7 @@ Stack richiesto Next.js+Supabase → adattato a **React + FastAPI + MongoDB** (U
 
 ## User choices
 - Entrambe le interfacce (landing + dashboard)
-- AI via Emergent LLM Key (modello gpt-4o)
+- AI via provider configurati direttamente (OpenAI/Claude/OpenRouter/FAL)
 - Email/WhatsApp/Calendario/PDF/render → placeholder/mock
 - Auth JWT email+password (ruoli admin/staff/operations)
 - Dataset completo 86 voci
