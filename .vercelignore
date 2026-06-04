@@ -5,7 +5,7 @@ backend/
 tests/
 test_reports/
 memory/
-PUBLIC/
+/PUBLIC/
 
 .grok/
 .claude/
