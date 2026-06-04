@@ -47,6 +47,7 @@ PIPELINE_STATI = [
     ("chiuso_vinto", "Chiuso vinto"), ("chiuso_perso", "Chiuso perso"),
 ]
 STATO_LABELS = dict(PIPELINE_STATI)
+VALID_LEVELS = {"essenziale", "premium", "luxury"}
 
 
 # ----------------------- Helpers -----------------------
@@ -62,6 +63,23 @@ def serialize(doc: dict) -> dict:
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def normalize_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    cfg = dict(cfg)
+    if cfg.get("livello") not in VALID_LEVELS:
+        cfg["livello"] = "premium"
+    try:
+        cfg["mq"] = max(1, int(cfg.get("mq") or 80))
+    except (TypeError, ValueError):
+        cfg["mq"] = 80
+    return cfg
+
+
+def object_id_or_400(value: str, label: str = "ID") -> ObjectId:
+    if not value or not ObjectId.is_valid(str(value)):
+        raise HTTPException(status_code=400, detail=f"{label} non valido")
+    return ObjectId(str(value))
 
 
 async def current_user(request: Request) -> dict:
@@ -317,7 +335,7 @@ async def retry_failed_meta_events(background_tasks: BackgroundTasks, user: dict
 
 @api.post("/estimate")
 async def estimate(body: EstimateBody):
-    return calcola_preventivo(body.config.model_dump())
+    return calcola_preventivo(normalize_config(body.config.model_dump()))
 
 
 @api.get("/projects")
@@ -327,7 +345,9 @@ async def projects():
 
 @api.post("/leads")
 async def create_lead(body: LeadCreate):
-    cfg = body.config.model_dump()
+    cfg = normalize_config(body.config.model_dump())
+    if cfg.get("ai_architect_job_id") and not ObjectId.is_valid(str(cfg["ai_architect_job_id"])):
+        cfg["ai_architect_job_id"] = None
     est = calcola_preventivo(cfg)
     score = lead_score(cfg, cfg.get("has_files", False))
     pkg = est["pacchetti"][cfg["livello"]]
@@ -627,15 +647,17 @@ async def ai_architect_report(job_id: str):
 
 @api.post("/quote/from-ai-project")
 async def quote_from_ai_project(body: AiProjectQuoteCreate):
-    cfg = body.config.model_dump()
+    ai_job_oid = object_id_or_400(body.ai_architect_job_id, "Progetto AI Architect")
+    job = await db.ai_architect_jobs.find_one({"_id": ai_job_oid})
+    if not job:
+        raise HTTPException(status_code=404, detail="Progetto AI Architect non trovato")
+
+    cfg = normalize_config(body.config.model_dump())
     cfg["has_files"] = True
     cfg["ai_architect_job_id"] = body.ai_architect_job_id
     est = calcola_preventivo(cfg)
     score = max(85, lead_score(cfg, True))
     pkg = est["pacchetti"][cfg["livello"]]
-    job = await db.ai_architect_jobs.find_one({"_id": ObjectId(body.ai_architect_job_id)})
-    if not job:
-        raise HTTPException(status_code=404, detail="Progetto AI Architect non trovato")
     summary = (
         f"AI Architect: {job.get('project_goal')} - {job.get('style_selected')} - "
         f"{job.get('plan_type_detected') or job.get('plan_type_selected')}"
@@ -669,7 +691,7 @@ async def quote_from_ai_project(body: AiProjectQuoteCreate):
     }
     res = await db.leads.insert_one(doc)
     await db.ai_architect_jobs.update_one(
-        {"_id": ObjectId(body.ai_architect_job_id)},
+        {"_id": ai_job_oid},
         {"$set": {"lead_id": str(res.inserted_id), "updated_at": now_iso()}},
     )
     return {"id": str(res.inserted_id), "estimate": est, "score": score, "ai_architect_job_id": body.ai_architect_job_id}
