@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
   ArrowRight,
+  AlertTriangle,
   Brain,
   CheckCircle2,
   Download,
@@ -101,7 +102,9 @@ function ToggleButton({ active, children, onClick, className = "" }) {
       type="button"
       onClick={onClick}
       className={`rounded-full border px-4 py-2.5 font-display text-xs font-semibold uppercase tracking-wide transition-colors ${
-        active ? "border-brand bg-brand text-white" : "border-stroke bg-surface text-ink hover:border-brand"
+        active
+          ? "border-brand bg-brand text-white"
+          : "border-stroke bg-surface text-ink hover:border-brand"
       } ${className}`}
     >
       {children}
@@ -115,6 +118,7 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
   const [job, setJob] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
 
   const outputs = job?.outputs || [];
@@ -125,16 +129,23 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
   const advice = latest(outputs, "advice");
   const report = latest(outputs, "pdf_report");
   const renders = byType(outputs, "room_render");
-  const analysisBusy = ["queued", "processing", "analysis_failed", "needs_confirmation"].includes(job?.status);
+  const analysisBusy = ["queued", "processing", "analysis_failed"].includes(
+    job?.status,
+  );
+  const uploadedPlanUrl = job?.processed_file_url || job?.uploaded_file_url;
 
   const currentProcessIndex = useMemo(() => {
     if (!job) return 0;
     if (job.status === "completed") return PROCESS_STEPS.length;
-    return Math.max(0, PROCESS_STEPS.findIndex((s) => s.key === job.current_step));
+    return Math.max(
+      0,
+      PROCESS_STEPS.findIndex((s) => s.key === job.current_step),
+    );
   }, [job]);
 
   useEffect(() => {
-    if (!job || !["queued", "processing"].includes(job.status)) return undefined;
+    if (!job || !["queued", "processing"].includes(job.status))
+      return undefined;
     const id = setInterval(async () => {
       try {
         const { data } = await client.get(`/ai-architect/jobs/${job.id}`);
@@ -158,7 +169,8 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
   };
 
   const canGoNext = () => {
-    if (step === 1) return !!form.file && !!form.planType && !!form.style && !!form.goal;
+    if (step === 1)
+      return !!form.file && !!form.planType && !!form.style && !!form.goal;
     return true;
   };
 
@@ -193,10 +205,13 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
     if (!job) return;
     setApproving(true);
     try {
-      const { data } = await client.post(`/ai-architect/jobs/${job.id}/approve`, {
-        reviewer: "GB Construction",
-        notes: "Concept 2D approvato per generazione render.",
-      });
+      const { data } = await client.post(
+        `/ai-architect/jobs/${job.id}/approve`,
+        {
+          reviewer: "GB Construction",
+          notes: "Concept 2D approvato per generazione render.",
+        },
+      );
       setJob(data);
       toast.success("Concept approvato. Generazione render avviata.");
     } catch (err) {
@@ -206,14 +221,45 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
     }
   };
 
+  const confirmPlanType = async (planType) => {
+    if (!job) return;
+    setConfirming(true);
+    try {
+      const { data } = await client.post(
+        `/ai-architect/jobs/${job.id}/confirm`,
+        {
+          plan_type_selected: planType,
+        },
+      );
+      setJob(data);
+      toast.success(
+        planType === "defined_project"
+          ? "Planimetria mantenuta identica."
+          : "Redistribuzione avviata.",
+      );
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   const regenerateStyle = async () => {
     if (!job) return;
     setRegenerating(true);
     try {
-      const { data } = await client.post(`/ai-architect/jobs/${job.id}/regenerate`, {
-        style_selected: form.style,
-        output_types: ["topdown_3d_plan", "room_render", "advice", "pdf_report"],
-      });
+      const { data } = await client.post(
+        `/ai-architect/jobs/${job.id}/regenerate`,
+        {
+          style_selected: form.style,
+          output_types: [
+            "topdown_3d_plan",
+            "room_render",
+            "advice",
+            "pdf_report",
+          ],
+        },
+      );
       setJob(data);
       setStep(3);
       toast.success("Rigenerazione stile avviata");
@@ -226,7 +272,11 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
 
   const downloadReport = () => {
     if (!job) return;
-    window.open(`${BACKEND_URL}/api/ai-architect/jobs/${job.id}/report`, "_blank", "noopener,noreferrer");
+    window.open(
+      `${BACKEND_URL}/api/ai-architect/jobs/${job.id}/report`,
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
   const continueToQuote = () => {
@@ -245,7 +295,10 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
   };
 
   return (
-    <section id="ai-architect" className="relative min-h-screen py-20 px-6 bg-bg overflow-hidden">
+    <section
+      id="ai-architect"
+      className="relative min-h-screen py-20 px-6 bg-bg overflow-hidden"
+    >
       <div className="absolute inset-0 blueprint-grid opacity-[0.025]" />
       <div className="relative max-w-7xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-[0.85fr_1.15fr] gap-10 items-start">
@@ -257,7 +310,8 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
               Carica la tua planimetria e visualizza il progetto con l'AI
             </h2>
             <p className="font-body text-fog mt-5 max-w-xl">
-              Analisi preliminare, concept 2D, vista top-down e render degli ambienti principali prima della richiesta preventivo.
+              Analisi preliminare, concept 2D, vista top-down e render degli
+              ambienti principali prima della richiesta preventivo.
             </p>
             <div className="mt-8">
               <div className="flex justify-between font-display text-xs uppercase text-fog mb-2">
@@ -265,21 +319,32 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                 <span>{Math.round((step / 4) * 100)}%</span>
               </div>
               <div className="h-1.5 rounded-full bg-stroke overflow-hidden">
-                <div className="h-full accent-gradient transition-all" style={{ width: `${(step / 4) * 100}%` }} />
+                <div
+                  className="h-full accent-gradient transition-all"
+                  style={{ width: `${(step / 4) * 100}%` }}
+                />
               </div>
             </div>
             <p className="font-body text-xs text-fog mt-5">
-              Concept preliminare generato con AI, da verificare con tecnico abilitato.
+              Concept preliminare generato con AI, da verificare con tecnico
+              abilitato.
             </p>
           </div>
 
           <div className="bg-surface border border-stroke rounded-3xl p-5 md:p-8">
             <AnimatePresence mode="wait">
               {step === 1 && (
-                <motion.div key="ai-step-1" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }}>
+                <motion.div
+                  key="ai-step-1"
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -18 }}
+                >
                   <div className="flex items-center gap-3 mb-6">
                     <UploadCloud className="w-6 h-6 text-brand" />
-                    <h3 className="font-display font-bold uppercase text-2xl text-ink">Planimetria e direzione creativa</h3>
+                    <h3 className="font-display font-bold uppercase text-2xl text-ink">
+                      Planimetria e direzione creativa
+                    </h3>
                   </div>
 
                   <label className="block rounded-2xl border-2 border-dashed border-stroke bg-bg/60 px-6 py-10 cursor-pointer hover:border-brand transition-colors">
@@ -287,21 +352,31 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                       type="file"
                       accept=".pdf,.png,.jpg,.jpeg,.webp"
                       className="hidden"
-                      onChange={(e) => update({ file: e.target.files?.[0] || null })}
+                      onChange={(e) =>
+                        update({ file: e.target.files?.[0] || null })
+                      }
                     />
                     <UploadCloud className="w-11 h-11 text-brand mx-auto mb-4" />
                     <p className="font-display font-semibold uppercase text-center text-ink">
                       {form.file ? form.file.name : "Upload planimetria"}
                     </p>
-                    <p className="font-body text-xs text-fog text-center mt-2">PDF, PNG, JPG, JPEG, WEBP</p>
+                    <p className="font-body text-xs text-fog text-center mt-2">
+                      PDF, PNG, JPG, JPEG, WEBP
+                    </p>
                   </label>
 
                   <div className="mt-7 space-y-6">
                     <div>
-                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">Tipo planimetria</p>
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">
+                        Tipo planimetria
+                      </p>
                       <div className="flex flex-wrap gap-3">
                         {PLAN_TYPES.map((item) => (
-                          <ToggleButton key={item.id} active={form.planType === item.id} onClick={() => update({ planType: item.id })}>
+                          <ToggleButton
+                            key={item.id}
+                            active={form.planType === item.id}
+                            onClick={() => update({ planType: item.id })}
+                          >
                             {item.label}
                           </ToggleButton>
                         ))}
@@ -309,10 +384,17 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                     </div>
 
                     <div>
-                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">Stile desiderato</p>
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">
+                        Stile desiderato
+                      </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {STYLES.map((style) => (
-                          <ToggleButton key={style} active={form.style === style} onClick={() => update({ style })} className="w-full">
+                          <ToggleButton
+                            key={style}
+                            active={form.style === style}
+                            onClick={() => update({ style })}
+                            className="w-full"
+                          >
                             {style}
                           </ToggleButton>
                         ))}
@@ -320,10 +402,17 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                     </div>
 
                     <div>
-                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">Obiettivo</p>
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">
+                        Obiettivo
+                      </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {GOALS.map((goal) => (
-                          <ToggleButton key={goal} active={form.goal === goal} onClick={() => update({ goal })} className="w-full">
+                          <ToggleButton
+                            key={goal}
+                            active={form.goal === goal}
+                            onClick={() => update({ goal })}
+                            className="w-full"
+                          >
                             {goal}
                           </ToggleButton>
                         ))}
@@ -334,16 +423,29 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
               )}
 
               {step === 2 && (
-                <motion.div key="ai-step-2" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }}>
+                <motion.div
+                  key="ai-step-2"
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -18 }}
+                >
                   <div className="flex items-center gap-3 mb-6">
                     <Sparkles className="w-6 h-6 text-brand" />
-                    <h3 className="font-display font-bold uppercase text-2xl text-ink">Priorita e dati utili</h3>
+                    <h3 className="font-display font-bold uppercase text-2xl text-ink">
+                      Priorita e dati utili
+                    </h3>
                   </div>
 
-                  <p className="font-display font-semibold uppercase text-sm text-ink mb-3">Priorita progettuali</p>
+                  <p className="font-display font-semibold uppercase text-sm text-ink mb-3">
+                    Priorita progettuali
+                  </p>
                   <div className="flex flex-wrap gap-3 mb-7">
                     {PRIORITIES.map((priority) => (
-                      <ToggleButton key={priority} active={form.priorities.includes(priority)} onClick={() => togglePriority(priority)}>
+                      <ToggleButton
+                        key={priority}
+                        active={form.priorities.includes(priority)}
+                        onClick={() => togglePriority(priority)}
+                      >
                         {priority}
                       </ToggleButton>
                     ))}
@@ -384,11 +486,20 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
               )}
 
               {step === 3 && (
-                <motion.div key="ai-step-3" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }}>
+                <motion.div
+                  key="ai-step-3"
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -18 }}
+                >
                   <div className="flex items-center justify-between gap-4 mb-6">
                     <div>
-                      <h3 className="font-display font-bold uppercase text-2xl text-ink">AI Architect al lavoro</h3>
-                      <p className="font-body text-sm text-fog mt-1">Analisi professionale della planimetria in corso.</p>
+                      <h3 className="font-display font-bold uppercase text-2xl text-ink">
+                        AI Architect al lavoro
+                      </h3>
+                      <p className="font-body text-sm text-fog mt-1">
+                        Analisi professionale della planimetria in corso.
+                      </p>
                     </div>
                     {analysisBusy ? (
                       <Loader2 className="w-7 h-7 text-brand animate-spin" />
@@ -396,7 +507,10 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                   </div>
 
                   <div className="h-2 rounded-full bg-bg overflow-hidden mb-6">
-                    <div className="h-full accent-gradient transition-all" style={{ width: `${job?.progress_percentage || 0}%` }} />
+                    <div
+                      className="h-full accent-gradient transition-all"
+                      style={{ width: `${job?.progress_percentage || 0}%` }}
+                    />
                   </div>
 
                   {analysisBusy && (
@@ -404,9 +518,13 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                       <div className="flex items-start gap-3">
                         <Brain className="w-5 h-5 text-brand mt-0.5 shrink-0" />
                         <div>
-                          <p className="font-display font-semibold uppercase text-sm text-ink">Lettura avanzata in corso</p>
+                          <p className="font-display font-semibold uppercase text-sm text-ink">
+                            Lettura avanzata in corso
+                          </p>
                           <p className="mt-1 font-body text-xs leading-relaxed text-fog">
-                            Stiamo leggendo ambienti, aperture, vincoli e priorita progettuali per generare un concept preliminare coerente.
+                            Stiamo leggendo ambienti, aperture, vincoli e
+                            priorita progettuali per generare un concept
+                            preliminare coerente.
                           </p>
                         </div>
                       </div>
@@ -415,34 +533,126 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
 
                   <div className="grid gap-3">
                     {PROCESS_STEPS.map(({ key, label, Icon }, index) => {
-                      const done = job?.status === "completed" || index < currentProcessIndex;
+                      const done =
+                        job?.status === "completed" ||
+                        index < currentProcessIndex;
                       const active = key === job?.current_step;
                       return (
-                        <div key={key} className={`flex items-center gap-4 rounded-2xl border px-4 py-4 ${active ? "border-brand bg-brand/10" : "border-stroke bg-bg/40"}`}>
-                          <div className={`w-10 h-10 rounded-full grid place-items-center ${done ? "bg-success/20 text-success" : active ? "bg-brand/20 text-brand" : "bg-surface-2 text-fog"}`}>
-                            {done ? <CheckCircle2 className="w-5 h-5" /> : <Icon className="w-5 h-5" />}
+                        <div
+                          key={key}
+                          className={`flex items-center gap-4 rounded-2xl border px-4 py-4 ${active ? "border-brand bg-brand/10" : "border-stroke bg-bg/40"}`}
+                        >
+                          <div
+                            className={`w-10 h-10 rounded-full grid place-items-center ${done ? "bg-success/20 text-success" : active ? "bg-brand/20 text-brand" : "bg-surface-2 text-fog"}`}
+                          >
+                            {done ? (
+                              <CheckCircle2 className="w-5 h-5" />
+                            ) : (
+                              <Icon className="w-5 h-5" />
+                            )}
                           </div>
-                          <span className="font-display font-semibold uppercase text-sm text-ink">{label}</span>
+                          <span className="font-display font-semibold uppercase text-sm text-ink">
+                            {label}
+                          </span>
                         </div>
                       );
                     })}
                   </div>
+
+                  {job?.status === "needs_confirmation" && (
+                    <div className="mt-6 rounded-2xl border border-warning/50 bg-warning/10 p-5">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="w-6 h-6 text-warning shrink-0" />
+                        <div className="w-full">
+                          <p className="font-display font-semibold uppercase text-ink">
+                            Verifica planimetria richiesta
+                          </p>
+                          <p className="font-body text-sm text-fog mt-1">
+                            {job.error_message ||
+                              "La lettura AI non e abbastanza affidabile per approvare un nuovo 2D. La planimetria allegata resta il riferimento vincolante."}
+                          </p>
+                          {uploadedPlanUrl && (
+                            <img
+                              src={assetUrl(uploadedPlanUrl)}
+                              alt="Planimetria allegata"
+                              className="mt-4 w-full max-h-72 rounded-xl border border-stroke object-contain bg-bg"
+                            />
+                          )}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                            <button
+                              type="button"
+                              onClick={() => confirmPlanType("defined_project")}
+                              disabled={confirming}
+                              className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
+                            >
+                              {confirming ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="w-4 h-4" />
+                              )}
+                              E' stato di progetto: mantieni identica
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => confirmPlanType("existing_state")}
+                              disabled={confirming}
+                              className="bg-surface border border-stroke text-ink rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
+                            >
+                              <FileText className="w-4 h-4" />
+                              E' stato attuale: genera nuova 2D
+                            </button>
+                          </div>
+                          <p className="font-body text-xs text-fog mt-3">
+                            I render partono solo quando il concept 2D coincide
+                            con la planimetria allegata o con una
+                            redistribuzione approvabile.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {job?.status === "needs_review" && (
                     <div className="mt-6 rounded-2xl border border-brand/50 bg-brand/10 p-5">
                       <div className="flex items-start gap-3">
                         <CheckCircle2 className="w-6 h-6 text-brand shrink-0" />
                         <div className="w-full">
-                          <p className="font-display font-semibold uppercase text-ink">Concept pronto per approvazione</p>
-                          <p className="font-body text-sm text-fog mt-1">
-                            Analisi e planimetria 2D sono pronte. I render fotorealistici partono solo dopo approvazione, cosi evitiamo costi su output non verificati.
+                          <p className="font-display font-semibold uppercase text-ink">
+                            Concept pronto per approvazione
                           </p>
+                          <p className="font-body text-sm text-fog mt-1">
+                            Controlla che il 2D coincida con la planimetria
+                            allegata. Se e uno stato di progetto, deve restare
+                            identico: i render partiranno solo dopo questa
+                            approvazione.
+                          </p>
+                          {uploadedPlanUrl &&
+                            (redistributed2d || clean2d)?.image_url !==
+                              uploadedPlanUrl && (
+                              <div className="mt-4">
+                                <p className="font-display font-semibold uppercase text-[10px] tracking-wider text-fog mb-2">
+                                  Planimetria allegata
+                                </p>
+                                <img
+                                  src={assetUrl(uploadedPlanUrl)}
+                                  alt="Planimetria allegata"
+                                  className="w-full max-h-56 rounded-xl border border-stroke object-contain bg-bg"
+                                />
+                              </div>
+                            )}
                           {(redistributed2d || clean2d)?.image_url && (
-                            <img
-                              src={assetUrl((redistributed2d || clean2d).image_url)}
-                              alt="Concept 2D da approvare"
-                              className="mt-4 w-full max-h-72 rounded-xl border border-stroke object-contain bg-bg"
-                            />
+                            <div className="mt-4">
+                              <p className="font-display font-semibold uppercase text-[10px] tracking-wider text-fog mb-2">
+                                Concept 2D da approvare
+                              </p>
+                              <img
+                                src={assetUrl(
+                                  (redistributed2d || clean2d).image_url,
+                                )}
+                                alt="Concept 2D da approvare"
+                                className="w-full max-h-72 rounded-xl border border-stroke object-contain bg-bg"
+                              />
+                            </div>
                           )}
                           <div className="flex flex-wrap gap-3 mt-4">
                             <button
@@ -451,7 +661,11 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                               disabled={approving}
                               className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
                             >
-                              {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                              {approving ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="w-4 h-4" />
+                              )}
                               Approva e genera render
                             </button>
                             <button
@@ -459,7 +673,8 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                               onClick={downloadReport}
                               className="bg-surface border border-stroke text-ink rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2"
                             >
-                              <Download className="w-4 h-4" /> Scarica report preliminare
+                              <Download className="w-4 h-4" /> Scarica report
+                              preliminare
                             </button>
                           </div>
                         </div>
@@ -468,21 +683,36 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                   )}
 
                   {job?.status === "completed" && (
-                    <button type="button" onClick={() => setStep(4)} className="mt-6 w-full bg-brand text-white rounded-full py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2">
-                      Vedi anteprima risultati <ArrowRight className="w-5 h-5" />
+                    <button
+                      type="button"
+                      onClick={() => setStep(4)}
+                      className="mt-6 w-full bg-brand text-white rounded-full py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2"
+                    >
+                      Vedi anteprima risultati{" "}
+                      <ArrowRight className="w-5 h-5" />
                     </button>
                   )}
                 </motion.div>
               )}
 
               {step === 4 && (
-                <motion.div key="ai-step-4" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -18 }}>
+                <motion.div
+                  key="ai-step-4"
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -18 }}
+                >
                   <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-5 mb-7">
                     <div>
-                      <p className="font-display font-semibold uppercase tracking-[0.2em] text-xs text-brand mb-2">Anteprima risultati</p>
-                      <h3 className="font-display font-bold uppercase text-3xl text-ink">Concept AI pronto</h3>
+                      <p className="font-display font-semibold uppercase tracking-[0.2em] text-xs text-brand mb-2">
+                        Anteprima risultati
+                      </p>
+                      <h3 className="font-display font-bold uppercase text-3xl text-ink">
+                        Concept AI pronto
+                      </h3>
                       <p className="font-body text-sm text-fog mt-2">
-                        {analysis?.text_content || "Analisi completata e output collegati al job."}
+                        {analysis?.text_content ||
+                          "Analisi completata e output collegati al job."}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-3">
@@ -492,41 +722,79 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                         className="bg-bg border border-stroke rounded-full px-4 py-3 font-display font-semibold uppercase text-xs text-ink focus:outline-none focus:border-brand"
                       >
                         {STYLES.map((style) => (
-                          <option key={style} value={style}>{style}</option>
+                          <option key={style} value={style}>
+                            {style}
+                          </option>
                         ))}
                       </select>
-                      <button type="button" onClick={downloadReport} className="bg-surface border border-stroke text-ink rounded-full px-4 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={downloadReport}
+                        className="bg-surface border border-stroke text-ink rounded-full px-4 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2"
+                      >
                         <Download className="w-4 h-4" /> Scarica report PDF
                       </button>
-                      <button type="button" onClick={regenerateStyle} disabled={regenerating} className="bg-surface border border-stroke text-ink rounded-full px-4 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60">
-                        <RotateCw className={`w-4 h-4 ${regenerating ? "animate-spin" : ""}`} /> Rigenera stile
+                      <button
+                        type="button"
+                        onClick={regenerateStyle}
+                        disabled={regenerating}
+                        className="bg-surface border border-stroke text-ink rounded-full px-4 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                      >
+                        <RotateCw
+                          className={`w-4 h-4 ${regenerating ? "animate-spin" : ""}`}
+                        />{" "}
+                        Rigenera stile
                       </button>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                    {[redistributed2d || clean2d, topdown].filter(Boolean).map((output) => (
-                      <div key={output.id} className="rounded-2xl overflow-hidden border border-stroke bg-bg">
-                        <img src={assetUrl(output.image_url)} alt={output.output_type} className="w-full aspect-[4/3] object-cover" />
-                        <div className="p-4">
-                          <p className="font-display font-semibold uppercase text-sm text-ink">
-                            {output.output_type === "topdown_3d_plan" ? "Planimetria 3D/top-down" : "Planimetria 2D"}
-                          </p>
-                          <p className="font-body text-xs text-fog mt-1">{output.text_content}</p>
+                    {[redistributed2d || clean2d, topdown]
+                      .filter(Boolean)
+                      .map((output) => (
+                        <div
+                          key={output.id}
+                          className="rounded-2xl overflow-hidden border border-stroke bg-bg"
+                        >
+                          <img
+                            src={assetUrl(output.image_url)}
+                            alt={output.output_type}
+                            className="w-full aspect-[4/3] object-cover"
+                          />
+                          <div className="p-4">
+                            <p className="font-display font-semibold uppercase text-sm text-ink">
+                              {output.output_type === "topdown_3d_plan"
+                                ? "Planimetria 3D/top-down"
+                                : "Planimetria 2D"}
+                            </p>
+                            <p className="font-body text-xs text-fog mt-1">
+                              {output.text_content}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
 
                   {renders.length > 0 && (
                     <div className="mt-6">
-                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">Render ambienti principali</p>
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">
+                        Render ambienti principali
+                      </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {renders.map((render) => (
-                          <div key={render.id} className="rounded-2xl overflow-hidden border border-stroke bg-bg">
-                            <img src={assetUrl(render.image_url)} alt={render.room_name || "Render ambiente"} className="w-full aspect-video object-cover" />
+                          <div
+                            key={render.id}
+                            className="rounded-2xl overflow-hidden border border-stroke bg-bg"
+                          >
+                            <img
+                              src={assetUrl(render.image_url)}
+                              alt={render.room_name || "Render ambiente"}
+                              className="w-full aspect-video object-cover"
+                            />
                             <div className="p-3">
-                              <p className="font-display font-semibold uppercase text-xs text-brand">{render.room_name}</p>
+                              <p className="font-display font-semibold uppercase text-xs text-brand">
+                                {render.room_name}
+                              </p>
                             </div>
                           </div>
                         ))}
@@ -536,8 +804,12 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
 
                   {advice?.text_content && (
                     <div className="mt-6 rounded-2xl border border-stroke bg-bg p-5">
-                      <p className="font-display font-semibold uppercase text-sm text-ink mb-2">Consigli progettuali</p>
-                      <p className="font-body text-sm text-fog leading-relaxed">{advice.text_content}</p>
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-2">
+                        Consigli progettuali
+                      </p>
+                      <p className="font-body text-sm text-fog leading-relaxed">
+                        {advice.text_content}
+                      </p>
                     </div>
                   )}
 
@@ -545,17 +817,32 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                     <h4 className="font-display font-bold uppercase text-2xl text-ink">
                       Vuoi trasformare questa proposta in un progetto reale?
                     </h4>
-                    <p className="font-body text-sm text-fog mt-2">Richiedi una consulenza con GB Construction.</p>
+                    <p className="font-body text-sm text-fog mt-2">
+                      Richiedi una consulenza con GB Construction.
+                    </p>
                     <div className="flex flex-col sm:flex-row justify-center gap-3 mt-5">
-                      <button type="button" onClick={continueToQuote} className="bg-brand text-white rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2">
-                        Richiedi preventivo su questo progetto <ArrowRight className="w-5 h-5" />
+                      <button
+                        type="button"
+                        onClick={continueToQuote}
+                        className="bg-brand text-white rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2"
+                      >
+                        Richiedi preventivo su questo progetto{" "}
+                        <ArrowRight className="w-5 h-5" />
                       </button>
-                      <a href={WHATSAPP} target="_blank" rel="noreferrer" className="bg-surface border border-stroke text-ink rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2">
-                        <MessageCircle className="w-5 h-5 text-success" /> Parla con un consulente
+                      <a
+                        href={WHATSAPP}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="bg-surface border border-stroke text-ink rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2"
+                      >
+                        <MessageCircle className="w-5 h-5 text-success" /> Parla
+                        con un consulente
                       </a>
                     </div>
                     {report?.image_url && (
-                      <p className="font-body text-xs text-fog mt-4">Report e output salvati nel job AI Architect.</p>
+                      <p className="font-body text-xs text-fog mt-4">
+                        Report e output salvati nel job AI Architect.
+                      </p>
                     )}
                   </div>
                 </motion.div>
@@ -566,10 +853,13 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
               <div className="flex items-center justify-between mt-8">
                 <button
                   type="button"
-                  onClick={() => (step === 1 ? onSkip() : setStep((s) => s - 1))}
+                  onClick={() =>
+                    step === 1 ? onSkip() : setStep((s) => s - 1)
+                  }
                   className="font-display font-semibold uppercase text-sm text-fog hover:text-ink inline-flex items-center gap-2"
                 >
-                  <ArrowLeft className="w-4 h-4" /> {step === 1 ? "Continua senza AI" : "Indietro"}
+                  <ArrowLeft className="w-4 h-4" />{" "}
+                  {step === 1 ? "Continua senza AI" : "Indietro"}
                 </button>
                 <button
                   type="button"
@@ -577,7 +867,12 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                   disabled={!canGoNext() || submitting}
                   className="bg-brand text-white rounded-full px-8 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center gap-2 disabled:opacity-40"
                 >
-                  {submitting ? "Avvio..." : step === 2 ? "Avvia AI Architect" : "Continua"} <ArrowRight className="w-5 h-5" />
+                  {submitting
+                    ? "Avvio..."
+                    : step === 2
+                      ? "Avvia AI Architect"
+                      : "Continua"}{" "}
+                  <ArrowRight className="w-5 h-5" />
                 </button>
               </div>
             )}

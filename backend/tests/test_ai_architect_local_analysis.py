@@ -119,3 +119,38 @@ def test_plan_details_json_contains_render_contract():
     assert details["schema"] == "gb-ai-architect-plan-details-v1"
     assert details["rooms"]
     assert "stanze nuove non presenti nel JSON" in details["render_contract"]["must_not_add"]
+
+
+def test_defined_project_contract_locks_uploaded_layout():
+    analysis = svc._safe_mode_analysis_json(
+        {
+            "plan_type_selected": "defined_project",
+            "project_goal": "Ristrutturazione completa",
+            "priorities": ["render professionali"],
+            "sqm": 80,
+            "uploaded_file_path": "missing.pdf",
+            "original_filename": "stato-di-progetto.pdf",
+        },
+        "test",
+    )
+    job = {
+        "plan_type_selected": "defined_project",
+        "plan_type_detected": "defined_project",
+        "vision_analysis": analysis,
+        "priorities": ["render professionali"],
+        "style_selected": "Moderno luxury",
+        "project_goal": "Ristrutturazione completa",
+    }
+
+    details = svc._plan_details_json(job, "defined")
+    proposal = svc._proposal_json("defined", job)
+    topdown_prompt = svc._topdown_prompt(job, "defined")
+
+    assert details["layout_lock"] == "preserve_uploaded_plan_exactly"
+    assert proposal["layout_locked"] is True
+    assert any(
+        "planimetria allegata mantenuta identica" in item
+        for item in details["render_contract"]["must_preserve"]
+    )
+    assert "spostamento creativo di muri, aperture, bagni, cucina o accessi" in details["render_contract"]["must_not_add"]
+    assert "preserve it exactly" in topdown_prompt

@@ -589,6 +589,7 @@ async def confirm_ai_architect_job(job_id: str, body: AiArchitectConfirm, backgr
 
 @api.post("/ai-architect/jobs/{job_id}/approve")
 async def approve_ai_architect_job(job_id: str, body: AiArchitectApprove, background_tasks: BackgroundTasks):
+    await ai_architect_service.ensure_concept_ready_for_approval(db, job_id)
     await db.ai_architect_jobs.update_one(
         {"_id": ObjectId(job_id)},
         {"$set": {

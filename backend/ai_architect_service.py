@@ -718,6 +718,17 @@ def _vision_gate_score(analysis: Dict[str, Any]) -> tuple[float, Dict[str, Any]]
 
 
 def _layout_gate_score(job: Dict[str, Any]) -> tuple[float, Dict[str, Any]]:
+    if _is_defined_project_mode(job):
+        reference_url = _layout_reference_url(job)
+        return (
+            1.0 if reference_url else 0.0,
+            {
+                "mode": "defined",
+                "layout_lock": "preserve_uploaded_plan_exactly",
+                "reference_ready": bool(reference_url),
+                "reference_url": reference_url,
+            },
+        )
     rooms = _analysis_rooms(job, min_confidence=0.2)
     boxes = [room.get("bounding_box") for room in rooms if isinstance(room.get("bounding_box"), dict)]
     box_score = min(1.0, len(boxes) / max(len(rooms), 1))
@@ -1961,15 +1972,23 @@ async def _log_non_blocking_error(db, job_id: str, step: str, exc: Exception):
 
 
 def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
+    defined_mode = mode == "defined" or _is_defined_project_mode(job)
     layout_mode = "nuova distribuzione proposta" if mode == "redistributed" else "distribuzione caricata dal cliente"
     priorities = ", ".join(job.get("priorities") or []) or "funzionalita, luce e immagine premium"
     rooms = ", ".join(room.get("name", "") for room in _analysis_rooms(job, min_confidence=0.45)) or "ambienti rilevati dalla planimetria"
     disclaimer = (job.get("vision_analysis") or {}).get("dynamic_disclaimer") or ""
     plan_details = _plan_details_for_prompt(job, mode)
+    fidelity_rule = (
+        "The uploaded plan is already a defined project: preserve it exactly. Do not redesign, redistribute, "
+        "move, add or remove any wall, room, door, window, bathroom, kitchen, stair, balcony or access. "
+        "Only translate the same layout into a professional top-down 3D visualization. "
+        if defined_mode
+        else ""
+    )
     return (
         "Draw a premium photorealistic architectural top-down 3D floor plan, dollhouse style, "
         "for an Italian residential renovation concept. Faithfully follow the final layout: "
-        f"{layout_mode}. Keep exterior perimeter, doors, windows, kitchen, bathrooms, living area, "
+        f"{layout_mode}. {fidelity_rule}Keep exterior perimeter, doors, windows, kitchen, bathrooms, living area, "
         "night area, circulation paths and furniture coherent and proportional. "
         f"Detected rooms from the vision analysis: {rooms}. "
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
@@ -1986,9 +2005,17 @@ def _room_prompt(job: Dict[str, Any], room_name: str) -> str:
     room_match = next((room for room in _analysis_rooms(job, min_confidence=0.2) if room_name.lower() in room.get("name", "").lower()), None)
     room_evidence = room_match.get("evidence") if room_match else "room selected from generated floor-plan concept"
     plan_details = _plan_details_for_prompt(job, "redistributed" if _should_redistribute(job) else "defined")
+    defined_mode = _is_defined_project_mode(job)
+    fidelity_rule = (
+        "The uploaded plan is a defined project and is layout-locked: keep the exact room position, walls, "
+        "openings and circulation from the reference. Do not create a different room shape or viewpoint that "
+        "contradicts the plan. "
+        if defined_mode
+        else ""
+    )
     return (
         f"Draw a photorealistic eye-level 3D interior render of the room: {room_name}. "
-        "Faithfully follow the top-down layout reference concept: respect positions of walls, doors, "
+        f"{fidelity_rule}Faithfully follow the top-down layout reference concept: respect positions of walls, doors, "
         "windows, openings, furniture and circulation paths. "
         f"Vision evidence for this room: {room_evidence}. "
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
@@ -2223,9 +2250,22 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
             "rooms": detected_rooms,
             "technical_note": "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
         }
+    if mode == "source_reference":
+        return {
+            "concept": "planimetria_allegata_riferimento",
+            "layout_locked": True,
+            "constraints_respected": ["file allegato mantenuto come riferimento vincolante"],
+            "rooms": detected_rooms,
+            "technical_note": "Nessun layout reinterpretato: serve verifica prima di procedere con render o redistribuzione.",
+        }
     return {
-        "concept": "layout_esistente_pulito",
-        "constraints_respected": ["distribuzione caricata mantenuta", "nessuna modifica invasiva proposta"],
+        "concept": "progetto_definito_mantenuto_identico",
+        "layout_locked": True,
+        "constraints_respected": [
+            "distribuzione caricata mantenuta identica",
+            "nessuna parete, porta, finestra o ambiente reinterpretato",
+            "render successivi vincolati alla planimetria allegata",
+        ],
         "rooms": detected_rooms,
         "technical_note": "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
     }
@@ -2233,6 +2273,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
 
 def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
     analysis = job.get("vision_analysis") or {}
+    defined_mode = mode == "defined" or _is_defined_project_mode(job)
     rooms = []
     for room in _analysis_rooms(job, min_confidence=0.2):
         box = room.get("bounding_box") or {}
@@ -2254,24 +2295,48 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
             }
         )
     elements = analysis.get("detected_elements") or {}
+    if defined_mode:
+        must_preserve = [
+            "planimetria allegata mantenuta identica come sorgente vincolante",
+            "perimetro esterno esattamente come nel file allegato",
+            "tutte le pareti interne visibili e le loro posizioni relative",
+            "tutte le porte, finestre, varchi, balconi, scale e cavedi visibili",
+            "numero, posizione e relazione degli ambienti gia disegnati",
+            "bagni, cucina e zone impiantistiche nella posizione visibile o dichiarata",
+        ]
+        must_not_add = [
+            "stanze nuove non presenti nel JSON",
+            "qualsiasi stanza non visibile o non dichiarata nella planimetria allegata",
+            "nuove porte, finestre, balconi, scale, bagni o secondi livelli",
+            "spostamento creativo di muri, aperture, bagni, cucina o accessi",
+            "reinterpretazioni di forma/perimetro per ragioni estetiche",
+            "testi, quote, loghi, watermark",
+        ]
+        layout_lock = "preserve_uploaded_plan_exactly"
+    else:
+        must_preserve = [
+            "perimetro esterno della planimetria",
+            "posizione relativa degli ambienti rilevati",
+            "relazioni tra zona giorno, cucina, disimpegno, camere e bagno",
+            "aperture e passaggi indicati o desumibili",
+            "assenza di nuovi vani non rilevati",
+        ]
+        must_not_add = [
+            "stanze nuove non presenti nel JSON",
+            "bagni, scale, balconi, finestre o porte non rilevati",
+            "secondi livelli o ampliamenti volumetrici",
+            "testi, quote, loghi, watermark",
+        ]
+        layout_lock = "preserve_perimeter_and_detected_constraints"
     return {
         "schema": "gb-ai-architect-plan-details-v1",
         "mode": mode,
         "plan_type": analysis.get("plan_type_detected") or job.get("plan_type_detected"),
+        "layout_lock": layout_lock,
+        "source_reference_url": _layout_reference_url(job),
         "render_contract": {
-            "must_preserve": [
-                "perimetro esterno della planimetria",
-                "posizione relativa degli ambienti rilevati",
-                "relazioni tra zona giorno, cucina, disimpegno, camere e bagno",
-                "aperture e passaggi indicati o desumibili",
-                "assenza di nuovi vani non rilevati",
-            ],
-            "must_not_add": [
-                "stanze nuove non presenti nel JSON",
-                "bagni, scale, balconi, finestre o porte non rilevati",
-                "secondi livelli o ampliamenti volumetrici",
-                "testi, quote, loghi, watermark",
-            ],
+            "must_preserve": must_preserve,
+            "must_not_add": must_not_add,
             "uncertain_items_require_neutral_rendering": [
                 "muri portanti",
                 "impianti e colonne di scarico",
@@ -2791,6 +2856,95 @@ def _should_redistribute(job: Dict[str, Any]) -> bool:
     return detected == "existing_state"
 
 
+def _is_defined_project_mode(job: Dict[str, Any]) -> bool:
+    analysis = job.get("vision_analysis") or {}
+    selected = job.get("plan_type_selected")
+    detected = job.get("plan_type_detected") or analysis.get("plan_type_detected")
+    return (
+        selected == "defined_project"
+        or detected == "defined_project"
+        or analysis.get("recommended_action") == "keep_layout"
+    )
+
+
+def _layout_reference_url(job: Dict[str, Any]) -> Optional[str]:
+    for url in (job.get("processed_file_url"), job.get("uploaded_file_url")):
+        if _reference_image_path(url):
+            return url
+    return None
+
+
+async def _hold_for_plan_verification(
+    db,
+    job_id: str,
+    job: Dict[str, Any],
+    reason: str,
+    *,
+    reference_url: Optional[str] = None,
+):
+    reference_url = reference_url or _layout_reference_url(job)
+    if reference_url:
+        existing_reference = await db.ai_architect_outputs.find_one({"job_id": job_id, "output_type": "clean_2d_plan"})
+        if not existing_reference:
+            await _add_output(
+                db,
+                job_id,
+                "clean_2d_plan",
+                image_url=reference_url,
+                text_content="Planimetria allegata mantenuta come riferimento: serve verifica prima di generare un concept 2D.",
+                json_content=_proposal_json("source_reference", job),
+            )
+    await _set_job(
+        db,
+        job_id,
+        status="needs_confirmation",
+        current_step="confirmation",
+        progress_percentage=_progress_for("confirmation"),
+        requires_confirmation=True,
+        review_required=True,
+        review_status="blocked_pending_plan_verification",
+        error_message=reason,
+    )
+
+
+def _redistributed_2d_prompt(job: Dict[str, Any]) -> str:
+    priorities = ", ".join(job.get("priorities") or []) or "funzionalita, luce naturale e valore percepito"
+    rooms = ", ".join(room.get("name", "") for room in _analysis_rooms(job, min_confidence=0.45)) or "ambienti rilevati dalla planimetria"
+    plan_details = _plan_details_for_prompt(job, "redistributed")
+    return (
+        "Create a precise professional 2D architectural renovation layout from the uploaded floor plan reference. "
+        "This is NOT a free creative sketch. Preserve the exact external perimeter, building footprint, window positions, "
+        "entrance/access points, structural-looking walls, shafts, bathrooms/kitchen wet zones unless clearly movable, "
+        "and all proportions visible in the uploaded plan. Propose only a preliminary redistribution inside those constraints. "
+        f"Detected rooms to respect: {rooms}. Client priorities: {priorities}. "
+        "Use clean architectural drafting style, white/cream background, black wall lines, restrained material hatches, "
+        "professional plan composition. Do not add rooms, doors, windows, balconies, stairs, second levels or volumes not "
+        f"supported by the reference and this PLAN_DETAILS_JSON: {plan_details}. "
+        "No logo, no watermark, no decorative fantasy elements."
+    )
+
+
+async def _generate_redistributed_2d_plan(db, job_id: str, job: Dict[str, Any], reference_url: Optional[str]) -> Optional[str]:
+    if (
+        not reference_url
+        or _selected_image_provider() == "local"
+        or (job.get("vision_analysis") or {}).get("is_fallback")
+        or _safe_float((job.get("vision_analysis") or {}).get("confidence"), 0) < VISION_MIN_ACCEPTABLE_CONFIDENCE
+    ):
+        return None
+    try:
+        return await _generate_ai_image(
+            job_id,
+            "redistributed-2d-plan-ai",
+            _redistributed_2d_prompt(job),
+            OPENAI_IMAGE_SIZE_PLAN,
+            [reference_url],
+        )
+    except Exception as exc:
+        await _log_non_blocking_error(db, job_id, "redistributed_2d_plan", exc)
+        return None
+
+
 async def process_job(db, job_id: str):
     step = "analysis"
     try:
@@ -2870,6 +3024,7 @@ async def process_job(db, job_id: str):
 
 async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: str) -> bool:
     await _mark_step(db, job_id, "proposal_2d")
+    reference_url = _layout_reference_url(job)
     gate_score, gate_details = _layout_gate_score(job)
     gate_passed = gate_score >= LAYOUT_GATE_MIN_SCORE
     await _record_quality_gate(
@@ -2884,47 +3039,25 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
         resolution="passed" if gate_passed else "hold_for_better_vision",
     )
     if not gate_passed:
-        if not AI_ARCHITECT_SAFE_DELIVERY:
-            await _log_non_blocking_error(db, job_id, "layout_quality_hold", RuntimeError(f"Layout gate below threshold: {gate_score}"))
-            await _set_job(
-                db,
-                job_id,
-                status="processing",
-                current_step="analysis",
-                progress_percentage=_progress_for("analysis"),
-                requires_confirmation=False,
-                error_message=None,
-                layout_quality_hold=True,
-                vision_analysis_pending=True,
-            )
-            return False
-        safe_analysis = _safe_mode_analysis_json(job, f"layout gate below threshold: {gate_score}")
-        job["vision_analysis"] = safe_analysis
-        job["plan_type_detected"] = safe_analysis["plan_type_detected"]
-        job["plan_type_confidence"] = safe_analysis["confidence"]
-        await _set_job(
-            db,
-            job_id,
-            plan_type_detected=safe_analysis["plan_type_detected"],
-            plan_type_confidence=safe_analysis["confidence"],
-            vision_analysis=safe_analysis,
-            analysis_provider=safe_analysis["model_provider"],
-            analysis_model=safe_analysis["model_name"],
-            layout_quality_hold=False,
-            vision_analysis_pending=False,
+        reason = (
+            "La lettura della planimetria non e abbastanza affidabile per generare un 2D professionale. "
+            "Il file allegato resta come riferimento: conferma se e uno stato di progetto da mantenere identico "
+            "oppure carica una planimetria piu leggibile per una redistribuzione."
         )
-        gate_score, gate_details = _layout_gate_score(job)
+        await _log_non_blocking_error(db, job_id, "layout_quality_hold", RuntimeError(f"Layout gate below threshold: {gate_score}"))
         await _record_quality_gate(
             db,
             job_id,
             2,
             "layout_geometry",
-            passed=True,
-            score=max(gate_score, LAYOUT_GATE_MIN_SCORE),
-            details={**gate_details, "safe_delivery": True},
-            retry_triggered=True,
-            resolution="professional_safe_mode",
+            passed=False,
+            score=gate_score,
+            details={**gate_details, "reference_url": reference_url},
+            retry_triggered=False,
+            resolution="needs_plan_verification",
         )
+        await _hold_for_plan_verification(db, job_id, job, reason, reference_url=reference_url)
+        return False
     plan_details = _plan_details_json(job, mode)
     job["plan_details"] = plan_details
     await _set_job(db, job_id, plan_details=plan_details)
@@ -2935,17 +3068,46 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
         text_content="Contratto strutturato di fedelta planimetrica per render e preventivo.",
         json_content=plan_details,
     )
-    clean_url = _plan_svg(job_id, job, "clean")
+
+    if mode == "defined":
+        if not reference_url:
+            await _hold_for_plan_verification(
+                db,
+                job_id,
+                job,
+                "Non e disponibile una preview immagine della planimetria allegata: non posso garantire un layout identico.",
+            )
+            return False
+        await _add_output(
+            db,
+            job_id,
+            "clean_2d_plan",
+            image_url=reference_url,
+            text_content="Stato di progetto mantenuto identico alla planimetria allegata. Da questa base verranno sviluppati top-down e render.",
+            json_content=_proposal_json("defined", job),
+        )
+        return True
+
+    clean_url = reference_url or _plan_svg(job_id, job, "clean")
     await _add_output(
         db,
         job_id,
         "clean_2d_plan",
         image_url=clean_url,
-        text_content="Planimetria 2D pulita generata dalla planimetria caricata.",
-        json_content=_proposal_json("defined", job),
+        text_content="Planimetria allegata mantenuta come riferimento per verificare il concept di redistribuzione.",
+        json_content=_proposal_json("source_reference", job),
     )
     if mode == "redistributed":
-        redistributed_url = _plan_svg(job_id, job, "redistributed")
+        redistributed_url = await _generate_redistributed_2d_plan(db, job_id, job, reference_url)
+        if not redistributed_url:
+            await _hold_for_plan_verification(
+                db,
+                job_id,
+                job,
+                "Non ho generato un 2D redistribuito approvabile: manca una reference immagine valida, un provider immagini attivo o una lettura planimetrica sufficientemente affidabile.",
+                reference_url=reference_url,
+            )
+            return False
         await _add_output(
             db,
             job_id,
@@ -3263,11 +3425,33 @@ async def _continue_generation(db, job_id: str, *, require_review: bool = REQUIR
     await _continue_render_generation(db, job_id)
 
 
+async def ensure_concept_ready_for_approval(db, job_id: str) -> None:
+    job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job AI Architect non trovato")
+    outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
+    if _should_redistribute(job):
+        concept = _latest_output(outputs, "redistributed_2d_plan")
+        if not concept or not concept.get("image_url"):
+            raise HTTPException(
+                status_code=400,
+                detail="Concept 2D redistribuito non disponibile o non approvabile. Verifica la planimetria prima di generare i render.",
+            )
+        return
+    concept = _latest_output(outputs, "clean_2d_plan")
+    if not concept or not concept.get("image_url"):
+        raise HTTPException(
+            status_code=400,
+            detail="Planimetria di progetto non disponibile come riferimento identico. Verifica il file prima di generare i render.",
+        )
+
+
 async def approve_job(db, job_id: str, *, reviewer: Optional[str] = None, notes: Optional[str] = None):
     job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
     if not job:
         raise HTTPException(status_code=404, detail="Job AI Architect non trovato")
     _ensure_professional_analysis(job)
+    await ensure_concept_ready_for_approval(db, job_id)
     await _set_job(
         db,
         job_id,
@@ -3322,6 +3506,10 @@ async def regenerate_outputs(
 
     if "topdown_3d_plan" in requested:
         mode = "redistributed" if _should_redistribute(job) else "defined"
+        existing_outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
+        concept_output = _latest_output(existing_outputs, "redistributed_2d_plan") or _latest_output(existing_outputs, "clean_2d_plan")
+        concept_reference_url = (concept_output or {}).get("image_url") or _layout_reference_url(job)
+        topdown_references = [url for url in [concept_reference_url, job.get("processed_file_url")] if _reference_image_path(url)]
         if _selected_image_provider() != "local":
             try:
                 url = await _generate_ai_image(
@@ -3329,6 +3517,7 @@ async def regenerate_outputs(
                     f"{mode}-regen-{uuid.uuid4().hex[:6]}-topdown-ai",
                     _topdown_prompt(job, mode),
                     OPENAI_IMAGE_SIZE_PLAN,
+                    topdown_references,
                 )
             except Exception as exc:
                 await _log_non_blocking_error(db, job_id, "topdown_3d:regenerate", exc)
@@ -3337,6 +3526,18 @@ async def regenerate_outputs(
             url = _topdown_svg(job_id, job, f"{mode}-regen-{uuid.uuid4().hex[:6]}")
         await _add_output(db, job_id, "topdown_3d_plan", image_url=url, text_content="Vista 3D/top-down rigenerata.")
     if "room_render" in requested:
+        existing_outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
+        topdown_output = _latest_output(existing_outputs, "topdown_3d_plan")
+        concept_output = _latest_output(existing_outputs, "redistributed_2d_plan") or _latest_output(existing_outputs, "clean_2d_plan")
+        room_references = [
+            url
+            for url in [
+                (topdown_output or {}).get("image_url"),
+                (concept_output or {}).get("image_url"),
+                job.get("processed_file_url"),
+            ]
+            if _reference_image_path(url)
+        ]
         for index, room_name in enumerate(_room_names_for_generation(job), start=1):
             if _selected_image_provider() != "local":
                 try:
@@ -3345,6 +3546,7 @@ async def regenerate_outputs(
                         f"regen-render-{index}-{_safe_name(room_name)}-ai",
                         _room_prompt(job, room_name),
                         OPENAI_IMAGE_SIZE_RENDER,
+                        room_references,
                     )
                 except Exception as exc:
                     await _log_non_blocking_error(db, job_id, f"render:{room_name}:regenerate", exc)
