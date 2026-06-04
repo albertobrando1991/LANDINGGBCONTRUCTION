@@ -294,8 +294,11 @@ def build_floorplan_2d_brief(job: Dict[str, Any], actions: List[OptimizationActi
         constraints_respected=[
             "Perimetro esterno invariato",
             "Accessi e aperture visibili mantenuti",
+            "Balconi, terrazzi, logge e volumi esterni non aggiunti se non presenti nel file",
             "Bagni, cucina, cavedi e scarichi trattati come vincoli finche non verificati",
+            "Arredi e moduli cucina mai inseriti in bagni, bagni di servizio o locali tecnici",
             "Muri portanti o elementi non chiari non demoliti automaticamente",
+            "Nessun muro dichiarato portante senza prova documentale o verifica tecnica",
         ],
         drafting_requirements=[
             "Stile tavola architettonica pulito, linee nere, muri spessi e campiture sobrie",
@@ -309,7 +312,10 @@ def build_floorplan_2d_brief(job: Dict[str, Any], actions: List[OptimizationActi
         approval_checklist=[
             "Perimetro coerente con il file caricato",
             "Finestre e accessi non inventati",
+            "Balconi/terrazzi assenti se non rilevati nel file originale",
             "Bagni/cucina coerenti con nuclei impiantistici",
+            "Nessun arredo cucina dentro bagni o bagni di servizio",
+            "Muri portanti indicati solo come verifica richiesta, non come certezza",
             "Nessuna stanza nuova non supportata dall'analisi",
             "Note di verifica presenti per elementi incerti",
         ],
@@ -330,6 +336,9 @@ def build_render_contract(job: Dict[str, Any], mode: str) -> RenderFidelityContr
         ],
         must_not_add=[
             "stanze, bagni, finestre, porte, scale, balconi o livelli non presenti nella 2D",
+            "balconi, terrazzi, logge o estensioni esterne non presenti nella planimetria originale",
+            "cucine, penisole, elettrodomestici o mobili cucina dentro bagni e bagni di servizio",
+            "etichette di muro portante o strutturale quando il dato e solo incerto",
             "spostamenti creativi di muri o aperture",
             "arredi che bloccano passaggi o contraddicono la distribuzione",
             "testi, quote, loghi, watermark o viste fantasy",
@@ -337,6 +346,7 @@ def build_render_contract(job: Dict[str, Any], mode: str) -> RenderFidelityContr
         allowed_views=["zenithal_top_down", "soggiorno_3_4", "cucina_3_4", "camera_3_4"],
         negative_prompt=(
             "no extra rooms, no invented windows, no invented doors, no second floor, no balcony unless present, "
+            "no invented terrace, no kitchen furniture in bathrooms, no unverified load-bearing wall label, "
             "no structural fantasy, no text, no watermark, no logo, no impossible plumbing relocation"
         ),
         fidelity_notes=[

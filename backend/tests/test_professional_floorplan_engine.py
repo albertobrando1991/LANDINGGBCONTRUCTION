@@ -68,6 +68,12 @@ def test_existing_state_builds_optimized_professional_package():
     assert package["optimization_strategy"]
     assert any(item["category"] == "plumbing" for item in package["technical_findings"])
     assert "stanze" in " ".join(package["render_contract"]["must_not_add"])
+    assert any(
+        "Nessun arredo cucina dentro bagni" in item
+        for item in package["floorplan_2d"]["approval_checklist"]
+    )
+    assert "balconi" in " ".join(package["render_contract"]["must_not_add"])
+    assert "unverified load-bearing wall" in package["render_contract"]["negative_prompt"]
 
 
 def test_defined_project_locks_cleanup_mode():

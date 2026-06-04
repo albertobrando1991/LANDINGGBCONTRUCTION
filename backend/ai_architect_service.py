@@ -130,6 +130,8 @@ OPENAI_IMAGES_ENABLED = os.getenv("AI_ARCHITECT_USE_OPENAI_IMAGES", "true").lowe
 AI_FLOORPLAN_PROFESSIONAL_ANALYSIS = os.getenv("AI_FLOORPLAN_PROFESSIONAL_ANALYSIS", "true").lower() not in {"0", "false", "no"}
 AI_REQUIRE_PROFESSIONAL_2D = os.getenv("AI_REQUIRE_PROFESSIONAL_2D", "true").lower() not in {"0", "false", "no"}
 AI_REQUIRE_RENDER_FIDELITY = os.getenv("AI_REQUIRE_RENDER_FIDELITY", "true").lower() not in {"0", "false", "no"}
+AI_ALLOW_GENERATIVE_2D_LAYOUTS = os.getenv("AI_ALLOW_GENERATIVE_2D_LAYOUTS", "false").lower() in {"1", "true", "yes"}
+AI_ALLOW_GENERATIVE_DEFINED_CLEANUP = os.getenv("AI_ALLOW_GENERATIVE_DEFINED_CLEANUP", "false").lower() in {"1", "true", "yes"}
 STEPS = [
     ("upload", "Upload planimetria"),
     ("analysis", "Analisi architettonica"),
@@ -2105,8 +2107,6 @@ def _room_shapes_from_analysis(job: Dict[str, Any], mode: str) -> List[tuple[str
             y = 34 + row * 112
             w = 118 if col < 2 else 104
             h = 94
-        if mode == "redistributed" and index == 0:
-            w = min(260, w + 54)
         label = str(room.get("name") or "Ambiente").strip()[:24]
         shapes.append((label, min(x, 386), min(y, 324), min(w, 190), min(h, 140), colors[index % len(colors)], confidence))
     return shapes
@@ -2168,10 +2168,7 @@ def _write_plan_png(
         box((x, y2, x + w, y2 + h), fill, "#151515", 3)
         _draw_text(draw, ((x + 10) * scale, (y2 + 24) * scale), label, "#171717", font_room)
         _draw_text(draw, ((x + 10) * scale, (y2 + h - 20) * scale), f"conf. {int(conf * 100)}%", "#4b4b4b", font_small)
-    draw.line([(214 * scale, 256 * scale), (254 * scale, 256 * scale)], fill="#8b6c36", width=8 * scale)
-    draw.line([(322 * scale, 308 * scale), (322 * scale, 346 * scale)], fill="#8b6c36", width=8 * scale)
-    draw.line([(68 * scale, 88 * scale), (152 * scale, 88 * scale)], fill="#91a9b1", width=7 * scale)
-    draw.line([(356 * scale, 88 * scale), (422 * scale, 88 * scale)], fill="#91a9b1", width=7 * scale)
+    # Generic opening symbols are intentionally omitted: unverified marks become false doors/windows/balconies.
 
     box((448, 88, 528, 236), "#fffdfa", "#d1aa63", 2)
     _draw_text(draw, (458 * scale, 110 * scale), "Legenda", "#111111", font_room)
@@ -2183,7 +2180,7 @@ def _write_plan_png(
     checks = (brief or {}).get("approval_checklist") or []
     line = " | ".join(str(item) for item in checks[:3]) or disclaimer
     _draw_text(draw, (44 * scale, 418 * scale), line[:92], "#f5f0e8", font_small)
-    _draw_text(draw, (44 * scale, 442 * scale), disclaimer[:92], "#d1aa63", font_small)
+    _draw_text(draw, (44 * scale, 442 * scale), "Nessun balcone, apertura o muro portante inventato. " + disclaimer[:52], "#d1aa63", font_small)
 
     path = OUTPUT_DIR / f"{job_id}-{name}.png"
     image.save(path, "PNG", optimize=True)
@@ -3023,6 +3020,9 @@ def _redistributed_2d_prompt(job: Dict[str, Any]) -> str:
         "Use clean architectural drafting style, white/cream background, black wall lines, restrained material hatches, "
         "professional plan composition. Do not add rooms, doors, windows, balconies, stairs, second levels or volumes not "
         f"supported by the reference and this PLAN_DETAILS_JSON: {plan_details}. "
+        "STRICT_REJECTION_RULES: no balconies/terraces unless clearly visible in the uploaded plan; no kitchen cabinets, "
+        "appliances or counters inside bathrooms or service bathrooms; do not label any wall as load-bearing or structural "
+        "unless the source explicitly proves it; uncertain walls must be labelled only as verification required. "
         f"{professional_addendum} "
         "No logo, no watermark, no decorative fantasy elements."
     )
@@ -3038,6 +3038,9 @@ def _clean_defined_2d_prompt(job: Dict[str, Any]) -> str:
         "room relationships, walls, doors, windows, kitchen, bathrooms, stairs, balconies, access points and visible constraints. "
         f"Detected rooms to label only if supported: {rooms}. "
         f"Use this PLAN_DETAILS_JSON as the hard preservation contract: {plan_details}. "
+        "STRICT_REJECTION_RULES: no balconies/terraces unless clearly visible in the uploaded plan; no kitchen cabinets, "
+        "appliances or counters inside bathrooms or service bathrooms; do not label any wall as load-bearing or structural "
+        "unless the source explicitly proves it; uncertain walls must be labelled only as verification required. "
         f"{professional_addendum} "
         "Improve readability with sober lineweights, clean labels, compact legend and verification notes. "
         "Do not add, remove, enlarge, reduce or move any architectural element. No logo, no watermark, no decorative fantasy elements."
@@ -3047,6 +3050,7 @@ def _clean_defined_2d_prompt(job: Dict[str, Any]) -> str:
 async def _generate_clean_defined_2d_plan(db, job_id: str, job: Dict[str, Any], reference_url: Optional[str]) -> Optional[str]:
     if (
         not reference_url
+        or not AI_ALLOW_GENERATIVE_DEFINED_CLEANUP
         or _selected_image_provider() == "local"
         or (job.get("vision_analysis") or {}).get("is_fallback")
         or _safe_float((job.get("vision_analysis") or {}).get("confidence"), 0) < VISION_MIN_ACCEPTABLE_CONFIDENCE
@@ -3068,6 +3072,7 @@ async def _generate_clean_defined_2d_plan(db, job_id: str, job: Dict[str, Any], 
 async def _generate_redistributed_2d_plan(db, job_id: str, job: Dict[str, Any], reference_url: Optional[str]) -> Optional[str]:
     if (
         not reference_url
+        or not AI_ALLOW_GENERATIVE_2D_LAYOUTS
         or _selected_image_provider() == "local"
         or (job.get("vision_analysis") or {}).get("is_fallback")
         or _safe_float((job.get("vision_analysis") or {}).get("confidence"), 0) < VISION_MIN_ACCEPTABLE_CONFIDENCE
@@ -3256,6 +3261,8 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
     )
     if mode == "redistributed":
         redistributed_url = await _generate_redistributed_2d_plan(db, job_id, job, reference_url)
+        generated_with = "generative_ai_image" if redistributed_url else "deterministic_safe_plan"
+        redistributed_url = redistributed_url or _plan_svg(job_id, job, "redistributed")
         if not redistributed_url:
             await _hold_for_plan_verification(
                 db,
@@ -3270,8 +3277,16 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
             job_id,
             "redistributed_2d_plan",
             image_url=redistributed_url,
-            text_content="Nuova distribuzione preliminare con perimetro e aperture principali mantenute.",
-            json_content=_proposal_json("redistributed", job),
+            text_content=(
+                "Bozza 2D tecnica vincolata alla lettura della planimetria: non aggiunge balconi, aperture, locali o muri portanti non verificati."
+                if generated_with == "deterministic_safe_plan"
+                else "Nuova distribuzione preliminare generata con AI immagine: richiede controllo staff prima di render e cliente."
+            ),
+            json_content={
+                **_proposal_json("redistributed", job),
+                "generated_with": generated_with,
+                "approval_required_before_client": True,
+            },
         )
     return True
 

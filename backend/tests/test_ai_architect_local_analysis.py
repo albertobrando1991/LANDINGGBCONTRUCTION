@@ -121,6 +121,59 @@ def test_plan_details_json_contains_render_contract():
     assert "stanze nuove non presenti nel JSON" in details["render_contract"]["must_not_add"]
 
 
+def test_generativa_2d_disabled_by_default_for_professional_safety():
+    assert svc.AI_ALLOW_GENERATIVE_2D_LAYOUTS is False
+    assert svc.AI_ALLOW_GENERATIVE_DEFINED_CLEANUP is False
+
+
+def test_redistributed_safe_plan_does_not_stretch_detected_room():
+    job = {
+        "style_selected": "Moderno luxury",
+        "vision_analysis": {
+            "detected_rooms": [
+                {
+                    "name": "Zona living",
+                    "confidence": 0.9,
+                    "bounding_box": {"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.2},
+                }
+            ]
+        },
+    }
+
+    clean = svc._room_shapes_from_analysis(job, "clean")
+    redistributed = svc._room_shapes_from_analysis(job, "redistributed")
+
+    assert redistributed[0][3] == clean[0][3]
+
+
+def test_redistributed_2d_prompt_rejects_known_hallucinations():
+    analysis = svc._safe_mode_analysis_json(
+        {
+            "plan_type_selected": "existing_state",
+            "project_goal": "Ristrutturazione completa",
+            "priorities": ["open space"],
+            "sqm": 80,
+            "uploaded_file_path": "missing.pdf",
+            "original_filename": "planimetria.pdf",
+        },
+        "test",
+    )
+    job = {
+        "plan_type_selected": "existing_state",
+        "plan_type_detected": "existing_state",
+        "vision_analysis": analysis,
+        "priorities": ["open space"],
+        "style_selected": "Moderno luxury",
+        "project_goal": "Ristrutturazione completa",
+    }
+
+    prompt = svc._redistributed_2d_prompt(job)
+
+    assert "no balconies/terraces unless clearly visible" in prompt
+    assert "no kitchen cabinets" in prompt
+    assert "do not label any wall as load-bearing" in prompt
+
+
 def test_defined_project_contract_locks_uploaded_layout():
     analysis = svc._safe_mode_analysis_json(
         {
