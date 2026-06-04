@@ -46,6 +46,34 @@ const GOALS = [
   "Hospitality/B&B",
 ];
 
+const PROJECT_VARIANTS = [
+  {
+    id: "conservative",
+    label: "Conservativa",
+    detail: "Minimi interventi, rischio tecnico e costi controllati.",
+  },
+  {
+    id: "premium_suite",
+    label: "Premium suite",
+    detail: "Suite matrimoniale, bagno padronale e valore percepito alto.",
+  },
+  {
+    id: "investment",
+    label: "Investimento",
+    detail: "Spazi flessibili, affittabilita e ROI.",
+  },
+  {
+    id: "family",
+    label: "Family",
+    detail: "Camere vere, contenimento e lavanderia funzionale.",
+  },
+  {
+    id: "smart_working",
+    label: "Smart working",
+    detail: "Studio forte, ospiti flessibili e living ordinato.",
+  },
+];
+
 const PRIORITIES = [
   "piu spazio",
   "piu luce",
@@ -72,6 +100,7 @@ const PROCESS_STEPS = [
 const initialForm = {
   file: null,
   planType: "auto",
+  projectVariant: "premium_suite",
   style: "Moderno luxury",
   goal: "Ristrutturazione completa",
   priorities: ["piu luce", "open space", "immagine luxury"],
@@ -124,6 +153,7 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
   const outputs = job?.outputs || [];
   const analysis = latest(outputs, "analysis");
   const professionalOutput = latest(outputs, "professional_floorplan");
+  const automationOutput = latest(outputs, "floor_plan_automation");
   const clean2d = latest(outputs, "clean_2d_plan");
   const redistributed2d = latest(outputs, "redistributed_2d_plan");
   const topdown = latest(outputs, "topdown_3d_plan");
@@ -136,6 +166,11 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
   const optimizationStrategy =
     professionalFloorplan.optimization_strategy || [];
   const floorplanBrief = professionalFloorplan.floorplan_2d || {};
+  const floorPlanAutomation =
+    job?.floor_plan_automation || automationOutput?.json_content || {};
+  const selectedAutomationVariant =
+    floorPlanAutomation.variant_generation?.selected_variant || {};
+  const pipelineGate = floorPlanAutomation.pipeline_gate || {};
   const analysisBusy = ["queued", "processing", "analysis_failed"].includes(
     job?.status,
   );
@@ -177,7 +212,13 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
 
   const canGoNext = () => {
     if (step === 1)
-      return !!form.file && !!form.planType && !!form.style && !!form.goal;
+      return (
+        !!form.file &&
+        !!form.planType &&
+        !!form.projectVariant &&
+        !!form.style &&
+        !!form.goal
+      );
     return true;
   };
 
@@ -188,6 +229,7 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
       const payload = new FormData();
       payload.append("planimetria", form.file);
       payload.append("plan_type_selected", form.planType);
+      payload.append("project_variant_selected", form.projectVariant);
       payload.append("style_selected", form.style);
       payload.append("project_goal", form.goal);
       payload.append("priorities", JSON.stringify(form.priorities));
@@ -357,7 +399,7 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                   <label className="block rounded-2xl border-2 border-dashed border-stroke bg-bg/60 px-6 py-10 cursor-pointer hover:border-brand transition-colors">
                     <input
                       type="file"
-                      accept=".pdf,.png,.jpg,.jpeg,.webp"
+                      accept=".pdf,.png,.jpg,.jpeg,.webp,.dwg,.dxf,.ifc"
                       className="hidden"
                       onChange={(e) =>
                         update({ file: e.target.files?.[0] || null })
@@ -368,7 +410,7 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                       {form.file ? form.file.name : "Upload planimetria"}
                     </p>
                     <p className="font-body text-xs text-fog text-center mt-2">
-                      PDF, PNG, JPG, JPEG, WEBP
+                      PDF, PNG, JPG, JPEG, WEBP, DWG, DXF, IFC
                     </p>
                   </label>
 
@@ -422,6 +464,35 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                           >
                             {goal}
                           </ToggleButton>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">
+                        Variante da generare
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {PROJECT_VARIANTS.map((variant) => (
+                          <button
+                            key={variant.id}
+                            type="button"
+                            onClick={() =>
+                              update({ projectVariant: variant.id })
+                            }
+                            className={`text-left rounded-2xl border px-4 py-4 transition-colors ${
+                              form.projectVariant === variant.id
+                                ? "border-brand bg-brand/10"
+                                : "border-stroke bg-bg hover:border-brand"
+                            }`}
+                          >
+                            <span className="block font-display text-xs font-semibold uppercase text-ink">
+                              {variant.label}
+                            </span>
+                            <span className="block font-body text-xs text-fog mt-1 leading-relaxed">
+                              {variant.detail}
+                            </span>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -519,6 +590,39 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                       style={{ width: `${job?.progress_percentage || 0}%` }}
                     />
                   </div>
+
+                  {(selectedAutomationVariant.label || job?.project_variant_selected) && (
+                    <div className="mb-6 rounded-2xl border border-stroke bg-bg p-4">
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div>
+                          <p className="font-display uppercase text-[10px] text-fog">
+                            Variante scelta
+                          </p>
+                          <p className="font-display uppercase text-xs text-ink mt-1">
+                            {selectedAutomationVariant.label ||
+                              job?.project_variant_selected}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-display uppercase text-[10px] text-fog">
+                            Semaforo
+                          </p>
+                          <p className="font-display uppercase text-xs text-ink mt-1">
+                            {pipelineGate.status || "In analisi"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-display uppercase text-[10px] text-fog">
+                            Varianti generate
+                          </p>
+                          <p className="font-display uppercase text-xs text-ink mt-1">
+                            {floorPlanAutomation.variant_generation
+                              ?.generated_variant_count || 1}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {analysisBusy && (
                     <div className="mb-6 rounded-2xl border border-brand/40 bg-brand/10 p-4">
@@ -852,6 +956,48 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {(selectedAutomationVariant.label || pipelineGate.status) && (
+                    <div className="mt-6 rounded-2xl border border-stroke bg-bg p-5">
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">
+                        Contratto automazione
+                      </p>
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <div className="rounded-xl border border-stroke bg-surface p-4">
+                          <p className="font-display uppercase text-[10px] text-fog">
+                            Variante scelta
+                          </p>
+                          <p className="font-display uppercase text-sm text-ink mt-1">
+                            {selectedAutomationVariant.label ||
+                              job?.project_variant_selected ||
+                              "Da definire"}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-stroke bg-surface p-4">
+                          <p className="font-display uppercase text-[10px] text-fog">
+                            Semaforo
+                          </p>
+                          <p className="font-display uppercase text-sm text-ink mt-1">
+                            {pipelineGate.status || "Da verificare"}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-stroke bg-surface p-4">
+                          <p className="font-display uppercase text-[10px] text-fog">
+                            Varianti generate
+                          </p>
+                          <p className="font-display uppercase text-sm text-ink mt-1">
+                            {floorPlanAutomation.variant_generation
+                              ?.generated_variant_count || 1}
+                          </p>
+                        </div>
+                      </div>
+                      {pipelineGate.reason && (
+                        <p className="font-body text-xs text-fog mt-3 leading-relaxed">
+                          {pipelineGate.reason}
+                        </p>
+                      )}
                     </div>
                   )}
 

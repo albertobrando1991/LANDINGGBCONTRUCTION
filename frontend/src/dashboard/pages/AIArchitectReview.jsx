@@ -105,6 +105,7 @@ export default function AIArchitectReview() {
   const outputs = selectedJob?.outputs || [];
   const analysis = latest(outputs, "analysis");
   const professionalOutput = latest(outputs, "professional_floorplan");
+  const automationOutput = latest(outputs, "floor_plan_automation");
   const clean2d = latest(outputs, "clean_2d_plan");
   const redistributed2d = latest(outputs, "redistributed_2d_plan");
   const topdown = latest(outputs, "topdown_3d_plan");
@@ -121,6 +122,11 @@ export default function AIArchitectReview() {
   const optimizationStrategy =
     professionalFloorplan.optimization_strategy || [];
   const floorplanBrief = professionalFloorplan.floorplan_2d || {};
+  const floorPlanAutomation =
+    selectedJob?.floor_plan_automation || automationOutput?.json_content || {};
+  const selectedAutomationVariant =
+    floorPlanAutomation.variant_generation?.selected_variant || {};
+  const pipelineGate = floorPlanAutomation.pipeline_gate || {};
   const status = STATUS[selectedJob?.status] || STATUS.queued;
 
   const counts = useMemo(() => {
@@ -231,9 +237,14 @@ export default function AIArchitectReview() {
                           <div className="font-display uppercase text-xs text-ink truncate">
                             {job.project_goal || "Progetto AI Architect"}
                           </div>
-                          <div className="font-body text-[11px] text-fog truncate mt-1">
-                            {job.original_filename}
-                          </div>
+                      <div className="font-body text-[11px] text-fog truncate mt-1">
+                        {job.original_filename}
+                      </div>
+                      {job.project_variant_selected && (
+                        <div className="font-body text-[11px] text-brand truncate mt-1">
+                          Variante {job.project_variant_selected}
+                        </div>
+                      )}
                         </div>
                         <span
                           className={`shrink-0 rounded-full px-2 py-1 font-display text-[9px] uppercase ${meta.cls}`}
@@ -282,6 +293,14 @@ export default function AIArchitectReview() {
                     <p className="font-body text-sm text-fog mt-1">
                       {selectedJob.original_filename}
                     </p>
+                    {(selectedAutomationVariant.label ||
+                      selectedJob.project_variant_selected) && (
+                      <p className="font-body text-xs text-brand mt-2">
+                        Variante scelta:{" "}
+                        {selectedAutomationVariant.label ||
+                          selectedJob.project_variant_selected}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {report?.image_url && (
@@ -353,6 +372,44 @@ export default function AIArchitectReview() {
                     <p className="font-body text-xs text-fog mt-3">
                       {concept.text_content}
                     </p>
+                  )}
+                  {(selectedAutomationVariant.label || pipelineGate.status) && (
+                    <div className="mt-4 rounded-xl border border-stroke bg-bg p-3">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <div className="font-display uppercase text-[9px] text-fog">
+                            Variante
+                          </div>
+                          <div className="font-display uppercase text-xs text-ink mt-1">
+                            {selectedAutomationVariant.label ||
+                              selectedJob.project_variant_selected ||
+                              "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="font-display uppercase text-[9px] text-fog">
+                            Semaforo
+                          </div>
+                          <div className="font-display uppercase text-xs text-ink mt-1">
+                            {pipelineGate.status || "-"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="font-display uppercase text-[9px] text-fog">
+                            Varianti
+                          </div>
+                          <div className="font-display uppercase text-xs text-ink mt-1">
+                            {floorPlanAutomation.variant_generation
+                              ?.generated_variant_count || 1}
+                          </div>
+                        </div>
+                      </div>
+                      {pipelineGate.reason && (
+                        <p className="font-body text-xs text-fog mt-2 leading-relaxed">
+                          {pipelineGate.reason}
+                        </p>
+                      )}
+                    </div>
                   )}
                   {(optimizationStrategy.length > 0 ||
                     floorplanBrief.approval_checklist?.length > 0) && (
