@@ -518,6 +518,7 @@ async def reanalyze_ai_architect_job(job_id: str, background_tasks: BackgroundTa
         "job_id": job_id,
         "output_type": {"$in": [
             "analysis",
+            "professional_floorplan",
             "plan_details",
             "clean_2d_plan",
             "redistributed_2d_plan",
@@ -540,6 +541,7 @@ async def reanalyze_ai_architect_job(job_id: str, background_tasks: BackgroundTa
                 "review_status": "pending",
                 "review_required": ai_architect_service.REQUIRE_REVIEW_BEFORE_RENDERS,
                 "vision_analysis": None,
+                "professional_floorplan": None,
                 "adapter": f"analysis:{ai_architect_service.CLAUDE_VISION_MODEL}|text:{ai_architect_service.CLAUDE_TEXT_MODEL}|image:{ai_architect_service._selected_image_provider()}",
                 "analysis_provider": "anthropic" if ai_architect_service._anthropic_api_key() else ("openrouter" if ai_architect_service._openrouter_api_key() else "professional-safe-mode"),
                 "analysis_model": ai_architect_service.CLAUDE_VISION_MODEL if ai_architect_service._anthropic_api_key() else (ai_architect_service.OPENROUTER_VISION_MODEL if ai_architect_service._openrouter_api_key() else "gb-safe-delivery-v1"),

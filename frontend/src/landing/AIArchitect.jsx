@@ -123,12 +123,19 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
 
   const outputs = job?.outputs || [];
   const analysis = latest(outputs, "analysis");
+  const professionalOutput = latest(outputs, "professional_floorplan");
   const clean2d = latest(outputs, "clean_2d_plan");
   const redistributed2d = latest(outputs, "redistributed_2d_plan");
   const topdown = latest(outputs, "topdown_3d_plan");
   const advice = latest(outputs, "advice");
   const report = latest(outputs, "pdf_report");
   const renders = byType(outputs, "room_render");
+  const professionalFloorplan =
+    job?.professional_floorplan || professionalOutput?.json_content || {};
+  const technicalFindings = professionalFloorplan.technical_findings || [];
+  const optimizationStrategy =
+    professionalFloorplan.optimization_strategy || [];
+  const floorplanBrief = professionalFloorplan.floorplan_2d || {};
   const analysisBusy = ["queued", "processing", "analysis_failed"].includes(
     job?.status,
   );
@@ -654,6 +661,52 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                               />
                             </div>
                           )}
+                          {(optimizationStrategy.length > 0 ||
+                            floorplanBrief.approval_checklist?.length > 0) && (
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              {optimizationStrategy.length > 0 && (
+                                <div className="rounded-xl border border-stroke bg-bg p-4">
+                                  <p className="font-display font-semibold uppercase text-[10px] tracking-wider text-brand mb-2">
+                                    Strategia 2D
+                                  </p>
+                                  <div className="space-y-2">
+                                    {optimizationStrategy
+                                      .slice(0, 3)
+                                      .map((item, index) => (
+                                        <p
+                                          key={`${item.title}-${index}`}
+                                          className="font-body text-xs leading-relaxed text-fog"
+                                        >
+                                          <span className="text-ink font-semibold">
+                                            {item.title}
+                                          </span>{" "}
+                                          {item.expected_effect}
+                                        </p>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
+                              {floorplanBrief.approval_checklist?.length > 0 && (
+                                <div className="rounded-xl border border-warning/35 bg-warning/10 p-4">
+                                  <p className="font-display font-semibold uppercase text-[10px] tracking-wider text-warning mb-2">
+                                    Checklist approvazione
+                                  </p>
+                                  <div className="space-y-1">
+                                    {floorplanBrief.approval_checklist
+                                      .slice(0, 5)
+                                      .map((item) => (
+                                        <p
+                                          key={item}
+                                          className="font-body text-xs leading-relaxed text-fog"
+                                        >
+                                          {item}
+                                        </p>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <div className="flex flex-wrap gap-3 mt-4">
                             <button
                               type="button"
@@ -796,6 +849,34 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                                 {render.room_name}
                               </p>
                             </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {technicalFindings.length > 0 && (
+                    <div className="mt-6 rounded-2xl border border-stroke bg-bg p-5">
+                      <p className="font-display font-semibold uppercase text-sm text-ink mb-3">
+                        Verifiche tecniche preliminari
+                      </p>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {technicalFindings.slice(0, 4).map((finding, index) => (
+                          <div
+                            key={`${finding.title}-${index}`}
+                            className="rounded-xl border border-stroke bg-surface p-4"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-display uppercase text-xs text-ink">
+                                {finding.title}
+                              </p>
+                              <span className="rounded-full bg-brand/10 px-2 py-1 font-display text-[9px] uppercase text-brand">
+                                {finding.severity}
+                              </span>
+                            </div>
+                            <p className="font-body text-xs text-fog leading-relaxed mt-2">
+                              {finding.recommendation}
+                            </p>
                           </div>
                         ))}
                       </div>

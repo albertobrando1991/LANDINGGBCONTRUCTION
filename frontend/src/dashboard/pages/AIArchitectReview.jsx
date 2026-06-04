@@ -104,6 +104,7 @@ export default function AIArchitectReview() {
 
   const outputs = selectedJob?.outputs || [];
   const analysis = latest(outputs, "analysis");
+  const professionalOutput = latest(outputs, "professional_floorplan");
   const clean2d = latest(outputs, "clean_2d_plan");
   const redistributed2d = latest(outputs, "redistributed_2d_plan");
   const topdown = latest(outputs, "topdown_3d_plan");
@@ -114,6 +115,12 @@ export default function AIArchitectReview() {
     selectedJob?.processed_file_url || selectedJob?.uploaded_file_url;
   const analysisJson =
     analysis?.json_content || selectedJob?.vision_analysis || {};
+  const professionalFloorplan =
+    selectedJob?.professional_floorplan || professionalOutput?.json_content || {};
+  const technicalFindings = professionalFloorplan.technical_findings || [];
+  const optimizationStrategy =
+    professionalFloorplan.optimization_strategy || [];
+  const floorplanBrief = professionalFloorplan.floorplan_2d || {};
   const status = STATUS[selectedJob?.status] || STATUS.queued;
 
   const counts = useMemo(() => {
@@ -347,6 +354,43 @@ export default function AIArchitectReview() {
                       {concept.text_content}
                     </p>
                   )}
+                  {(optimizationStrategy.length > 0 ||
+                    floorplanBrief.approval_checklist?.length > 0) && (
+                    <div className="mt-4 grid gap-3">
+                      {optimizationStrategy.slice(0, 3).map((item, index) => (
+                        <div
+                          key={`${item.title}-${index}`}
+                          className="rounded-xl border border-stroke bg-bg p-3"
+                        >
+                          <div className="font-display uppercase text-xs text-ink">
+                            {item.title}
+                          </div>
+                          <p className="font-body text-xs text-fog mt-1 leading-relaxed">
+                            {item.rationale}
+                          </p>
+                        </div>
+                      ))}
+                      {floorplanBrief.approval_checklist?.length > 0 && (
+                        <div className="rounded-xl border border-warning/40 bg-warning/10 p-3">
+                          <div className="font-display uppercase text-xs text-warning mb-2">
+                            Checklist staff
+                          </div>
+                          <div className="grid gap-1">
+                            {floorplanBrief.approval_checklist
+                              .slice(0, 5)
+                              .map((item) => (
+                                <p
+                                  key={item}
+                                  className="font-body text-xs text-fog"
+                                >
+                                  {item}
+                                </p>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="rounded-2xl border border-stroke bg-surface p-5 space-y-4">
@@ -416,6 +460,33 @@ export default function AIArchitectReview() {
                       )}
                     </div>
                   </div>
+                  {technicalFindings.length > 0 && (
+                    <div>
+                      <p className="font-display uppercase text-xs text-ink mb-2">
+                        Verifiche tecniche
+                      </p>
+                      <div className="space-y-2">
+                        {technicalFindings.slice(0, 5).map((finding, index) => (
+                          <div
+                            key={`${finding.title}-${index}`}
+                            className="rounded-xl border border-stroke bg-bg p-3"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-display uppercase text-xs text-ink">
+                                {finding.title}
+                              </span>
+                              <span className="rounded-full bg-brand/10 px-2 py-1 font-display text-[9px] uppercase text-brand">
+                                {finding.severity}
+                              </span>
+                            </div>
+                            <p className="font-body text-xs text-fog mt-1 leading-relaxed">
+                              {finding.recommendation}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

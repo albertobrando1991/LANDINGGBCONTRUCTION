@@ -3,6 +3,7 @@ import base64
 import hashlib
 import html
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -18,6 +19,12 @@ from bson import ObjectId
 from fastapi import HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from engines.professional_floorplan import (
+    build_professional_floorplan_package,
+    professional_2d_prompt_addendum,
+    professional_advice_text,
+    render_prompt_addendum,
+)
 from predictive_engine import calcola_preventivo
 
 try:
@@ -62,6 +69,8 @@ UPLOAD_DIR = STORAGE_DIR / "uploads"
 OUTPUT_DIR = STORAGE_DIR / "outputs"
 for directory in (UPLOAD_DIR, OUTPUT_DIR):
     directory.mkdir(parents=True, exist_ok=True)
+
+logger = logging.getLogger("gb.ai_architect")
 
 
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
@@ -118,6 +127,9 @@ OPENAI_IMAGE_SIZE_PLAN = os.getenv("OPENAI_IMAGE_SIZE_PLAN", "1536x1024")
 OPENAI_IMAGE_SIZE_RENDER = os.getenv("OPENAI_IMAGE_SIZE_RENDER", "1536x1024")
 OPENAI_IMAGE_TIMEOUT = int(os.getenv("OPENAI_IMAGE_TIMEOUT", "180"))
 OPENAI_IMAGES_ENABLED = os.getenv("AI_ARCHITECT_USE_OPENAI_IMAGES", "true").lower() not in {"0", "false", "no"}
+AI_FLOORPLAN_PROFESSIONAL_ANALYSIS = os.getenv("AI_FLOORPLAN_PROFESSIONAL_ANALYSIS", "true").lower() not in {"0", "false", "no"}
+AI_REQUIRE_PROFESSIONAL_2D = os.getenv("AI_REQUIRE_PROFESSIONAL_2D", "true").lower() not in {"0", "false", "no"}
+AI_REQUIRE_RENDER_FIDELITY = os.getenv("AI_REQUIRE_RENDER_FIDELITY", "true").lower() not in {"0", "false", "no"}
 STEPS = [
     ("upload", "Upload planimetria"),
     ("analysis", "Analisi architettonica"),
@@ -558,6 +570,7 @@ async def create_job(
         "error_message": None,
         "adapter": f"analysis:{CLAUDE_VISION_MODEL}|text:{CLAUDE_TEXT_MODEL}|image:{_selected_image_provider()}",
         "vision_analysis": None,
+        "professional_floorplan": None,
         "analysis_provider": "anthropic" if _anthropic_api_key() else ("openrouter" if _openrouter_api_key() else "professional-safe-mode"),
         "analysis_model": CLAUDE_VISION_MODEL if _anthropic_api_key() else (OPENROUTER_VISION_MODEL if _openrouter_api_key() else "gb-safe-delivery-v1"),
         "analysis_cache_hit": False,
@@ -691,6 +704,37 @@ async def _record_quality_gate(
         "timestamp": now_iso(),
     }
     await db.ai_architect_quality_logs.insert_one(doc)
+
+
+def _professional_package(job: Dict[str, Any]) -> Dict[str, Any]:
+    if not AI_FLOORPLAN_PROFESSIONAL_ANALYSIS:
+        return {}
+    try:
+        return build_professional_floorplan_package(job)
+    except Exception as exc:
+        logger.warning("Professional floorplan package failed: %s", exc)
+        return {}
+
+
+async def _persist_professional_package(db, job_id: str, job: Dict[str, Any]) -> Dict[str, Any]:
+    package = _professional_package(job)
+    if not package:
+        return {}
+    await _set_job(db, job_id, professional_floorplan=package)
+    existing = await db.ai_architect_outputs.find_one(
+        {"job_id": job_id, "output_type": "professional_floorplan"},
+        sort=[("created_at", -1)],
+    )
+    if not existing:
+        await _add_output(
+            db,
+            job_id,
+            "professional_floorplan",
+            text_content=package.get("summary"),
+            json_content=package,
+        )
+    job["professional_floorplan"] = package
+    return package
 
 
 def _vision_gate_score(analysis: Dict[str, Any]) -> tuple[float, Dict[str, Any]]:
@@ -1978,6 +2022,7 @@ def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
     rooms = ", ".join(room.get("name", "") for room in _analysis_rooms(job, min_confidence=0.45)) or "ambienti rilevati dalla planimetria"
     disclaimer = (job.get("vision_analysis") or {}).get("dynamic_disclaimer") or ""
     plan_details = _plan_details_for_prompt(job, mode)
+    render_addendum = render_prompt_addendum(job.get("professional_floorplan")) if AI_REQUIRE_RENDER_FIDELITY else ""
     fidelity_rule = (
         "The uploaded plan is already a defined project: preserve it exactly. Do not redesign, redistribute, "
         "move, add or remove any wall, room, door, window, bathroom, kitchen, stair, balcony or access. "
@@ -1993,6 +2038,7 @@ def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
         f"Detected rooms from the vision analysis: {rooms}. "
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
         f"stairs, balconies, extra levels or volumes not allowed by the JSON: {plan_details}. "
+        f"{render_addendum} "
         f"Interior style: {job.get('style_selected') or 'Su misura GB Construction'}. "
         f"Client priorities: {priorities}. Use high-end materials, realistic natural and artificial "
         "lighting, elegant construction-company presentation quality. No text, no dimensions, no logo, no watermark. "
@@ -2006,6 +2052,7 @@ def _room_prompt(job: Dict[str, Any], room_name: str) -> str:
     room_evidence = room_match.get("evidence") if room_match else "room selected from generated floor-plan concept"
     plan_details = _plan_details_for_prompt(job, "redistributed" if _should_redistribute(job) else "defined")
     defined_mode = _is_defined_project_mode(job)
+    render_addendum = render_prompt_addendum(job.get("professional_floorplan")) if AI_REQUIRE_RENDER_FIDELITY else ""
     fidelity_rule = (
         "The uploaded plan is a defined project and is layout-locked: keep the exact room position, walls, "
         "openings and circulation from the reference. Do not create a different room shape or viewpoint that "
@@ -2020,6 +2067,7 @@ def _room_prompt(job: Dict[str, Any], room_name: str) -> str:
         f"Vision evidence for this room: {room_evidence}. "
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
         f"stairs, balconies, extra levels, extra bathrooms or volumes not allowed by the JSON: {plan_details}. "
+        f"{render_addendum} "
         f"Interior style: {job.get('style_selected') or 'Su misura GB Construction'}. "
         f"Client priorities: {priorities}. Use premium materials, curated lighting, realistic depth, "
         "elegant construction and interior-design mood, high-end Italian renovation quality. "
@@ -2093,12 +2141,13 @@ def _write_plan_png(
     title: str,
     rooms: List[tuple[str, int, int, int, int, str, float]],
     disclaimer: str,
+    brief: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     if PILImage is None or ImageDraw is None:
         return None
     scale = 3
-    width, height = 480 * scale, 420 * scale
-    image = PILImage.new("RGB", (width, height), "#101010")
+    width, height = 560 * scale, 500 * scale
+    image = PILImage.new("RGB", (width, height), "#f7f4ee")
     draw = ImageDraw.Draw(image)
     try:
         font_title = ImageFont.truetype("arial.ttf", 18 * scale)
@@ -2110,17 +2159,31 @@ def _write_plan_png(
     def box(coords, fill, outline=None, width_px=1):
         draw.rectangle([int(v * scale) for v in coords], fill=fill, outline=outline, width=width_px * scale)
 
-    box((20, 18, 460, 392), "#f5f0e8", "#d1aa63", 5)
+    box((18, 18, 542, 482), "#f7f4ee", "#1b1b1b", 2)
+    _draw_text(draw, (32 * scale, 42 * scale), title[:58], "#111111", font_title)
+    _draw_text(draw, (34 * scale, 66 * scale), "Tavola preliminare GB Construction - non valida per esecuzione", "#7b6b55", font_small)
+    box((32, 88, 432, 376), "#fffdfa", "#111111", 4)
     for label, x, y, w, h, fill, conf in rooms:
-        box((x, y, x + w, y + h), fill, "#151515", 3)
-        _draw_text(draw, ((x + 10) * scale, (y + 24) * scale), label, "#171717", font_room)
-        _draw_text(draw, ((x + 10) * scale, (y + h - 20) * scale), f"conf. {int(conf * 100)}%", "#4b4b4b", font_small)
-    draw.line([(214 * scale, 198 * scale), (254 * scale, 198 * scale)], fill="#8b6c36", width=8 * scale)
-    draw.line([(322 * scale, 250 * scale), (322 * scale, 288 * scale)], fill="#8b6c36", width=8 * scale)
-    draw.line([(68 * scale, 18 * scale), (152 * scale, 18 * scale)], fill="#91a9b1", width=7 * scale)
-    draw.line([(356 * scale, 18 * scale), (422 * scale, 18 * scale)], fill="#91a9b1", width=7 * scale)
-    _draw_text(draw, (28 * scale, 400 * scale), title[:52], "#d1aa63", font_title)
-    _draw_text(draw, (270 * scale, 402 * scale), disclaimer[:58], "#cfc7b8", font_small)
+        y2 = y + 58
+        box((x, y2, x + w, y2 + h), fill, "#151515", 3)
+        _draw_text(draw, ((x + 10) * scale, (y2 + 24) * scale), label, "#171717", font_room)
+        _draw_text(draw, ((x + 10) * scale, (y2 + h - 20) * scale), f"conf. {int(conf * 100)}%", "#4b4b4b", font_small)
+    draw.line([(214 * scale, 256 * scale), (254 * scale, 256 * scale)], fill="#8b6c36", width=8 * scale)
+    draw.line([(322 * scale, 308 * scale), (322 * scale, 346 * scale)], fill="#8b6c36", width=8 * scale)
+    draw.line([(68 * scale, 88 * scale), (152 * scale, 88 * scale)], fill="#91a9b1", width=7 * scale)
+    draw.line([(356 * scale, 88 * scale), (422 * scale, 88 * scale)], fill="#91a9b1", width=7 * scale)
+
+    box((448, 88, 528, 236), "#fffdfa", "#d1aa63", 2)
+    _draw_text(draw, (458 * scale, 110 * scale), "Legenda", "#111111", font_room)
+    legend = (brief or {}).get("legend_items") or ["muri", "aperture", "verifiche"]
+    for index, item in enumerate(legend[:4]):
+        _draw_text(draw, (458 * scale, (138 + index * 22) * scale), f"- {str(item)[:18]}", "#4b4b4b", font_small)
+
+    box((32, 394, 528, 462), "#111111", "#111111", 1)
+    checks = (brief or {}).get("approval_checklist") or []
+    line = " | ".join(str(item) for item in checks[:3]) or disclaimer
+    _draw_text(draw, (44 * scale, 418 * scale), line[:92], "#f5f0e8", font_small)
+    _draw_text(draw, (44 * scale, 442 * scale), disclaimer[:92], "#d1aa63", font_small)
 
     path = OUTPUT_DIR / f"{job_id}-{name}.png"
     image.save(path, "PNG", optimize=True)
@@ -2130,7 +2193,9 @@ def _write_plan_png(
 def _plan_svg(job_id: str, job: Dict[str, Any], mode: str) -> str:
     palette = _style_palette(job.get("style_selected") or "")
     analysis = job.get("vision_analysis") or {}
-    title = "Concept 2D preliminare da Vision AI" if mode == "redistributed" else "Planimetria 2D da analisi Vision"
+    professional = job.get("professional_floorplan") or _professional_package(job)
+    floorplan_brief = professional.get("floorplan_2d") or {}
+    title = floorplan_brief.get("title") or ("Concept 2D preliminare da Vision AI" if mode == "redistributed" else "Planimetria 2D da analisi Vision")
     rooms = _room_shapes_from_analysis(job, mode)
     if not rooms:
         title = "Bozza 2D provvisoria - verifica richiesta"
@@ -2146,7 +2211,7 @@ def _plan_svg(job_id: str, job: Dict[str, Any], mode: str) -> str:
         for label, x, y, w, h, fill, conf in rooms
     )
     disclaimer = analysis.get("dynamic_disclaimer") or "Output preliminare da verificare con tecnico abilitato."
-    png_url = _write_plan_png(job_id, f"{mode}-2d-plan", title, rooms, disclaimer)
+    png_url = _write_plan_png(job_id, f"{mode}-2d-plan", title, rooms, floorplan_brief.get("disclaimer") or disclaimer, floorplan_brief)
     if png_url:
         return png_url
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 420">
@@ -2230,6 +2295,16 @@ def _render_svg(job_id: str, job: Dict[str, Any], room_name: str, index: int) ->
 
 
 def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
+    professional = job.get("professional_floorplan") or _professional_package(job)
+    floorplan_2d = professional.get("floorplan_2d") or {}
+    professional_payload = {
+        "summary": professional.get("summary"),
+        "technical_findings": professional.get("technical_findings") or [],
+        "optimization_strategy": professional.get("optimization_strategy") or [],
+        "approval_checklist": floorplan_2d.get("approval_checklist") or [],
+        "change_summary": floorplan_2d.get("change_summary") or [],
+        "drafting_requirements": floorplan_2d.get("drafting_requirements") or [],
+    }
     detected_rooms = [
         {
             "name": room.get("name"),
@@ -2246,9 +2321,10 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
     if mode == "redistributed":
         return {
             "concept": "redistribuzione_preliminare",
-            "constraints_respected": ["perimetro invariato", "finestre mantenute", "accessi principali mantenuti"],
+            "constraints_respected": floorplan_2d.get("constraints_respected") or ["perimetro invariato", "finestre mantenute", "accessi principali mantenuti"],
             "rooms": detected_rooms,
-            "technical_note": "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
+            "technical_note": floorplan_2d.get("disclaimer") or "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
+            "professional_floorplan": professional_payload,
         }
     if mode == "source_reference":
         return {
@@ -2257,6 +2333,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
             "constraints_respected": ["file allegato mantenuto come riferimento vincolante"],
             "rooms": detected_rooms,
             "technical_note": "Nessun layout reinterpretato: serve verifica prima di procedere con render o redistribuzione.",
+            "professional_floorplan": professional_payload,
         }
     return {
         "concept": "progetto_definito_mantenuto_identico",
@@ -2267,12 +2344,16 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
             "render successivi vincolati alla planimetria allegata",
         ],
         "rooms": detected_rooms,
-        "technical_note": "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
+        "technical_note": floorplan_2d.get("disclaimer") or "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
+        "professional_floorplan": professional_payload,
     }
 
 
 def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
     analysis = job.get("vision_analysis") or {}
+    professional = job.get("professional_floorplan") or _professional_package(job)
+    professional_render_contract = professional.get("render_contract") or {}
+    professional_floorplan = professional.get("floorplan_2d") or {}
     defined_mode = mode == "defined" or _is_defined_project_mode(job)
     rooms = []
     for room in _analysis_rooms(job, min_confidence=0.2):
@@ -2328,6 +2409,8 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
             "testi, quote, loghi, watermark",
         ]
         layout_lock = "preserve_perimeter_and_detected_constraints"
+    must_preserve = list(dict.fromkeys(must_preserve + (professional_render_contract.get("must_preserve") or [])))
+    must_not_add = list(dict.fromkeys(must_not_add + (professional_render_contract.get("must_not_add") or [])))
     return {
         "schema": "gb-ai-architect-plan-details-v1",
         "mode": mode,
@@ -2343,6 +2426,15 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
                 "quote reali",
                 "aperture non chiaramente leggibili",
             ],
+            "negative_prompt": professional_render_contract.get("negative_prompt"),
+            "fidelity_notes": professional_render_contract.get("fidelity_notes") or [],
+        },
+        "professional_floorplan": {
+            "summary": professional.get("summary"),
+            "mode": professional.get("mode"),
+            "technical_findings": professional.get("technical_findings") or [],
+            "optimization_strategy": professional.get("optimization_strategy") or [],
+            "floorplan_2d": professional_floorplan,
         },
         "rooms": rooms,
         "detected_elements": {
@@ -2387,6 +2479,14 @@ def _advice_text(job: Dict[str, Any], mode: str) -> str:
     style = job.get("style_selected") or "Su misura GB Construction"
     goal = job.get("project_goal") or "Ristrutturazione completa"
     priorities = ", ".join(job.get("priorities") or []) or "priorita da definire"
+    professional = professional_advice_text(
+        job.get("professional_floorplan"),
+        style=style,
+        goal=goal,
+        priorities=priorities,
+    )
+    if professional:
+        return professional
     if mode == "redistributed":
         intro = "La proposta riduce le aree di passaggio e valorizza una zona giorno piu ampia e luminosa."
     else:
@@ -2510,6 +2610,7 @@ def _claude_advice_text_sync(job: Dict[str, Any], mode: str) -> str:
         "opportunities": (analysis.get("architectural_analysis") or {}).get("opportunities") or [],
         "risks_or_uncertainties": (analysis.get("architectural_analysis") or {}).get("risks_or_uncertainties") or [],
         "measurement_notes": analysis.get("measurement_notes"),
+        "professional_floorplan": job.get("professional_floorplan") or _professional_package(job),
         "gb_pricing": _gb_pricing_context(job.get("estimate")),
     }
     system_prompt = (
@@ -2522,8 +2623,9 @@ def _claude_advice_text_sync(job: Dict[str, Any], mode: str) -> str:
     )
     user_prompt = (
         "Scrivi una sintesi progettuale pronta per il report AI Architect. Usa massimo 220 parole, tono premium ma tecnico. "
-        "Restituisci solo testo piano in 1 o 2 paragrafi. Includi: sintesi del layout, priorita cliente, interventi consigliati, "
-        "materiali e illuminazione, verifiche obbligatorie prima dell'esecutivo, invito alla consulenza GB Construction. "
+        "Restituisci solo testo piano in 1 o 2 paragrafi. Devi usare il campo professional_floorplan come fonte primaria "
+        "per criticita, strategia 2D, checklist e vincoli render. Includi: sintesi del layout, priorita cliente, interventi consigliati, "
+        "motivazione tecnica concreta, materiali e illuminazione, verifiche obbligatorie prima dell'esecutivo, invito alla consulenza GB Construction. "
         "Se citi costi, budget o investimento, usa ESCLUSIVAMENTE le cifre del campo gb_pricing (preventivo predittivo "
         "GB Construction), presentandole come stime di massima da confermare in sopralluogo; non inventare altri importi e "
         "non citare costi se gb_pricing e assente. "
@@ -2911,6 +3013,7 @@ def _redistributed_2d_prompt(job: Dict[str, Any]) -> str:
     priorities = ", ".join(job.get("priorities") or []) or "funzionalita, luce naturale e valore percepito"
     rooms = ", ".join(room.get("name", "") for room in _analysis_rooms(job, min_confidence=0.45)) or "ambienti rilevati dalla planimetria"
     plan_details = _plan_details_for_prompt(job, "redistributed")
+    professional_addendum = professional_2d_prompt_addendum(job.get("professional_floorplan")) if AI_REQUIRE_PROFESSIONAL_2D else ""
     return (
         "Create a precise professional 2D architectural renovation layout from the uploaded floor plan reference. "
         "This is NOT a free creative sketch. Preserve the exact external perimeter, building footprint, window positions, "
@@ -2920,8 +3023,46 @@ def _redistributed_2d_prompt(job: Dict[str, Any]) -> str:
         "Use clean architectural drafting style, white/cream background, black wall lines, restrained material hatches, "
         "professional plan composition. Do not add rooms, doors, windows, balconies, stairs, second levels or volumes not "
         f"supported by the reference and this PLAN_DETAILS_JSON: {plan_details}. "
+        f"{professional_addendum} "
         "No logo, no watermark, no decorative fantasy elements."
     )
+
+
+def _clean_defined_2d_prompt(job: Dict[str, Any]) -> str:
+    rooms = ", ".join(room.get("name", "") for room in _analysis_rooms(job, min_confidence=0.45)) or "ambienti rilevati dalla planimetria"
+    plan_details = _plan_details_for_prompt(job, "defined")
+    professional_addendum = professional_2d_prompt_addendum(job.get("professional_floorplan")) if AI_REQUIRE_PROFESSIONAL_2D else ""
+    return (
+        "Create a clean professional 2D architectural drafting version of the uploaded floor plan. "
+        "This is a DEFINED PROJECT cleanup, not a redistribution. Preserve exactly the same exterior perimeter, "
+        "room relationships, walls, doors, windows, kitchen, bathrooms, stairs, balconies, access points and visible constraints. "
+        f"Detected rooms to label only if supported: {rooms}. "
+        f"Use this PLAN_DETAILS_JSON as the hard preservation contract: {plan_details}. "
+        f"{professional_addendum} "
+        "Improve readability with sober lineweights, clean labels, compact legend and verification notes. "
+        "Do not add, remove, enlarge, reduce or move any architectural element. No logo, no watermark, no decorative fantasy elements."
+    )
+
+
+async def _generate_clean_defined_2d_plan(db, job_id: str, job: Dict[str, Any], reference_url: Optional[str]) -> Optional[str]:
+    if (
+        not reference_url
+        or _selected_image_provider() == "local"
+        or (job.get("vision_analysis") or {}).get("is_fallback")
+        or _safe_float((job.get("vision_analysis") or {}).get("confidence"), 0) < VISION_MIN_ACCEPTABLE_CONFIDENCE
+    ):
+        return None
+    try:
+        return await _generate_ai_image(
+            job_id,
+            "clean-defined-2d-plan-ai",
+            _clean_defined_2d_prompt(job),
+            OPENAI_IMAGE_SIZE_PLAN,
+            [reference_url],
+        )
+    except Exception as exc:
+        await _log_non_blocking_error(db, job_id, "clean_defined_2d_plan", exc)
+        return None
 
 
 async def _generate_redistributed_2d_plan(db, job_id: str, job: Dict[str, Any], reference_url: Optional[str]) -> Optional[str]:
@@ -2995,6 +3136,16 @@ async def process_job(db, job_id: str):
                 "analysis_cache_hit": cache_hit,
             },
         )
+        job = {
+            **job,
+            "plan_type_detected": analysis["plan_type_detected"],
+            "plan_type_confidence": analysis["confidence"],
+            "vision_analysis": analysis,
+            "analysis_provider": analysis.get("model_provider"),
+            "analysis_model": analysis.get("model_name"),
+            "analysis_cache_hit": cache_hit,
+        }
+        await _persist_professional_package(db, job_id, job)
         await _add_output(
             db,
             job_id,
@@ -3078,12 +3229,18 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
                 "Non e disponibile una preview immagine della planimetria allegata: non posso garantire un layout identico.",
             )
             return False
+        clean_defined_url = await _generate_clean_defined_2d_plan(db, job_id, job, reference_url)
+        clean_url = clean_defined_url or reference_url
         await _add_output(
             db,
             job_id,
             "clean_2d_plan",
-            image_url=reference_url,
-            text_content="Stato di progetto mantenuto identico alla planimetria allegata. Da questa base verranno sviluppati top-down e render.",
+            image_url=clean_url,
+            text_content=(
+                "Planimetria di progetto ripulita in 2D professionale con layout bloccato."
+                if clean_defined_url
+                else "Stato di progetto mantenuto identico alla planimetria allegata. Da questa base verranno sviluppati top-down e render."
+            ),
             json_content=_proposal_json("defined", job),
         )
         return True
@@ -3126,6 +3283,11 @@ async def _continue_render_generation(db, job_id: str):
     if not job:
         return
     _ensure_professional_analysis(job)
+    if AI_FLOORPLAN_PROFESSIONAL_ANALYSIS and not job.get("professional_floorplan"):
+        await _persist_professional_package(db, job_id, job)
+        job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+        if not job:
+            return
     mode = "redistributed" if _should_redistribute(job) else "defined"
     force_safe_visuals = bool(job.get("force_safe_visuals"))
     image_provider_label = "safe-vector" if force_safe_visuals else _selected_image_provider()
@@ -3403,6 +3565,11 @@ async def _continue_generation(db, job_id: str, *, require_review: bool = REQUIR
     if not job:
         return
     _ensure_professional_analysis(job)
+    if AI_FLOORPLAN_PROFESSIONAL_ANALYSIS and not job.get("professional_floorplan"):
+        await _persist_professional_package(db, job_id, job)
+        job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+        if not job:
+            return
     mode = "redistributed" if _should_redistribute(job) else "defined"
 
     layout_ready = await _generate_layout_outputs(db, job_id, job, mode)
@@ -3474,15 +3641,22 @@ async def confirm_job(db, job_id: str, plan_type_selected: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job AI Architect non trovato")
     _ensure_professional_analysis(job)
+    vision_analysis = dict(job.get("vision_analysis") or {})
+    if vision_analysis:
+        vision_analysis["plan_type_detected"] = plan_type_selected
+        vision_analysis["recommended_action"] = "keep_layout" if plan_type_selected == "defined_project" else "redistribute"
     await _set_job(
         db,
         job_id,
         plan_type_selected=plan_type_selected,
         plan_type_detected=plan_type_selected,
         plan_type_confidence=0.8,
+        vision_analysis=vision_analysis or job.get("vision_analysis"),
+        professional_floorplan=None,
         requires_confirmation=False,
         status="processing",
     )
+    await db.ai_architect_outputs.delete_many({"job_id": job_id, "output_type": "professional_floorplan"})
     await _continue_generation(db, job_id)
 
 
@@ -3633,6 +3807,8 @@ async def complete_job_safe_mode(db, job_id: str) -> Dict[str, Any]:
         text_content=_analysis_text(analysis, job),
         json_content=analysis,
     )
+    job = {**job, "vision_analysis": analysis, "plan_type_detected": analysis["plan_type_detected"]}
+    await _persist_professional_package(db, job_id, job)
     await _continue_generation(db, job_id, require_review=False)
     return await get_job_payload(db, job_id)
 
