@@ -166,7 +166,7 @@ export default function Configurator({ onComplete }) {
   return (
     <section
       id="configuratore"
-      className="relative min-h-screen overflow-x-clip bg-bg px-5 py-20 sm:px-6"
+      className="relative min-h-screen touch-pan-y overflow-x-clip bg-bg px-5 py-20 sm:px-6"
     >
       <div className="absolute inset-0 blueprint-grid opacity-[0.03]" />
       <div className="relative mx-auto w-full max-w-5xl min-w-0">
@@ -202,7 +202,7 @@ export default function Configurator({ onComplete }) {
           </div>
         </div>
 
-        <div className="relative min-h-[420px]">
+        <div className="relative min-h-[640px] md:min-h-[460px]">
           {loading ? (
             <div className="absolute inset-0 flex items-center justify-center">
               <motion.p
@@ -266,6 +266,7 @@ export default function Configurator({ onComplete }) {
                     <div className="max-w-xl mx-auto px-4">
                       <Slider
                         data-testid="slider-mq"
+                        className="touch-pan-y"
                         value={[cfg.mq]}
                         min={30}
                         max={500}

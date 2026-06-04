@@ -99,6 +99,20 @@ html.is-scroll-locked body {
   touch-action: none;
 }
 
+#configuratore {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+#configuratore button,
+#configuratore [role="button"] {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
