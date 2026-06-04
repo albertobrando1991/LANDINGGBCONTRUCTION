@@ -27,7 +27,8 @@ const STORY_OVERLAYS = [
     key: "potential",
     start: 0.05,
     exit: 0.235,
-    placement: "items-start justify-center text-center pt-[16vh] px-6",
+    placement:
+      "items-start justify-center text-center pt-[13svh] px-5 md:pt-[16vh] md:px-6",
     eyebrow: "GB Construction",
     lines: ["Ristrutturiamo il potenziale", "della tua casa"],
   },
@@ -35,7 +36,8 @@ const STORY_OVERLAYS = [
     key: "analysis",
     start: 0.245,
     exit: 0.445,
-    placement: "items-end justify-start text-left pb-[16vh] pl-[8vw] pr-6",
+    placement:
+      "items-end justify-start text-left pb-[17svh] px-5 md:pb-[16vh] md:pl-[8vw] md:pr-6",
     eyebrow: "Analisi tecnica",
     lines: ["Prima di costruire,", "analizziamo ogni spazio."],
   },
@@ -43,7 +45,8 @@ const STORY_OVERLAYS = [
     key: "layout",
     start: 0.47,
     exit: 0.685,
-    placement: "items-center justify-end text-right pr-[8vw] pl-6",
+    placement:
+      "items-end justify-center text-center pb-[11svh] px-5 md:items-center md:justify-end md:text-right md:pb-0 md:pr-[8vw] md:pl-6",
     eyebrow: "Nuova distribuzione",
     lines: ["Proporzioni, luce,", "funzione per ogni metro."],
   },
@@ -51,7 +54,8 @@ const STORY_OVERLAYS = [
     key: "site",
     start: 0.705,
     exit: 0.895,
-    placement: "items-center justify-start text-left pl-[8vw] pr-6",
+    placement:
+      "items-end justify-start text-left pb-[17svh] px-5 md:items-center md:pb-0 md:pl-[8vw] md:pr-6",
     eyebrow: "Cantiere organizzato",
     lines: ["Metodo, materiali,", "dettagli sotto controllo."],
   },
@@ -70,24 +74,26 @@ function splitWords(lines) {
   return lines.map((line) => line.split(" ").filter(Boolean));
 }
 
-function createFrameSources({ basePath, step }) {
+function createFrameSources({ basePath, step, preferPngEndpoints = true }) {
   const frames = [];
 
   for (let frame = 1; frame <= TOTAL_FRAMES; frame += step) {
     if (frame === 1) {
+      const fallbackUrl = `${basePath}/frame_0001.jpg`;
       frames.push({
         number: frame,
-        url: `${basePath}/frame_start.png`,
-        fallbackUrl: `${basePath}/frame_0001.jpg`,
+        url: preferPngEndpoints ? `${basePath}/frame_start.png` : fallbackUrl,
+        fallbackUrl,
       });
       continue;
     }
 
     if (frame === TOTAL_FRAMES) {
+      const fallbackUrl = `${basePath}/frame_${padFrame(TOTAL_FRAMES)}.jpg`;
       frames.push({
         number: frame,
-        url: `${basePath}/frame_final.png`,
-        fallbackUrl: `${basePath}/frame_${padFrame(TOTAL_FRAMES)}.jpg`,
+        url: preferPngEndpoints ? `${basePath}/frame_final.png` : fallbackUrl,
+        fallbackUrl,
       });
       continue;
     }
@@ -100,10 +106,11 @@ function createFrameSources({ basePath, step }) {
   }
 
   if (frames[frames.length - 1]?.number !== TOTAL_FRAMES) {
+    const fallbackUrl = `${basePath}/frame_${padFrame(TOTAL_FRAMES)}.jpg`;
     frames.push({
       number: TOTAL_FRAMES,
-      url: `${basePath}/frame_final.png`,
-      fallbackUrl: `${basePath}/frame_${padFrame(TOTAL_FRAMES)}.jpg`,
+      url: preferPngEndpoints ? `${basePath}/frame_final.png` : fallbackUrl,
+      fallbackUrl,
     });
   }
 
@@ -141,16 +148,18 @@ export default function ImmersiveHero() {
 
     return isMobile
       ? {
-          basePath: `${PUBLIC_MEDIA_BASE}/frames_heron_uhd`,
+          basePath: `${PUBLIC_MEDIA_BASE}/frames_heron_mobile`,
           step: 2,
-          dprCap: 1.5,
-          initialBuffer: 8,
-          prefetchRadius: 3,
-          maxDecodedFrames: 12,
+          preferPngEndpoints: false,
+          dprCap: 1.7,
+          initialBuffer: 5,
+          prefetchRadius: 2,
+          maxDecodedFrames: 8,
         }
       : {
           basePath: `${PUBLIC_MEDIA_BASE}/frames_heron_uhd`,
           step: 1,
+          preferPngEndpoints: true,
           dprCap: 2,
           initialBuffer: 10,
           prefetchRadius: 4,
@@ -463,7 +472,7 @@ export default function ImmersiveHero() {
           invalidateOnRefresh: true,
           snap: false,
           onUpdate: (self) => {
-            const finalVisible = self.progress > FINAL_FRAME_HOLD_START + 0.035;
+            const finalVisible = self.progress > FINAL_FRAME_HOLD_START + 0.02;
             if (finalContentRef.current) {
               finalContentRef.current.style.pointerEvents = finalVisible
                 ? "auto"
@@ -546,23 +555,23 @@ export default function ImmersiveHero() {
       tl.to(
         planRef.current,
         { autoAlpha: 1, y: 0, scale: 1, filter: "blur(0px)", duration: 0.09 },
-        0.2,
+        0.34,
       );
       tl.to(
         planImage,
-        { "--plan-reveal": "100%", duration: 0.3, ease: "none" },
-        0.24,
+        { "--plan-reveal": "100%", duration: 0.38, ease: "none" },
+        0.38,
       );
       tl.to(
         planScan,
-        { xPercent: 120, autoAlpha: 0.42, duration: 0.24, ease: "none" },
-        0.25,
+        { xPercent: 120, autoAlpha: 0.42, duration: 0.3, ease: "none" },
+        0.4,
       );
-      tl.to(planScan, { autoAlpha: 0, duration: 0.05, ease: "none" }, 0.49);
+      tl.to(planScan, { autoAlpha: 0, duration: 0.05, ease: "none" }, 0.7);
       tl.to(
         planDetails,
         { autoAlpha: 1, y: 0, stagger: 0.018, duration: 0.09 },
-        0.44,
+        0.58,
       );
       tl.to(
         planRef.current,
@@ -573,7 +582,7 @@ export default function ImmersiveHero() {
           duration: 0.1,
           ease: "power2.in",
         },
-        0.64,
+        0.78,
       );
 
       STORY_OVERLAYS.forEach((overlay) => {
@@ -615,8 +624,8 @@ export default function ImmersiveHero() {
         finalContentRef.current?.querySelectorAll(".hero-word");
       tl.to(
         finalContentRef.current,
-        { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.07 },
-        FINAL_FRAME_HOLD_START + 0.025,
+        { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.08 },
+        FINAL_FRAME_HOLD_START + 0.012,
       );
       if (finalWords?.length) {
         tl.to(
@@ -626,9 +635,9 @@ export default function ImmersiveHero() {
             y: 0,
             filter: "blur(0px)",
             stagger: 0.006,
-            duration: 0.045,
+            duration: 0.065,
           },
-          FINAL_FRAME_HOLD_START + 0.045,
+          FINAL_FRAME_HOLD_START + 0.022,
         );
       }
     }, wrapRef);
@@ -711,10 +720,14 @@ export default function ImmersiveHero() {
       ?.scrollIntoView({ behavior: "smooth" });
 
   return (
-    <section id="hero" ref={wrapRef} className="relative h-[1100vh] bg-bg">
+    <section
+      id="hero"
+      ref={wrapRef}
+      className="relative h-[1000svh] bg-bg md:h-[1100vh]"
+    >
       <div
         ref={pinRef}
-        className="sticky top-0 h-screen overflow-hidden bg-black"
+        className="sticky top-0 h-[100svh] overflow-hidden bg-black md:h-screen"
       >
         <div
           ref={canvasLayerRef}
@@ -728,7 +741,7 @@ export default function ImmersiveHero() {
             ref={canvasRef}
             role="img"
             aria-label="Sequenza cinematica di ristrutturazione GB Construction controllata dallo scroll"
-            className={`absolute inset-0 h-screen w-screen transition-opacity duration-700 ${
+            className={`absolute inset-0 h-[100svh] w-screen transition-opacity duration-700 md:h-screen ${
               firstFrameReady ? "opacity-100" : "opacity-0"
             }`}
           />
@@ -754,10 +767,10 @@ export default function ImmersiveHero() {
         <div className="absolute inset-0 blueprint-grid opacity-[0.045] mix-blend-screen animate-blueprint pointer-events-none" />
         <div
           ref={planRef}
-          className="absolute inset-0 z-10 hidden md:flex items-center justify-center px-8 pointer-events-none"
+          className="absolute inset-0 z-30 flex items-center justify-center px-4 pointer-events-none sm:px-6 md:px-8"
           aria-hidden
         >
-          <div className="floor-plan-board relative w-[min(78vw,980px)]">
+          <div className="floor-plan-board relative w-[min(92vw,440px)] md:w-[min(78vw,980px)]">
             <div className="floor-plan-board-header">
               <span>Progetto architettonico</span>
               <span>Zio Imma Napoli</span>
@@ -810,7 +823,7 @@ export default function ImmersiveHero() {
 
         <div
           ref={loadingRef}
-          className="absolute inset-0 z-20 bg-bg flex items-center justify-center px-6"
+          className="absolute inset-0 z-50 bg-bg flex items-center justify-center px-6"
         >
           <div className="w-full max-w-xs text-center">
             <p className="font-display uppercase tracking-[0.32em] text-xs text-brand mb-5">
@@ -833,7 +846,7 @@ export default function ImmersiveHero() {
 
         <div
           ref={hintRef}
-          className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center px-6 pointer-events-none"
+          className="absolute inset-0 z-30 flex flex-col items-center justify-center text-center px-6 pointer-events-none"
         >
           <div className="font-display font-semibold uppercase tracking-[0.18em] md:tracking-[0.3em] text-[10px] md:text-xs text-brand mb-4 max-w-[92vw]">
             GB Construction - Napoli &amp; Campania
@@ -854,13 +867,13 @@ export default function ImmersiveHero() {
           <div
             key={overlay.key}
             data-hero-overlay={overlay.key}
-            className={`absolute inset-0 z-10 flex ${overlay.placement} pointer-events-none`}
+            className={`absolute inset-0 z-20 flex ${overlay.placement} pointer-events-none md:z-30`}
           >
             <div className="max-w-[620px]">
               <p className="font-display font-semibold uppercase tracking-[0.28em] text-xs text-brand mb-4">
                 {overlay.eyebrow}
               </p>
-              <div className="font-display font-bold uppercase text-[clamp(2.2rem,7vw,6.4rem)] leading-[0.92] tracking-tight text-ink drop-shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
+              <div className="font-display font-bold uppercase text-[clamp(1.75rem,9.6vw,3.25rem)] md:text-[clamp(2.2rem,7vw,6.4rem)] leading-[0.98] md:leading-[0.92] tracking-normal text-ink drop-shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
                 {splitWords(overlay.lines).map((line, lineIndex) => (
                   <div key={`${overlay.key}-${lineIndex}`}>
                     {line.map((word, wordIndex) => (
@@ -879,7 +892,7 @@ export default function ImmersiveHero() {
         <div
           ref={finalContentRef}
           data-final-hero
-          className="absolute inset-0 z-20 flex items-center justify-center text-center px-6 pointer-events-none"
+          className="absolute inset-0 z-40 flex items-center justify-center text-center px-5 sm:px-6 pointer-events-none"
         >
           <div
             ref={finalParallaxRef}
@@ -889,10 +902,35 @@ export default function ImmersiveHero() {
                 "translate3d(var(--hero-text-px,0), var(--hero-text-py,0), 0)",
             }}
           >
-            <div className="font-display font-semibold uppercase tracking-[0.3em] text-xs text-brand mb-6">
+            <div className="font-display font-semibold uppercase tracking-[0.18em] md:tracking-[0.3em] text-[10px] md:text-xs text-brand mb-6">
               Preventivo smart GB - anteprima reale
             </div>
-            <h1 className="font-display font-bold uppercase text-5xl md:text-7xl lg:text-8xl leading-[0.92] tracking-tight text-ink drop-shadow-[0_24px_70px_rgba(0,0,0,0.62)]">
+            <h1 className="font-display font-bold uppercase text-[clamp(2.05rem,9.2vw,3.35rem)] leading-[0.98] tracking-normal text-ink drop-shadow-[0_24px_70px_rgba(0,0,0,0.62)] md:hidden">
+              {splitWords(["Questo costa", "ristrutturare", "casa tua."]).map(
+                (line, lineIndex, lines) => (
+                  <Fragment key={`final-mobile-${lineIndex}`}>
+                    <span className="block">
+                      {line.map((word, wordIndex) => (
+                        <Fragment key={`${word}-${wordIndex}`}>
+                          <span
+                            className={`hero-word inline-block ${
+                              word.toLowerCase().startsWith("ristrutturare")
+                                ? "text-brand"
+                                : ""
+                            }`}
+                          >
+                            {word}
+                          </span>
+                          {wordIndex < line.length - 1 ? " " : ""}
+                        </Fragment>
+                      ))}
+                    </span>
+                    {lineIndex < lines.length - 1 ? " " : ""}
+                  </Fragment>
+                ),
+              )}
+            </h1>
+            <h1 className="hidden font-display font-bold uppercase tracking-normal text-ink drop-shadow-[0_24px_70px_rgba(0,0,0,0.62)] md:block md:text-7xl md:leading-[0.92] lg:text-8xl">
               {splitWords(["Questo costa", "ristrutturare casa tua."]).map(
                 (line, lineIndex, lines) => (
                   <Fragment key={`final-${lineIndex}`}>
@@ -918,7 +956,7 @@ export default function ImmersiveHero() {
               )}
             </h1>
             <p
-              className="mt-7 font-body text-base md:text-lg font-semibold text-white/90 max-w-2xl mx-auto"
+              className="mt-7 font-body text-sm sm:text-base md:text-lg font-semibold text-white/90 max-w-2xl mx-auto"
               style={{ textShadow: "0 8px 28px rgba(0,0,0,0.92)" }}
             >
               <span className="block">
@@ -933,7 +971,7 @@ export default function ImmersiveHero() {
               <button
                 data-testid="hero-cta-stima"
                 onClick={scrollToConfig}
-                className="group bg-brand text-white rounded-full px-9 md:px-12 py-4 md:py-5 text-base md:text-lg font-display font-semibold uppercase tracking-wider inline-flex items-center gap-3 transition-transform hover:scale-105"
+                className="group bg-brand text-white rounded-full px-7 md:px-12 py-4 md:py-5 text-sm md:text-lg font-display font-semibold uppercase tracking-wider inline-flex items-center gap-3 transition-transform hover:scale-105"
                 style={{ boxShadow: "0 8px 32px rgba(198,40,40,0.35)" }}
               >
                 Avvia stima gratuita
