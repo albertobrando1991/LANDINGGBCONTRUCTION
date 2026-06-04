@@ -48,6 +48,16 @@ PIPELINE_STATI = [
 ]
 STATO_LABELS = dict(PIPELINE_STATI)
 VALID_LEVELS = {"essenziale", "premium", "luxury"}
+DEFAULT_CORS_ORIGIN_REGEX = (
+    r"https?://("
+    r"localhost|127\.0\.0\.1|"
+    r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+    r"172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|"
+    r"192\.168\.\d{1,3}\.\d{1,3}"
+    r"):3000"
+    r"|https://gb-construction(?:-[a-z0-9-]+)*\.vercel\.app"
+    r"|https://(?:[a-z0-9-]+\.)?gbconstruction\.it"
+)
 
 
 # ----------------------- Helpers -----------------------
@@ -1065,14 +1075,7 @@ app.add_middleware(
         ).split(",")
         if origin.strip() and origin.strip() != "*"
     ],
-    allow_origin_regex=(
-        r"https?://("
-        r"localhost|127\.0\.0\.1|"
-        r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
-        r"172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|"
-        r"192\.168\.\d{1,3}\.\d{1,3}"
-        r"):3000"
-    ),
+    allow_origin_regex=os.environ.get("CORS_ORIGIN_REGEX", DEFAULT_CORS_ORIGIN_REGEX),
     allow_methods=["*"],
     allow_headers=["*"],
 )
