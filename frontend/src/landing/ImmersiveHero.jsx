@@ -13,6 +13,7 @@ import { ASSETS } from "@/lib/assets";
 import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 
 gsap.registerPlugin(ScrollTrigger);
+ScrollTrigger.config({ ignoreMobileResize: true });
 
 const TOTAL_FRAMES = 190;
 const FINAL_FRAME_HOLD_START = 0.91;
@@ -118,6 +119,13 @@ function createFrameSources({ basePath, step, preferPngEndpoints = true }) {
   return frames;
 }
 
+function isMobileScrollViewport() {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 768px), (pointer: coarse)").matches
+  );
+}
+
 async function loadBitmap(src) {
   if ("createImageBitmap" in window && "fetch" in window) {
     const response = await fetch(src);
@@ -143,9 +151,7 @@ export default function ImmersiveHero() {
   );
 
   const frameSettings = useMemo(() => {
-    const isMobile =
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 768px)").matches;
+    const isMobile = isMobileScrollViewport();
 
     return isMobile
       ? {
@@ -153,9 +159,10 @@ export default function ImmersiveHero() {
           step: 2,
           preferPngEndpoints: false,
           dprCap: 1.7,
-          initialBuffer: 5,
-          prefetchRadius: 2,
-          maxDecodedFrames: 8,
+          initialBuffer: 14,
+          prefetchRadius: 5,
+          maxDecodedFrames: 16,
+          scrub: 0.35,
         }
       : {
           basePath: `${PUBLIC_MEDIA_BASE}/frames_heron_uhd`,
@@ -165,6 +172,7 @@ export default function ImmersiveHero() {
           initialBuffer: 10,
           prefetchRadius: 4,
           maxDecodedFrames: 14,
+          scrub: 1.15,
         };
   }, []);
 
@@ -198,6 +206,8 @@ export default function ImmersiveHero() {
   const scheduledFrameRef = useRef(0);
   const scheduledForceRef = useRef(false);
   const drawFrameRafRef = useRef(null);
+  const layoutSizeRef = useRef({ width: 0, height: 0 });
+  const scrollIdleRef = useRef(null);
   const mouseRef = useRef({ x: 0, y: 0 });
   const currentMouseRef = useRef({ x: 0, y: 0 });
   const drawFrameRef = useRef(() => {});
@@ -335,6 +345,8 @@ export default function ImmersiveHero() {
       const drawY = (height - drawHeight) / 2;
 
       ctx.clearRect(0, 0, width, height);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       ctx.drawImage(frame, drawX, drawY, drawWidth, drawHeight);
       currentFrameKeyRef.current = frameKey;
     },
@@ -377,9 +389,15 @@ export default function ImmersiveHero() {
     if (!canvas) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, frameSettings.dprCap);
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const layer = canvasLayerRef.current;
+    const pin = pinRef.current;
+    const width = Math.round(layer?.clientWidth || window.innerWidth);
+    const height = Math.round(
+      pin?.clientHeight || layer?.clientHeight || window.innerHeight,
+    );
     const ctx = canvas.getContext("2d");
+
+    if (!width || !height) return;
 
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
@@ -396,17 +414,65 @@ export default function ImmersiveHero() {
     const onResize = () => {
       clearTimeout(resizeTimerRef.current);
       resizeTimerRef.current = setTimeout(() => {
+        const previous = layoutSizeRef.current;
         resizeCanvas();
-        ScrollTrigger.refresh();
+        const next = {
+          width: Math.round(
+            canvasLayerRef.current?.clientWidth || window.innerWidth,
+          ),
+          height: Math.round(
+            pinRef.current?.clientHeight ||
+              canvasLayerRef.current?.clientHeight ||
+              window.innerHeight,
+          ),
+        };
+        const mobile = isMobileScrollViewport();
+        const widthChanged = Math.abs(next.width - previous.width) > 1;
+        const heightChanged = Math.abs(next.height - previous.height) > 96;
+        layoutSizeRef.current = next;
+
+        if (!mobile || widthChanged || heightChanged) {
+          ScrollTrigger.refresh();
+        }
       }, 160);
     };
 
+    layoutSizeRef.current = {
+      width: Math.round(
+        canvasLayerRef.current?.clientWidth || window.innerWidth,
+      ),
+      height: Math.round(
+        pinRef.current?.clientHeight ||
+          canvasLayerRef.current?.clientHeight ||
+          window.innerHeight,
+      ),
+    };
+
     window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
     return () => {
       clearTimeout(resizeTimerRef.current);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
     };
   }, [resizeCanvas]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      document.documentElement.classList.add("is-touch-scrolling");
+      clearTimeout(scrollIdleRef.current);
+      scrollIdleRef.current = setTimeout(() => {
+        document.documentElement.classList.remove("is-touch-scrolling");
+      }, 140);
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      clearTimeout(scrollIdleRef.current);
+      document.documentElement.classList.remove("is-touch-scrolling");
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -499,7 +565,7 @@ export default function ImmersiveHero() {
           trigger: wrapRef.current,
           start: "top top",
           end: "bottom bottom",
-          scrub: 1.15,
+          scrub: frameSettings.scrub,
           invalidateOnRefresh: true,
           snap: false,
           onUpdate: (self) => {
@@ -679,7 +745,7 @@ export default function ImmersiveHero() {
       clearTimeout(refresh);
       ctx.revert();
     };
-  }, [drawFrame, frameSources.length, scheduleDrawFrame]);
+  }, [drawFrame, frameSettings.scrub, frameSources.length, scheduleDrawFrame]);
 
   useEffect(() => {
     if (prefersReducedMotion) return undefined;
@@ -753,7 +819,7 @@ export default function ImmersiveHero() {
     <section
       id="hero"
       ref={wrapRef}
-      className="relative h-[1000svh] bg-bg md:h-[1100vh]"
+      className="relative h-[1250svh] bg-bg md:h-[1100vh]"
     >
       <div
         ref={pinRef}

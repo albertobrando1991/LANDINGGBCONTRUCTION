@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 
 /**
@@ -6,12 +6,48 @@ import Hls from "hls.js";
  * - .m3u8 → usa hls.js, oppure HLS nativo (Safari) se disponibile.
  * - .mp4/.webm → sorgente diretta.
  */
-export default function HlsVideo({ src, className = "", poster, ...rest }) {
+export default function HlsVideo({
+  src,
+  className = "",
+  poster,
+  autoPlay = true,
+  muted = true,
+  loop = true,
+  playsInline = true,
+  preload = "metadata",
+  lazy = true,
+  ...rest
+}) {
   const ref = useRef(null);
+  const [isNearViewport, setIsNearViewport] = useState(!lazy);
+  const [hasActivated, setHasActivated] = useState(!lazy);
 
   useEffect(() => {
     const video = ref.current;
-    if (!video || !src) return undefined;
+    if (!video || !lazy) return undefined;
+
+    if (typeof IntersectionObserver === "undefined") {
+      setIsNearViewport(true);
+      setHasActivated(true);
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const visible = entry.isIntersecting;
+        setIsNearViewport(visible);
+        if (visible) setHasActivated(true);
+      },
+      { rootMargin: "260px 0px", threshold: 0.08 },
+    );
+
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, [lazy]);
+
+  useEffect(() => {
+    const video = ref.current;
+    if (!video || !src || !hasActivated) return undefined;
 
     const isHls = src.includes(".m3u8");
     if (!isHls) {
@@ -35,18 +71,31 @@ export default function HlsVideo({ src, className = "", poster, ...rest }) {
     // Fallback finale
     video.src = src;
     return undefined;
-  }, [src]);
+  }, [hasActivated, src]);
+
+  useEffect(() => {
+    const video = ref.current;
+    if (!video || !hasActivated) return;
+
+    if (autoPlay && isNearViewport) {
+      const play = video.play();
+      if (play?.catch) play.catch(() => {});
+      return;
+    }
+
+    video.pause();
+  }, [autoPlay, hasActivated, isNearViewport]);
 
   return (
     <video
       ref={ref}
       className={className}
       poster={poster}
-      autoPlay
-      muted
-      loop
-      playsInline
-      preload="auto"
+      autoPlay={autoPlay}
+      muted={muted}
+      loop={loop}
+      playsInline={playsInline}
+      preload={preload}
       {...rest}
     />
   );

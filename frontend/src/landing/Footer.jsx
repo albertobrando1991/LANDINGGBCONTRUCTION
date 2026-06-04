@@ -1,4 +1,14 @@
-import { Instagram, Facebook, Linkedin, Youtube, MapPin, Phone, Mail, MessageCircle } from "lucide-react";
+import {
+  Instagram,
+  Facebook,
+  Linkedin,
+  Youtube,
+  MapPin,
+  Phone,
+  Mail,
+  MessageCircle,
+} from "lucide-react";
+import HlsVideo from "@/components/HlsVideo";
 import { ASSETS, WHATSAPP } from "@/lib/assets";
 
 const MARQUEE = "COSTRUIAMO VALORE · TRASFORMIAMO SPAZI · ";
@@ -6,13 +16,9 @@ const MARQUEE = "COSTRUIAMO VALORE · TRASFORMIAMO SPAZI · ";
 export default function Footer() {
   return (
     <footer className="relative bg-bg pt-20 pb-10 overflow-hidden border-t border-stroke">
-      <video
+      <HlsVideo
         className="absolute inset-0 w-full h-full object-cover scale-y-[-1] opacity-30"
         src={ASSETS.heroVideo}
-        autoPlay
-        muted
-        loop
-        playsInline
       />
       <div className="absolute inset-0 bg-black/75" />
 
@@ -38,39 +44,87 @@ export default function Footer() {
                 GB
               </div>
             </div>
-            <span className="font-display font-bold uppercase text-lg text-ink">GB Construction</span>
+            <span className="font-display font-bold uppercase text-lg text-ink">
+              GB Construction
+            </span>
           </div>
           <p className="font-display uppercase tracking-[0.2em] text-xs text-brand mb-3">
             Costruiamo valore. Trasformiamo spazi.
           </p>
           <p className="font-body text-sm text-fog">
-            Impresa di ristrutturazioni chiavi in mano a Napoli e in tutta la Campania.
-            Oltre 200 cantieri completati in 15 anni.
+            Impresa di ristrutturazioni chiavi in mano a Napoli e in tutta la
+            Campania. Oltre 200 cantieri completati in 15 anni.
           </p>
         </div>
 
         <div>
-          <h4 className="font-display font-semibold uppercase tracking-[0.15em] text-sm text-ink mb-4">Servizi</h4>
+          <h4 className="font-display font-semibold uppercase tracking-[0.15em] text-sm text-ink mb-4">
+            Servizi
+          </h4>
           <ul className="space-y-2 font-body text-sm text-fog">
-            {["Ristrutturazioni complete", "Ristrutturazione bagni", "Rifacimento impianti", "Cartongesso e controsoffitti", "Infissi e serramenti", "Chiavi in mano"].map((s) => (
-              <li key={s} className="hover:text-ink transition-colors cursor-pointer">{s}</li>
+            {[
+              "Ristrutturazioni complete",
+              "Ristrutturazione bagni",
+              "Rifacimento impianti",
+              "Cartongesso e controsoffitti",
+              "Infissi e serramenti",
+              "Chiavi in mano",
+            ].map((s) => (
+              <li
+                key={s}
+                className="hover:text-ink transition-colors cursor-pointer"
+              >
+                {s}
+              </li>
             ))}
           </ul>
         </div>
 
         <div>
-          <h4 className="font-display font-semibold uppercase tracking-[0.15em] text-sm text-ink mb-4">Contatti</h4>
+          <h4 className="font-display font-semibold uppercase tracking-[0.15em] text-sm text-ink mb-4">
+            Contatti
+          </h4>
           <ul className="space-y-3 font-body text-sm text-fog">
-            <li className="flex items-start gap-2"><MapPin className="w-4 h-4 text-brand mt-0.5" /> Via San Giacomo 35, 80013 Casalnuovo di Napoli (NA)</li>
-            <li className="flex items-center gap-2"><Phone className="w-4 h-4 text-brand" /> <a href="tel:+393896584125" className="hover:text-ink">+39 389 658 4125</a></li>
-            <li className="flex items-center gap-2"><MessageCircle className="w-4 h-4 text-brand" /> <a href={WHATSAPP} target="_blank" rel="noreferrer" className="hover:text-ink">WhatsApp Business</a></li>
-            <li className="flex items-center gap-2"><Mail className="w-4 h-4 text-brand" /> <a href="mailto:info@gbconstruction.it" className="hover:text-ink">info@gbconstruction.it</a></li>
+            <li className="flex items-start gap-2">
+              <MapPin className="w-4 h-4 text-brand mt-0.5" /> Via San Giacomo
+              35, 80013 Casalnuovo di Napoli (NA)
+            </li>
+            <li className="flex items-center gap-2">
+              <Phone className="w-4 h-4 text-brand" />{" "}
+              <a href="tel:+393896584125" className="hover:text-ink">
+                +39 389 658 4125
+              </a>
+            </li>
+            <li className="flex items-center gap-2">
+              <MessageCircle className="w-4 h-4 text-brand" />{" "}
+              <a
+                href={WHATSAPP}
+                target="_blank"
+                rel="noreferrer"
+                className="hover:text-ink"
+              >
+                WhatsApp Business
+              </a>
+            </li>
+            <li className="flex items-center gap-2">
+              <Mail className="w-4 h-4 text-brand" />{" "}
+              <a
+                href="mailto:info@gbconstruction.it"
+                className="hover:text-ink"
+              >
+                info@gbconstruction.it
+              </a>
+            </li>
           </ul>
         </div>
 
         <div>
-          <h4 className="font-display font-semibold uppercase tracking-[0.15em] text-sm text-ink mb-4">Newsletter</h4>
-          <p className="font-body text-sm text-fog mb-4">Ispirazioni progetti e bonus fiscali ogni mese.</p>
+          <h4 className="font-display font-semibold uppercase tracking-[0.15em] text-sm text-ink mb-4">
+            Newsletter
+          </h4>
+          <p className="font-body text-sm text-fog mb-4">
+            Ispirazioni progetti e bonus fiscali ogni mese.
+          </p>
           <div className="flex gap-2">
             <input
               type="email"
@@ -87,12 +141,24 @@ export default function Footer() {
       <div className="relative max-w-7xl mx-auto px-6 mt-14 pt-6 border-t border-stroke flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           {[
-            { Icon: Instagram, href: "https://www.instagram.com/gbconstructionsrl/" },
-            { Icon: Facebook, href: "https://www.facebook.com/gbconstructionsrls" },
+            {
+              Icon: Instagram,
+              href: "https://www.instagram.com/gbconstructionsrl/",
+            },
+            {
+              Icon: Facebook,
+              href: "https://www.facebook.com/gbconstructionsrls",
+            },
             { Icon: Linkedin, href: WHATSAPP },
             { Icon: Youtube, href: WHATSAPP },
           ].map(({ Icon, href }, i) => (
-            <a key={i} href={href} target="_blank" rel="noreferrer" className="text-fog hover:text-brand transition-colors">
+            <a
+              key={i}
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-fog hover:text-brand transition-colors"
+            >
               <Icon className="w-5 h-5" />
             </a>
           ))}
@@ -102,7 +168,8 @@ export default function Footer() {
           Sopralluoghi disponibili questa settimana
         </div>
         <div className="font-body text-xs text-fog text-center">
-          P.IVA · © 2026 GB Construction S.R.L.S. · Casalnuovo di Napoli (NA) · Privacy · Cookie
+          P.IVA · © 2026 GB Construction S.R.L.S. · Casalnuovo di Napoli (NA) ·
+          Privacy · Cookie
         </div>
       </div>
     </footer>

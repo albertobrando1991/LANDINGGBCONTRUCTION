@@ -70,11 +70,21 @@ function animateScrollTo(top, duration) {
     passive: true,
     once: true,
   });
+  window.addEventListener("touchmove", cancelOnUserInput, {
+    passive: true,
+    once: true,
+  });
+  window.addEventListener("keydown", cancelOnUserInput, {
+    passive: true,
+    once: true,
+  });
 
   activeCleanup = () => {
     root.classList.remove("is-programmatic-scroll");
     window.removeEventListener("wheel", cancelOnUserInput);
     window.removeEventListener("touchstart", cancelOnUserInput);
+    window.removeEventListener("touchmove", cancelOnUserInput);
+    window.removeEventListener("keydown", cancelOnUserInput);
   };
 
   const step = (now) => {

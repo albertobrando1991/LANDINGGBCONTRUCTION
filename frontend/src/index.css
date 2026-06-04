@@ -62,7 +62,21 @@ html.is-programmatic-scroll {
 
 @media (max-width: 767px) {
   html {
+    scroll-behavior: auto;
     scroll-padding-top: 72px;
+    overscroll-behavior-y: auto;
+  }
+
+  body {
+    overscroll-behavior-y: auto;
+  }
+
+  html.is-touch-scrolling .animate-blueprint,
+  html.is-touch-scrolling .animate-gradient-shift,
+  html.is-touch-scrolling .animate-marquee,
+  html.is-touch-scrolling .animate-pulse-dot,
+  html.is-touch-scrolling .animate-scroll-down {
+    animation-play-state: paused;
   }
 }
 
