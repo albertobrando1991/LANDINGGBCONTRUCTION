@@ -10,6 +10,7 @@ import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ArrowRight, ChevronDown } from "lucide-react";
 import { ASSETS } from "@/lib/assets";
+import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -194,6 +195,9 @@ export default function ImmersiveHero() {
   const currentFrameKeyRef = useRef("");
   const requestedFrameRef = useRef(0);
   const resizeTimerRef = useRef(null);
+  const scheduledFrameRef = useRef(0);
+  const scheduledForceRef = useRef(false);
+  const drawFrameRafRef = useRef(null);
   const mouseRef = useRef({ x: 0, y: 0 });
   const currentMouseRef = useRef({ x: 0, y: 0 });
   const drawFrameRef = useRef(() => {});
@@ -337,9 +341,36 @@ export default function ImmersiveHero() {
     [ensureFrame, frameSources.length, getNearestFrame, prefetchAround],
   );
 
+  const scheduleDrawFrame = useCallback(
+    (targetIndex, force = false) => {
+      scheduledFrameRef.current = targetIndex;
+      scheduledForceRef.current = scheduledForceRef.current || force;
+
+      if (drawFrameRafRef.current) return;
+
+      drawFrameRafRef.current = requestAnimationFrame(() => {
+        const nextFrame = scheduledFrameRef.current;
+        const shouldForce = scheduledForceRef.current;
+        drawFrameRafRef.current = null;
+        scheduledForceRef.current = false;
+        drawFrame(nextFrame, shouldForce);
+      });
+    },
+    [drawFrame],
+  );
+
   useEffect(() => {
-    drawFrameRef.current = drawFrame;
-  }, [drawFrame]);
+    drawFrameRef.current = scheduleDrawFrame;
+  }, [scheduleDrawFrame]);
+
+  useEffect(
+    () => () => {
+      if (drawFrameRafRef.current) {
+        cancelAnimationFrame(drawFrameRafRef.current);
+      }
+    },
+    [],
+  );
 
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -484,7 +515,7 @@ export default function ImmersiveHero() {
                 self.progress.toFixed(4),
               );
             }
-            drawFrame(Math.round(playheadRef.current.frame));
+            scheduleDrawFrame(Math.round(playheadRef.current.frame));
           },
         },
       });
@@ -495,7 +526,8 @@ export default function ImmersiveHero() {
           frame: frameSources.length - 1,
           duration: FINAL_FRAME_HOLD_START,
           ease: "none",
-          onUpdate: () => drawFrame(Math.round(playheadRef.current.frame)),
+          onUpdate: () =>
+            scheduleDrawFrame(Math.round(playheadRef.current.frame)),
         },
         0,
       );
@@ -506,7 +538,7 @@ export default function ImmersiveHero() {
           frame: frameSources.length - 1,
           duration: 1 - FINAL_FRAME_HOLD_START,
           ease: "none",
-          onUpdate: () => drawFrame(frameSources.length - 1),
+          onUpdate: () => scheduleDrawFrame(frameSources.length - 1),
         },
         FINAL_FRAME_HOLD_START,
       );
@@ -647,7 +679,7 @@ export default function ImmersiveHero() {
       clearTimeout(refresh);
       ctx.revert();
     };
-  }, [drawFrame, frameSources.length]);
+  }, [drawFrame, frameSources.length, scheduleDrawFrame]);
 
   useEffect(() => {
     if (prefersReducedMotion) return undefined;
@@ -715,9 +747,7 @@ export default function ImmersiveHero() {
   }, [drawFrame, initialBufferReady]);
 
   const scrollToConfig = () =>
-    document
-      .getElementById("configuratore")
-      ?.scrollIntoView({ behavior: "smooth" });
+    scheduleSmoothScrollToElement(document.getElementById("configuratore"));
 
   return (
     <section

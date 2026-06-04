@@ -52,15 +52,32 @@
 
 html {
   scroll-behavior: smooth;
+  overscroll-behavior-y: none;
 }
 
 body {
   margin: 0;
+  overflow-x: hidden;
+  overscroll-behavior-y: none;
+  touch-action: pan-y;
   background-color: hsl(var(--gb-bg));
   color: hsl(var(--gb-text));
   font-family: "Montserrat", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+html.is-scroll-locked,
+html.is-scroll-locked body {
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 ::selection {

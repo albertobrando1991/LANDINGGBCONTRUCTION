@@ -11,6 +11,7 @@ import Output from "@/landing/Output";
 import SecondChance from "@/landing/SecondChance";
 import Team from "@/landing/Team";
 import Footer from "@/landing/Footer";
+import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 
 export default function Landing() {
   const [loading, setLoading] = useState(true);
@@ -19,8 +20,11 @@ export default function Landing() {
   const [result, setResult] = useState(null);
   const flowRef = useRef(null);
 
-  const scrollFlow = () =>
-    setTimeout(() => flowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  const scrollFlow = () => {
+    setTimeout(() => {
+      scheduleSmoothScrollToElement(flowRef.current, { offset: 86 });
+    }, 80);
+  };
 
   const handleConfigDone = (cfg) => {
     setConfig(cfg);
@@ -68,8 +72,12 @@ export default function Landing() {
             onSkip={handleArchitectSkip}
           />
         )}
-        {phase === "gate" && <ContactGate config={config} onSubmit={handleGateSubmit} />}
-        {phase === "output" && <Output estimate={result?.estimate} aiProject={config?.aiArchitect} />}
+        {phase === "gate" && (
+          <ContactGate config={config} onSubmit={handleGateSubmit} />
+        )}
+        {phase === "output" && (
+          <Output estimate={result?.estimate} aiProject={config?.aiArchitect} />
+        )}
       </div>
 
       <SecondChance />

@@ -10,6 +10,20 @@ export default function LoadingScreen({ onDone }) {
   const raf = useRef(null);
 
   useEffect(() => {
+    const root = document.documentElement;
+    const previousScrollBehavior = root.style.scrollBehavior;
+
+    root.classList.add("is-scroll-locked");
+    root.style.scrollBehavior = "auto";
+    window.scrollTo(0, 0);
+
+    return () => {
+      root.classList.remove("is-scroll-locked");
+      root.style.scrollBehavior = previousScrollBehavior;
+    };
+  }, []);
+
+  useEffect(() => {
     const start = performance.now();
     const duration = 2200;
     const tick = (now) => {
@@ -27,7 +41,10 @@ export default function LoadingScreen({ onDone }) {
   }, []);
 
   useEffect(() => {
-    const id = setInterval(() => setWordIdx((i) => (i + 1) % WORDS.length), 900);
+    const id = setInterval(
+      () => setWordIdx((i) => (i + 1) % WORDS.length),
+      900,
+    );
     return () => clearInterval(id);
   }, []);
 

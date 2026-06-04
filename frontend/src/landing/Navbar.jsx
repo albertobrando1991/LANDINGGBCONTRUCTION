@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
+import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 
 const LINKS = [
   { label: "Home", id: "hero" },
@@ -15,14 +16,23 @@ export default function Navbar() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 100);
-    window.addEventListener("scroll", onScroll);
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        setScrolled(window.scrollY > 100);
+        ticking = false;
+      });
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   const scrollTo = (id, label) => {
     setActive(label);
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+    scheduleSmoothScrollToElement(document.getElementById(id));
   };
 
   return (
