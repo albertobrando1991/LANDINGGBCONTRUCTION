@@ -113,6 +113,22 @@ html.is-scroll-locked body {
   -webkit-tap-highlight-color: transparent;
 }
 
+.style-video-card img,
+.style-video-card video {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.style-video-card video {
+  opacity: 0;
+  transition: opacity 420ms ease;
+  will-change: opacity;
+}
+
+.style-video-card video[data-video-ready="true"] {
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

@@ -16,11 +16,18 @@ export default function HlsVideo({
   playsInline = true,
   preload = "metadata",
   lazy = true,
+  onLoadedData,
+  onCanPlay,
   ...rest
 }) {
   const ref = useRef(null);
   const [isNearViewport, setIsNearViewport] = useState(!lazy);
   const [hasActivated, setHasActivated] = useState(!lazy);
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    setIsReady(false);
+  }, [src]);
 
   useEffect(() => {
     const video = ref.current;
@@ -51,13 +58,21 @@ export default function HlsVideo({
 
     const isHls = src.includes(".m3u8");
     if (!isHls) {
-      video.src = src;
+      if (video.dataset.sourceUrl !== src) {
+        video.dataset.sourceUrl = src;
+        video.src = src;
+        video.load();
+      }
       return undefined;
     }
 
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       // HLS nativo (Safari / iOS)
-      video.src = src;
+      if (video.dataset.sourceUrl !== src) {
+        video.dataset.sourceUrl = src;
+        video.src = src;
+        video.load();
+      }
       return undefined;
     }
 
@@ -69,7 +84,11 @@ export default function HlsVideo({
     }
 
     // Fallback finale
-    video.src = src;
+    if (video.dataset.sourceUrl !== src) {
+      video.dataset.sourceUrl = src;
+      video.src = src;
+      video.load();
+    }
     return undefined;
   }, [hasActivated, src]);
 
@@ -86,9 +105,20 @@ export default function HlsVideo({
     video.pause();
   }, [autoPlay, hasActivated, isNearViewport]);
 
+  const handleLoadedData = (event) => {
+    setIsReady(true);
+    onLoadedData?.(event);
+  };
+
+  const handleCanPlay = (event) => {
+    setIsReady(true);
+    onCanPlay?.(event);
+  };
+
   return (
     <video
       ref={ref}
+      data-video-ready={isReady ? "true" : "false"}
       className={className}
       poster={poster}
       autoPlay={autoPlay}
@@ -96,6 +126,8 @@ export default function HlsVideo({
       loop={loop}
       playsInline={playsInline}
       preload={preload}
+      onLoadedData={handleLoadedData}
+      onCanPlay={handleCanPlay}
       {...rest}
     />
   );

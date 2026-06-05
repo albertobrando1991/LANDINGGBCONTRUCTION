@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Home,
@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import HlsVideo from "@/components/HlsVideo";
-import { STYLE_VIDEOS } from "@/lib/assets";
+import { STYLE_VIDEO_POSTERS, STYLE_VIDEOS } from "@/lib/assets";
 
 const TIPI = [
   { id: "appartamento", label: "Appartamento", Icon: Home },
@@ -99,6 +99,34 @@ export default function Configurator({ onComplete }) {
   const [microIdx] = useState(() => Math.floor(Math.random() * MICRO.length));
 
   const set = (patch) => setCfg((c) => ({ ...c, ...patch }));
+
+  useEffect(() => {
+    if (step < 4) return undefined;
+
+    const preloadedImages = STILI.map((style) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = STYLE_VIDEO_POSTERS[style];
+      return image;
+    });
+
+    const preloadedVideos = STILI.map((style) => {
+      const link = document.createElement("link");
+      link.rel = "preload";
+      link.as = "video";
+      link.type = "video/mp4";
+      link.href = STYLE_VIDEOS[style];
+      document.head.appendChild(link);
+      return link;
+    });
+
+    return () => {
+      preloadedVideos.forEach((link) => link.remove());
+      preloadedImages.forEach((image) => {
+        image.src = "";
+      });
+    };
+  }, [step]);
 
   const canContinue = () => {
     if (step === 1) return !!cfg.tipo_immobile;
@@ -389,11 +417,22 @@ export default function Configurator({ onComplete }) {
                             key={s}
                             data-testid={`stile-${s.split(" ")[0].toLowerCase()}`}
                             onClick={() => set({ stile: s })}
-                            className={`relative aspect-[4/5] rounded-2xl overflow-hidden border-2 transition-colors ${sel ? "ring-4 ring-brand border-brand" : "border-stroke hover:border-brand"}`}
+                            className={`style-video-card relative aspect-[4/5] rounded-2xl overflow-hidden border-2 bg-surface transition-colors ${sel ? "ring-4 ring-brand border-brand" : "border-stroke hover:border-brand"}`}
                           >
+                            <img
+                              src={STYLE_VIDEO_POSTERS[s]}
+                              alt=""
+                              aria-hidden="true"
+                              loading="eager"
+                              decoding="async"
+                              className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                            />
                             <HlsVideo
                               src={STYLE_VIDEOS[s]}
-                              className="w-full h-full object-cover"
+                              poster={STYLE_VIDEO_POSTERS[s]}
+                              preload="auto"
+                              lazy={false}
+                              className="absolute inset-0 h-full w-full object-cover"
                             />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
                             <span className="absolute bottom-3 left-3 right-3 font-display font-semibold uppercase text-sm text-ink">
