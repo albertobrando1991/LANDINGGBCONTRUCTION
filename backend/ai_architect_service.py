@@ -142,8 +142,11 @@ OPENAI_IMAGES_ENABLED = os.getenv("AI_ARCHITECT_USE_OPENAI_IMAGES", "true").lowe
 AI_FLOORPLAN_PROFESSIONAL_ANALYSIS = os.getenv("AI_FLOORPLAN_PROFESSIONAL_ANALYSIS", "true").lower() not in {"0", "false", "no"}
 AI_REQUIRE_PROFESSIONAL_2D = os.getenv("AI_REQUIRE_PROFESSIONAL_2D", "true").lower() not in {"0", "false", "no"}
 AI_REQUIRE_RENDER_FIDELITY = os.getenv("AI_REQUIRE_RENDER_FIDELITY", "true").lower() not in {"0", "false", "no"}
-AI_ALLOW_GENERATIVE_2D_LAYOUTS = os.getenv("AI_ALLOW_GENERATIVE_2D_LAYOUTS", "false").lower() in {"1", "true", "yes"}
-AI_ALLOW_GENERATIVE_DEFINED_CLEANUP = os.getenv("AI_ALLOW_GENERATIVE_DEFINED_CLEANUP", "false").lower() in {"1", "true", "yes"}
+# Abilitati di default: con un provider immagini configurato producono una vera redistribuzione/pulizia
+# ridisegnata (vincolata alla planimetria caricata). Senza provider o con lettura debole si ricade sulla
+# tavola professionale deterministica onesta. Disattiva (=false) per il comportamento legacy.
+AI_ALLOW_GENERATIVE_2D_LAYOUTS = os.getenv("AI_ALLOW_GENERATIVE_2D_LAYOUTS", "true").lower() not in {"0", "false", "no"}
+AI_ALLOW_GENERATIVE_DEFINED_CLEANUP = os.getenv("AI_ALLOW_GENERATIVE_DEFINED_CLEANUP", "true").lower() not in {"0", "false", "no"}
 # Garanzia di risultato: quando il provider generativo non e disponibile o la lettura e debole,
 # emetti comunque una tavola 2D professionale deterministica (derivata dall'analisi vision reale,
 # non sagome casuali) invece di bloccare il flusso. Disattiva (=false) per tornare al blocco rigido legacy.
@@ -2345,8 +2348,23 @@ def _plate_font(size: int, *, bold: bool = False):
             return None
 
 
+_PLATE_CHAR_MAP = {
+    "→": "->", "←": "<-", "•": "-", "·": "-", "–": "-",
+    "—": "-", "’": "'", "“": '"', "”": '"', "≥": ">=",
+    "≤": "<=", "×": "x", "€": "EUR",
+}
+
+
+def _plate_safe(text: Any) -> str:
+    """Transliterazione ASCII per la tavola: nessun glifo tofu indipendentemente dal font."""
+    value = str(text or "")
+    for source, target in _PLATE_CHAR_MAP.items():
+        value = value.replace(source, target)
+    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+
+
 def _wrap_text(text: str, font, max_width: int, draw) -> List[str]:
-    words = str(text or "").split()
+    words = _plate_safe(text).split()
     if not words:
         return [""]
     lines: List[str] = []
@@ -2408,13 +2426,13 @@ def _write_professional_plate(
     draw.rectangle([0, 0, width, header_h], fill="#0b0b0b")
     draw.rectangle([0, header_h, width, header_h + 5], fill=red)
     _draw_text(draw, (margin, 24), "GB CONSTRUCTION", "#ffffff", f_brand)
-    _draw_text(draw, (margin, 64), "AI ARCHITECT · TAVOLA PRELIMINARE", "#d7d0c3", f_sub)
+    _draw_text(draw, (margin, 64), _plate_safe("AI ARCHITECT - TAVOLA PRELIMINARE"), "#d7d0c3", f_sub)
     _draw_text(draw, (width - margin - 190, 30), now_iso()[:10], "#d7d0c3", f_sub)
     _draw_text(draw, (width - margin - 190, 54), "Non valida per esecuzione", "#b9a06a", f_small)
 
     # Title
     title_y = header_h + 22
-    _draw_text(draw, (margin, title_y), title[:74], ink, f_title)
+    _draw_text(draw, (margin, title_y), _plate_safe(title)[:74], ink, f_title)
 
     content_top = title_y + 48
     footer_h = 70
@@ -2443,10 +2461,15 @@ def _write_professional_plate(
             _draw_text(draw, (inner[0] + 20, inner[1] + 20), "Planimetria allegata in elaborazione.", muted, f_body)
     else:
         _draw_text(draw, (inner[0] + 20, inner[1] + 20), "Planimetria di base non disponibile come immagine: verifica file.", muted, f_body)
+    drawing_caption = (
+        "Stato di fatto rilevato (planimetria allegata - geometria reale)"
+        if mode == "redistributed"
+        else "Planimetria allegata (geometria reale)"
+    )
     _draw_text(
         draw,
         (frame[0] + 18, frame[3] - caption_h + 4),
-        f"Base: planimetria allegata (geometria reale) · {str(job.get('original_filename') or '')[:48]}",
+        _plate_safe(f"{drawing_caption} - {str(job.get('original_filename') or '')[:40]}"),
         muted,
         f_small,
     )
@@ -2461,13 +2484,14 @@ def _write_professional_plate(
 
     def section(label: str, yy: int) -> int:
         draw.rectangle([panel_x, yy - 4, width - margin, yy + 26], fill="#111111")
-        _draw_text(draw, (px, yy + 2), label, "#ffffff", f_h)
+        _draw_text(draw, (px, yy + 2), _plate_safe(label), "#ffffff", f_h)
         return yy + 40
 
-    py = section("QUADRO AMBIENTI", py)
+    schedule_header = "RIORGANIZZAZIONE PROPOSTA" if mode == "redistributed" else "QUADRO AMBIENTI"
+    py = section(schedule_header, py)
     rows = schedule_rows or ["Ambienti non sufficientemente estratti dalla planimetria."]
     for row in rows[:12]:
-        for line in _wrap_text(f"• {row}", f_body, pw, draw):
+        for line in _wrap_text(f"- {row}", f_body, pw, draw):
             _draw_text(draw, (px, py), line, ink, f_body)
             py += 22
         py += 4
@@ -2477,7 +2501,7 @@ def _write_professional_plate(
     py += 8
     py = section("LEGENDA", py)
     for item in (legend_items or ["muri esistenti", "aperture mantenute", "interventi proposti", "punti da verificare"])[:6]:
-        _draw_text(draw, (px, py), f"– {str(item)[:46]}", "#3a3a3a", f_small)
+        _draw_text(draw, (px, py), _plate_safe(f"- {str(item)[:46]}"), "#3a3a3a", f_small)
         py += 20
 
     py += 10
@@ -3621,10 +3645,20 @@ async def _emit_deterministic_2d(
     proposal_key = "redistributed" if mode == "redistributed" else "defined"
     professional = job.get("professional_floorplan") or _professional_package(job)
     floorplan_brief = professional.get("floorplan_2d") or {}
+    # Titoli onesti: senza ridisegno generativo/CAD il disegno resta lo stato di fatto reale.
+    # Non dichiariamo "spazi ottimizzati" su un disegno identico all'allegata: la riorganizzazione
+    # e espressa nel quadro proposto e va ridisegnata in fase tecnica.
     if mode == "redistributed":
-        plate_title = floorplan_brief.get("title") or "Proposta 2D preliminare · spazi ottimizzati"
+        plate_title = "Stato di fatto + riorganizzazione proposta (preliminare)"
+        honest_notes = [
+            "Il disegno riporta lo stato di fatto rilevato dalla planimetria allegata.",
+            "La nuova distribuzione e proposta nel quadro a lato e va ridisegnata in fase tecnica/CAD.",
+        ]
     else:
-        plate_title = floorplan_brief.get("title") or "Planimetria 2D professionale · progetto"
+        plate_title = "Planimetria di progetto - lettura professionale (preliminare)"
+        honest_notes = [
+            "Il disegno mantiene la planimetria di progetto allegata senza modifiche.",
+        ]
     base_image_path = _reference_image_path(_layout_reference_url(job))
     plate_url = _write_professional_plate(
         job_id,
@@ -3635,7 +3669,8 @@ async def _emit_deterministic_2d(
         _professional_plate_schedule(job, mode),
         title=plate_title,
         legend_items=floorplan_brief.get("legend_items") or [],
-        technical_notes=(floorplan_brief.get("change_summary") or [])
+        technical_notes=honest_notes
+        + (floorplan_brief.get("change_summary") or [])
         + (floorplan_brief.get("constraints_respected") or [])[:2],
         disclaimer=floorplan_brief.get("disclaimer") or disclaimer,
     )
@@ -3643,13 +3678,14 @@ async def _emit_deterministic_2d(
     plan_url = plate_url or _plan_svg(job_id, job, mode)
     if mode == "redistributed":
         text_content = (
-            "Proposta di redistribuzione preliminare disegnata in tavola professionale deterministica "
-            "dalle stanze rilevate. Nessun elemento inventato. Richiede controllo staff prima di render e cliente."
+            "Stato di fatto rilevato dalla planimetria allegata con proposta di riorganizzazione funzionale "
+            "nel quadro a lato. Il ridisegno esecutivo della nuova distribuzione viene prodotto in fase tecnica. "
+            "Nessun elemento inventato. Richiede controllo staff prima di render e cliente."
         )
     else:
         text_content = (
-            "Planimetria di progetto resa in tavola 2D professionale deterministica dalle stanze rilevate. "
-            "Layout mantenuto, nessun elemento inventato. Richiede controllo staff prima di render e cliente."
+            "Planimetria di progetto presentata in tavola professionale, layout mantenuto identico. "
+            "Nessun elemento inventato. Richiede controllo staff prima di render e cliente."
         )
     await _add_output(
         db,

@@ -121,9 +121,13 @@ def test_plan_details_json_contains_render_contract():
     assert "stanze nuove non presenti nel JSON" in details["render_contract"]["must_not_add"]
 
 
-def test_generativa_2d_disabled_by_default_for_professional_safety():
-    assert svc.AI_ALLOW_GENERATIVE_2D_LAYOUTS is False
-    assert svc.AI_ALLOW_GENERATIVE_DEFINED_CLEANUP is False
+def test_generativa_2d_enabled_by_default_but_runtime_gated():
+    # Abilitati di default per produrre una vera redistribuzione/pulizia quando esiste un provider
+    # immagini; la generazione resta comunque gated a runtime da provider + confidence + review staff,
+    # e in mancanza ricade sulla tavola professionale deterministica garantita.
+    assert svc.AI_ALLOW_GENERATIVE_2D_LAYOUTS is True
+    assert svc.AI_ALLOW_GENERATIVE_DEFINED_CLEANUP is True
+    assert svc.AI_GUARANTEED_PROFESSIONAL_2D is True
 
 
 def test_redistributed_safe_plan_does_not_stretch_detected_room():
