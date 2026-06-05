@@ -188,6 +188,13 @@ export default function AIArchitectReview() {
     floorPlanAutomation.variant_generation?.selected_variant || {};
   const pipelineGate = floorPlanAutomation.pipeline_gate || {};
   const status = STATUS[selectedJob?.status] || STATUS.queued;
+  const estimate = selectedJob?.estimate;
+  const estPacchetti = estimate?.pacchetti || {};
+  const estReliable = selectedJob?.estimate_basis === "ai_floorplan_quoted";
+  const euro = (value) =>
+    typeof value === "number"
+      ? "EUR " + Math.round(value).toLocaleString("it-IT")
+      : "—";
 
   const counts = useMemo(() => {
     return jobs.reduce(
@@ -780,6 +787,64 @@ export default function AIArchitectReview() {
                   )}
                 </div>
               </div>
+
+              {estimate?.pacchetti && (
+                <div className="rounded-2xl border border-stroke bg-surface p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-brand" />
+                      <h3 className="font-display font-semibold uppercase text-sm text-ink">
+                        Computo predittivo
+                      </h3>
+                    </div>
+                    <span
+                      className={`rounded-full px-3 py-1 font-display text-[9px] uppercase ${
+                        estReliable
+                          ? "bg-success/15 text-success"
+                          : "bg-warning/15 text-warning"
+                      }`}
+                    >
+                      {estReliable
+                        ? "Stima da planimetria quotata"
+                        : "Stima AI da verificare in sopralluogo"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {["essenziale", "premium", "luxury"].map((key) => {
+                      const p = estPacchetti[key] || {};
+                      return (
+                        <div
+                          key={key}
+                          className="rounded-xl border border-stroke bg-bg p-3"
+                        >
+                          <div className="font-display uppercase text-[10px] text-fog capitalize">
+                            {key}
+                          </div>
+                          <div className="font-display font-bold text-sm text-brand mt-1">
+                            {euro(p.range_basso)}
+                          </div>
+                          <div className="font-body text-[10px] text-fog">
+                            {euro(p.range_alto)}
+                          </div>
+                          {p.costo_mq && (
+                            <div className="font-body text-[10px] text-fog mt-1">
+                              ~{euro(p.costo_mq)}/mq
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {typeof selectedJob?.estimate_confidence === "number" && (
+                    <p className="font-body text-[11px] text-fog mt-3">
+                      Affidabilita lettura:{" "}
+                      {Math.round(selectedJob.estimate_confidence * 100)}% · origine
+                      stima da AI Architect, da confermare con misure e
+                      distribuzione in sopralluogo.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {loadingJob && (
                 <div className="fixed bottom-5 right-5 rounded-full bg-surface border border-stroke px-4 py-2 text-fog text-xs inline-flex items-center gap-2">

@@ -2955,8 +2955,13 @@ def _budget_signals_luxury(budget: Optional[str]) -> bool:
     return False
 
 
-def _gb_estimate_config(job: Dict[str, Any]) -> Dict[str, Any]:
-    """Mappa il job AI Architect + analisi vision alla config del motore predittivo GB."""
+def build_predictive_config_from_ai_job(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Mappa il job AI Architect + analisi vision alla config del motore predittivo GB.
+
+    Deduce gli ambienti dalla planimetria letta (stanze, bagni, camere) senza chiedere
+    nulla di tecnico all'utente. I flag impiantistici non dedotti restano impliciti: il
+    motore applica i suoi default per fascia, garantendo retrocompatibilita totale.
+    """
     rooms = _analysis_rooms(job, min_confidence=0.2)
     names = [str(r.get("name") or "").lower() for r in rooms]
     bagni = sum(1 for n in names if "bagno" in n or "servizio" in n)
@@ -2988,16 +2993,76 @@ def _gb_estimate_config(job: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# Alias retrocompatibile: il vecchio nome resta valido per le chiamate esistenti.
+_gb_estimate_config = build_predictive_config_from_ai_job
+
+
+def _estimate_quality_for_job(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Qualita del dato a monte del computo: evita falsa precisione.
+
+    Marca sempre l'origine come stima da AI (mai rilievo reale) ed espone se la lettura
+    e quotata/affidabile o solo qualitativa, cosi UI e PDF possono comunicarlo onestamente.
+    """
+    vision = job.get("vision_analysis") or {}
+    technical = job.get("technical_floor_plan_json") or {}
+    calibration = technical.get("calibration") or {}
+    confidence = _safe_float(vision.get("confidence"), _safe_float(job.get("plan_type_confidence"), 0))
+    scale_declared = bool(calibration.get("scale_declared"))
+    sqm_declared = _job_sqm(job) is not None and bool(job.get("sqm"))
+    quoted = scale_declared or sqm_declared
+    reliable = quoted and confidence >= VISION_MIN_ACCEPTABLE_CONFIDENCE and not vision.get("is_fallback")
+    return {
+        "source": "estimated_from_ai",
+        "confidence": round(confidence, 3),
+        "is_quoted": quoted,
+        "reliable": reliable,
+        "basis": "ai_floorplan_quoted" if reliable else "ai_floorplan_unverified",
+    }
+
+
 def _gb_estimate(job: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Preventivo predittivo GB ancorato alle variabili del job. None se non calcolabile."""
     try:
-        return calcola_preventivo(_gb_estimate_config(job))
+        return calcola_preventivo(build_predictive_config_from_ai_job(job))
     except Exception:
         return None
 
 
-def _gb_pricing_context(estimate: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Solo i range prezzo GB da iniettare nel reasoning (nessuna voce/listino interno)."""
+async def persist_gb_estimate_for_ai_job(db, job_id: str, job: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Calcola e salva subito il computo predittivo sul job AI (bridge AI -> preventivo).
+
+    Idempotente e deterministico: usa i dati gia dedotti dalla planimetria. Niente input
+    tecnico extra dall'utente. Marca origine/qualita per evitare falsa precisione.
+    """
+    config = build_predictive_config_from_ai_job(job)
+    try:
+        estimate = calcola_preventivo(config)
+    except Exception as exc:
+        await _log_non_blocking_error(db, job_id, "gb_estimate_bridge", exc)
+        return None
+    quality = _estimate_quality_for_job(job)
+    updates = {
+        "estimate": estimate,
+        "estimate_config": config,
+        "estimate_source": quality["source"],
+        "estimate_is_quoted": quality["is_quoted"],
+        "estimate_confidence": quality["confidence"],
+        "estimate_basis": quality["basis"],
+        "estimate_generated_at": now_iso(),
+    }
+    await _set_job(db, job_id, **updates)
+    job.update(updates)
+    return estimate
+
+
+def _gb_pricing_context(
+    estimate: Optional[Dict[str, Any]],
+    recommended_level: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Contesto prezzi GB per il reasoning: range, costo/mq, tempistiche, categorie, alert.
+
+    Non espone listino unitario interno; solo aggregati per categoria gia pubblici nel PDF/UI.
+    """
     if not estimate:
         return None
     pacchetti = estimate.get("pacchetti") or {}
@@ -3005,13 +3070,30 @@ def _gb_pricing_context(estimate: Optional[Dict[str, Any]]) -> Optional[Dict[str
     for key in ("essenziale", "premium", "luxury"):
         p = pacchetti.get(key) or {}
         if p.get("range_basso") and p.get("range_alto"):
+            categorie = [
+                {
+                    "categoria": c.get("categoria"),
+                    "totale_eur": c.get("totale"),
+                    "voci": c.get("voci"),
+                }
+                for c in (p.get("categorie") or [])
+                if c.get("categoria")
+            ][:12]
             out[key] = {
                 "range_basso_eur": p["range_basso"],
                 "range_alto_eur": p["range_alto"],
                 "costo_mq_eur": p.get("costo_mq"),
                 "tempistiche": p.get("tempistiche"),
+                "n_voci": p.get("n_voci"),
+                "categorie": categorie or None,
             }
-    return out or None
+    if not out:
+        return None
+    return {
+        "pacchetti": out,
+        "pacchetto_consigliato": recommended_level if recommended_level in out else "premium",
+        "alerts": [a.get("testo") for a in (estimate.get("alerts") or []) if a.get("testo")][:6] or None,
+    }
 
 
 def _claude_advice_text_sync(job: Dict[str, Any], mode: str) -> str:
@@ -3045,7 +3127,10 @@ def _claude_advice_text_sync(job: Dict[str, Any], mode: str) -> str:
         "technical_floor_plan_json": job.get("technical_floor_plan_json") or build_technical_floor_plan_json(job),
         "optimized_floor_plan_json": job.get("optimized_floor_plan_json")
         or build_optimized_floor_plan_json(job, job.get("technical_floor_plan_json") or build_technical_floor_plan_json(job)),
-        "gb_pricing": _gb_pricing_context(job.get("estimate")),
+        "gb_pricing": _gb_pricing_context(
+            job.get("estimate"),
+            (job.get("estimate_config") or {}).get("livello"),
+        ),
     }
     system_prompt = (
         "Sei ARCH-AI, architetto consulente senior di GB Construction. Scrivi testi cliente in italiano, "
@@ -3959,6 +4044,8 @@ async def _continue_render_generation(db, job_id: str):
         job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
         if not job:
             return
+    if not job.get("estimate"):
+        await persist_gb_estimate_for_ai_job(db, job_id, job)
     mode = "redistributed" if _should_redistribute(job) else "defined"
     force_safe_visuals = bool(job.get("force_safe_visuals"))
     image_provider_label = "safe-vector" if force_safe_visuals else _selected_image_provider()
@@ -4266,6 +4353,8 @@ async def _continue_generation(db, job_id: str, *, require_review: bool = REQUIR
         job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
         if not job:
             return
+    if not job.get("estimate"):
+        await persist_gb_estimate_for_ai_job(db, job_id, job)
     mode = "redistributed" if _should_redistribute(job) else "defined"
 
     layout_ready = await _generate_layout_outputs(db, job_id, job, mode)
