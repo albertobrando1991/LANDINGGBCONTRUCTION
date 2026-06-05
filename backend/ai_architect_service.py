@@ -568,6 +568,7 @@ async def create_job(
     budget: Optional[str],
     notes: Optional[str],
     user_id: Optional[str] = None,
+    lead_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     if plan_type_selected not in PLAN_TYPES:
         raise HTTPException(status_code=400, detail="Tipo planimetria non valido")
@@ -580,7 +581,7 @@ async def create_job(
     doc = {
         "_id": object_id,
         "user_id": user_id,
-        "lead_id": None,
+        "lead_id": lead_id,
         "uploaded_file_url": file_info["url"],
         "uploaded_file_path": file_info["path"],
         "processed_file_url": file_info["processed_url"],
@@ -3052,6 +3053,28 @@ async def persist_gb_estimate_for_ai_job(db, job_id: str, job: Dict[str, Any]) -
     }
     await _set_job(db, job_id, **updates)
     job.update(updates)
+    # Nuovo flusso (lead prima, planimetria dopo): raffina il preventivo del lead collegato
+    # con la stima basata sulla planimetria letta, marcandola come stima da AI.
+    lead_id = job.get("lead_id")
+    if lead_id and ObjectId.is_valid(str(lead_id)):
+        try:
+            livello = config.get("livello") or "premium"
+            pkg = (estimate.get("pacchetti") or {}).get(livello) or {}
+            await db.leads.update_one(
+                {"_id": ObjectId(str(lead_id))},
+                {"$set": {
+                    "estimate": estimate,
+                    "range_basso": pkg.get("range_basso"),
+                    "range_alto": pkg.get("range_alto"),
+                    "estimate_source": quality["source"],
+                    "estimate_basis": quality["basis"],
+                    "estimate_refined_from_ai_at": updates["estimate_generated_at"],
+                    "has_files": True,
+                    "updated_at": now_iso(),
+                }},
+            )
+        except Exception as exc:
+            await _log_non_blocking_error(db, job_id, "lead_estimate_refine", exc)
     return estimate
 
 

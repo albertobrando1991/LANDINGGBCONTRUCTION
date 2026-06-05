@@ -6,6 +6,7 @@ import SocialProof from "@/landing/SocialProof";
 import Packages from "@/landing/Packages";
 import Configurator from "@/landing/Configurator";
 import AIArchitect from "@/landing/AIArchitect";
+import QuickDetails from "@/landing/QuickDetails";
 import ContactGate from "@/landing/ContactGate";
 import Output from "@/landing/Output";
 import SecondChance from "@/landing/SecondChance";
@@ -15,7 +16,8 @@ import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 
 export default function Landing() {
   const [loading, setLoading] = useState(true);
-  const [phase, setPhase] = useState("config"); // config | architect | gate | output
+  // Nuovo ordine: prima i dati e il lead, poi (opzionale) l'analisi planimetria.
+  const [phase, setPhase] = useState("config"); // config | details | gate | output | architect
   const [config, setConfig] = useState(null);
   const [result, setResult] = useState(null);
   const flowRef = useRef(null);
@@ -28,6 +30,31 @@ export default function Landing() {
 
   const handleConfigDone = (cfg) => {
     setConfig(cfg);
+    // Senza planimetria a questo punto: raccogli dettagli semplici per affinare la stima.
+    setPhase("details");
+    scrollFlow();
+  };
+
+  const handleDetailsDone = (extra) => {
+    setConfig((current) => ({ ...current, ...extra, has_files: false }));
+    setPhase("gate");
+    scrollFlow();
+  };
+
+  const handleDetailsBack = () => {
+    setPhase("config");
+    scrollFlow();
+  };
+
+  const handleGateSubmit = (data) => {
+    setResult(data);
+    // Il lead e creato e inoltrato: salva l'id per collegare l'eventuale analisi planimetria.
+    setConfig((current) => ({ ...current, lead_id: data?.id }));
+    setPhase("output");
+    scrollFlow();
+  };
+
+  const handleStartArchitect = () => {
     setPhase("architect");
     scrollFlow();
   };
@@ -40,17 +67,12 @@ export default function Landing() {
       ai_architect_job_id: aiProject.id,
       ai_architect_summary: aiProject.ai_architect_summary,
     }));
-    setPhase("gate");
+    setPhase("output");
     scrollFlow();
   };
 
   const handleArchitectSkip = () => {
-    setPhase("gate");
-    scrollFlow();
-  };
-
-  const handleGateSubmit = (data) => {
-    setResult(data);
+    // L'analisi planimetria e opzionale: torna al preventivo gia generato.
     setPhase("output");
     scrollFlow();
   };
@@ -65,18 +87,30 @@ export default function Landing() {
 
       <div ref={flowRef}>
         {phase === "config" && <Configurator onComplete={handleConfigDone} />}
-        {phase === "architect" && (
-          <AIArchitect
+        {phase === "details" && (
+          <QuickDetails
             baseConfig={config}
-            onComplete={handleArchitectDone}
-            onSkip={handleArchitectSkip}
+            onComplete={handleDetailsDone}
+            onBack={handleDetailsBack}
           />
         )}
         {phase === "gate" && (
           <ContactGate config={config} onSubmit={handleGateSubmit} />
         )}
         {phase === "output" && (
-          <Output estimate={result?.estimate} aiProject={config?.aiArchitect} />
+          <Output
+            estimate={result?.estimate}
+            aiProject={config?.aiArchitect}
+            onStartArchitect={config?.aiArchitect ? undefined : handleStartArchitect}
+          />
+        )}
+        {phase === "architect" && (
+          <AIArchitect
+            baseConfig={config}
+            leadId={config?.lead_id}
+            onComplete={handleArchitectDone}
+            onSkip={handleArchitectSkip}
+          />
         )}
       </div>
 

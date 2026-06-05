@@ -94,8 +94,10 @@ def test_pricing_context_none_without_estimate():
 class _FakeColl:
     def __init__(self):
         self.set = {}
+        self.last_filter = None
 
     async def update_one(self, flt, update):
+        self.last_filter = flt
         self.set.update(update.get("$set", {}))
 
 
@@ -103,6 +105,7 @@ class _FakeDB:
     def __init__(self):
         self.ai_architect_jobs = _FakeColl()
         self.ai_architect_errors = _FakeColl()
+        self.leads = _FakeColl()
 
 
 def test_persist_bridge_writes_estimate_and_metadata_onto_job():
@@ -117,3 +120,16 @@ def test_persist_bridge_writes_estimate_and_metadata_onto_job():
         assert key in job
         assert key in db.ai_architect_jobs.set
     assert job["estimate_source"] == "estimated_from_ai"
+    # Senza lead collegato non tocca la collezione leads
+    assert db.leads.set == {}
+
+
+def test_persist_bridge_refines_linked_lead_estimate():
+    db = _FakeDB()
+    job = _job(lead_id="0123456789abcdef01234567")
+    asyncio.run(svc.persist_gb_estimate_for_ai_job(db, "abcdef0123456789abcdef01", job))
+    # Il lead collegato riceve la stima da planimetria + range + marcatura origine AI
+    for key in ("estimate", "range_basso", "range_alto", "estimate_source", "has_files"):
+        assert key in db.leads.set
+    assert db.leads.set["estimate_source"] == "estimated_from_ai"
+    assert db.leads.set["has_files"] is True

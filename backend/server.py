@@ -125,6 +125,7 @@ class LeadConfig(BaseModel):
     controsoffitto: Optional[bool] = None
     clima: Optional[str] = None
     infissi: Optional[str] = None
+    forniture_incluse: Optional[bool] = None
     stile: str = "Moderno minimal"
     tempistiche: str = "Sto valutando"
     has_files: bool = False
@@ -137,6 +138,7 @@ class LeadCreate(BaseModel):
     email: EmailStr
     telefono: str
     citta: str
+    indirizzo: Optional[str] = ""
     privacy: bool = True
     newsletter: bool = False
     tracking: Dict[str, Any] = Field(default_factory=dict)
@@ -193,6 +195,7 @@ class AiProjectQuoteCreate(BaseModel):
     email: EmailStr
     telefono: str
     citta: str
+    indirizzo: Optional[str] = ""
     privacy: bool = True
     newsletter: bool = False
     tracking: Dict[str, Any] = Field(default_factory=dict)
@@ -355,8 +358,30 @@ async def projects():
     return seed_data.DEMO_PROJECTS
 
 
+async def _existing_lead_for_email(email: str) -> Optional[Dict[str, Any]]:
+    """Lead gia presente per questa email (un solo preventivo per email)."""
+    norm = meta_leads_service.normalize_email(email)
+    if not norm:
+        return None
+    return await db.leads.find_one({"email_norm": norm})
+
+
+def _duplicate_email_error(existing: Dict[str, Any]) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "email_already_used",
+            "message": "Esiste gia un preventivo associato a questa email. E possibile generare un solo preventivo per indirizzo email.",
+            "lead_id": str(existing.get("_id")),
+        },
+    )
+
+
 @api.post("/leads")
 async def create_lead(body: LeadCreate, background_tasks: BackgroundTasks):
+    existing = await _existing_lead_for_email(body.email)
+    if existing:
+        raise _duplicate_email_error(existing)
     cfg = normalize_config(body.config.model_dump())
     if cfg.get("ai_architect_job_id") and not ObjectId.is_valid(str(cfg["ai_architect_job_id"])):
         cfg["ai_architect_job_id"] = None
@@ -378,7 +403,7 @@ async def create_lead(body: LeadCreate, background_tasks: BackgroundTasks):
         "nome": body.nome, "email": body.email.lower(), "telefono": body.telefono,
         "email_norm": meta_leads_service.normalize_email(body.email),
         "phone_norm": meta_leads_service.normalize_phone(body.telefono),
-        "citta": body.citta, "newsletter": body.newsletter,
+        "citta": body.citta, "indirizzo": (body.indirizzo or "").strip(), "newsletter": body.newsletter,
         "privacy": body.privacy,
         "tipo_immobile": cfg["tipo_immobile"], "mq": cfg["mq"], "livello": cfg["livello"],
         "bagni": cfg["bagni"], "camere": cfg["camere"], "cucina": cfg["cucina"],
@@ -455,7 +480,11 @@ async def create_ai_architect_job(
     residents: Optional[int] = Form(None),
     budget: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
+    lead_id: Optional[str] = Form(None),
 ):
+    # Nuovo flusso: il lead viene creato prima, poi si avvia l'analisi planimetria.
+    # Colleghiamo subito il job al lead esistente (bidirezionale) per la dashboard.
+    linked_lead_id = lead_id if (lead_id and ObjectId.is_valid(lead_id)) else None
     job = await ai_architect_service.create_job(
         db,
         upload=planimetria,
@@ -468,7 +497,18 @@ async def create_ai_architect_job(
         residents=residents,
         budget=budget,
         notes=notes,
+        lead_id=linked_lead_id,
     )
+    if linked_lead_id:
+        await db.leads.update_one(
+            {"_id": ObjectId(linked_lead_id)},
+            {"$set": {
+                "ai_architect_job_id": job["id"],
+                "has_files": True,
+                "updated_at": now_iso(),
+            },
+             "$addToSet": {"tags": "AI Architect"}},
+        )
     background_tasks.add_task(ai_architect_service.process_job, db, job["id"])
     return await ai_architect_service.get_job_payload(db, job["id"])
 
@@ -680,6 +720,12 @@ async def quote_from_ai_project(body: AiProjectQuoteCreate, background_tasks: Ba
     if not job:
         raise HTTPException(status_code=404, detail="Progetto AI Architect non trovato")
 
+    existing = await _existing_lead_for_email(body.email)
+    # Consenti il collegamento se il lead esistente e proprio quello gia legato a questo job;
+    # blocca invece un secondo preventivo con la stessa email su un job diverso.
+    if existing and str(existing.get("ai_architect_job_id") or "") != body.ai_architect_job_id:
+        raise _duplicate_email_error(existing)
+
     cfg = normalize_config(body.config.model_dump())
     cfg["has_files"] = True
     cfg["ai_architect_job_id"] = body.ai_architect_job_id
@@ -694,7 +740,7 @@ async def quote_from_ai_project(body: AiProjectQuoteCreate, background_tasks: Ba
         "nome": body.nome, "email": body.email.lower(), "telefono": body.telefono,
         "email_norm": meta_leads_service.normalize_email(body.email),
         "phone_norm": meta_leads_service.normalize_phone(body.telefono),
-        "citta": body.citta, "newsletter": body.newsletter,
+        "citta": body.citta, "indirizzo": (body.indirizzo or "").strip(), "newsletter": body.newsletter,
         "privacy": body.privacy,
         "tipo_immobile": cfg["tipo_immobile"], "mq": cfg["mq"], "livello": cfg["livello"],
         "bagni": cfg["bagni"], "camere": cfg["camere"], "cucina": cfg["cucina"],

@@ -32,6 +32,7 @@ const schema = z.object({
     .min(6, "Numero non valido")
     .regex(/^[+0-9\s().-]+$/, "Numero non valido"),
   citta: z.string().min(1, "Seleziona la città"),
+  indirizzo: z.string().min(3, "Inserisci l'indirizzo dell'immobile"),
   privacy: z.literal(true, {
     errorMap: () => ({ message: "Devi accettare la privacy policy" }),
   }),
@@ -57,6 +58,10 @@ function buildConfig(cfg = {}, { includeAiJobId = true } = {}) {
   const aiJobId = isValidObjectId(cfg.ai_architect_job_id)
     ? cfg.ai_architect_job_id
     : undefined;
+  // Flag impiantistici dal percorso "senza planimetria": inviati solo se valorizzati,
+  // così con planimetria/AI Architect il backend mantiene i suoi default per fascia.
+  const passBool = (v) => (typeof v === "boolean" ? v : undefined);
+  const passEnum = (v) => (typeof v === "string" && v ? v : undefined);
   return {
     tipo_immobile: cfg.tipo_immobile || "appartamento",
     mq: Math.max(30, Math.min(500, Math.round(mq))),
@@ -65,6 +70,14 @@ function buildConfig(cfg = {}, { includeAiJobId = true } = {}) {
     camere: Number.isFinite(Number(cfg.camere)) ? Number(cfg.camere) : 2,
     cucina: cfg.cucina !== false,
     ambienti,
+    redistribuzione: passBool(cfg.redistribuzione),
+    rifacimento_elettrico: passBool(cfg.rifacimento_elettrico),
+    rifacimento_idrico: passBool(cfg.rifacimento_idrico),
+    rifacimento_termico: passBool(cfg.rifacimento_termico),
+    controsoffitto: passBool(cfg.controsoffitto),
+    clima: passEnum(cfg.clima),
+    infissi: passEnum(cfg.infissi),
+    forniture_incluse: passBool(cfg.forniture_incluse),
     stile: cfg.stile || "Moderno minimal",
     tempistiche: cfg.tempistiche || "Sto valutando",
     has_files: !!cfg.has_files,
@@ -121,6 +134,7 @@ export default function ContactGate({ config, onSubmit }) {
         email: values.email,
         telefono: values.telefono,
         citta: values.citta,
+        indirizzo: values.indirizzo,
         privacy: values.privacy,
         newsletter: !!values.newsletter,
         tracking: getLeadTracking(),
@@ -147,10 +161,21 @@ export default function ContactGate({ config, onSubmit }) {
       toast.success("Stima generata!");
       onSubmit(data, values);
     } catch (err) {
+      const detail = err.response?.data?.detail;
+      if (
+        err.response?.status === 409 &&
+        (detail?.code === "email_already_used" || typeof detail === "object")
+      ) {
+        toast.error(
+          detail?.message ||
+            "Esiste già un preventivo associato a questa email. È possibile generarne uno solo per indirizzo email.",
+        );
+        return;
+      }
       const fallback = err.response
         ? `Servizio preventivi non disponibile (${err.response.status}). Riprova tra poco.`
         : "Non riesco a raggiungere il servizio preventivi. Controlla la connessione e riprova.";
-      toast.error(formatApiErrorDetail(err.response?.data?.detail || fallback));
+      toast.error(formatApiErrorDetail(detail || fallback));
     }
   };
 
@@ -292,6 +317,19 @@ export default function ContactGate({ config, onSubmit }) {
               {errors.citta && (
                 <p className="text-brand text-xs mt-1">
                   {errors.citta.message}
+                </p>
+              )}
+            </div>
+            <div>
+              <input
+                data-testid="gate-indirizzo"
+                {...register("indirizzo")}
+                placeholder="Indirizzo dell'immobile (via e civico) *"
+                className="w-full bg-surface border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
+              />
+              {errors.indirizzo && (
+                <p className="text-brand text-xs mt-1">
+                  {errors.indirizzo.message}
                 </p>
               )}
             </div>

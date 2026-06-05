@@ -82,7 +82,7 @@ function riskFactors(estimate = {}, data = {}, pkg = {}) {
   return [...new Set(risks)].slice(0, 6);
 }
 
-export default function Output({ estimate, aiProject }) {
+export default function Output({ estimate, aiProject, onStartArchitect }) {
   const [selectedPackage, setSelectedPackage] = useState(null);
   const pac = estimate?.pacchetti || {};
   const aiOutputs = aiProject?.outputs || [];
@@ -107,6 +107,37 @@ export default function Output({ estimate, aiProject }) {
           </div>
           <h2 className="font-display font-bold uppercase text-4xl md:text-5xl text-ink">Ecco la tua stima personalizzata.</h2>
         </motion.div>
+
+        {onStartArchitect && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-12 rounded-3xl border-2 border-brand/40 bg-brand/5 p-6 md:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-5"
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-brand/15 text-brand flex items-center justify-center shrink-0">
+                <ClipboardList className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-display font-bold uppercase text-xl text-ink">
+                  Sblocca l'analisi della planimetria
+                </h3>
+                <p className="font-body text-sm text-fog mt-1 max-w-xl">
+                  La tua richiesta è registrata. Ora puoi caricare la planimetria
+                  per ricevere analisi, concept 2D, vista 3D e render fotorealistici,
+                  collegati a questo preventivo.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onStartArchitect}
+              className="shrink-0 bg-brand text-white rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform"
+            >
+              Procedi con l'analisi <BarChart3 className="w-5 h-5" />
+            </button>
+          </motion.div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {PACKAGES.map((p, idx) => {

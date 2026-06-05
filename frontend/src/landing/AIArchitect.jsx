@@ -141,7 +141,7 @@ function ToggleButton({ active, children, onClick, className = "" }) {
   );
 }
 
-export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
+export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(initialForm);
   const [job, setJob] = useState(null);
@@ -254,6 +254,7 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
       if (form.residents) payload.append("residents", form.residents);
       if (form.budget) payload.append("budget", form.budget);
       if (form.notes) payload.append("notes", form.notes);
+      if (leadId) payload.append("lead_id", leadId);
       const { data } = await client.post("/ai-architect/jobs", payload, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -444,14 +445,15 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
 
                   <div className="mt-4 rounded-2xl border border-stroke bg-bg/40 px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <p className="font-body text-sm text-fog">
-                      Non hai una planimetria o preferisci solo il preventivo?
+                      L'analisi della planimetria è opzionale: il tuo preventivo è
+                      già pronto.
                     </p>
                     <button
                       type="button"
                       onClick={onSkip}
                       className="shrink-0 font-display font-semibold uppercase text-sm text-brand hover:text-ink inline-flex items-center gap-2"
                     >
-                      Vai al preventivo <ArrowRight className="w-4 h-4" />
+                      Torna al preventivo <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
 
@@ -1171,10 +1173,11 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
 
                   <div className="mt-7 rounded-3xl border border-brand/40 bg-brand/10 p-6 text-center">
                     <h4 className="font-display font-bold uppercase text-2xl text-ink">
-                      Vuoi trasformare questa proposta in un progetto reale?
+                      Progetto collegato alla tua richiesta
                     </h4>
                     <p className="font-body text-sm text-fog mt-2">
-                      Richiedi una consulenza con GB Construction.
+                      Analisi e render sono collegati al preventivo già inviato.
+                      GB Construction ti ricontatta per la consulenza.
                     </p>
                     <div className="flex flex-col sm:flex-row justify-center gap-3 mt-5">
                       <button
@@ -1182,7 +1185,7 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                         onClick={continueToQuote}
                         className="bg-brand text-white rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2"
                       >
-                        Richiedi preventivo su questo progetto{" "}
+                        Torna al preventivo aggiornato{" "}
                         <ArrowRight className="w-5 h-5" />
                       </button>
                       <a
@@ -1215,7 +1218,7 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                   className="font-display font-semibold uppercase text-sm text-fog hover:text-ink inline-flex items-center gap-2"
                 >
                   <ArrowLeft className="w-4 h-4" />{" "}
-                  {step === 1 ? "Salta e vai al preventivo" : "Indietro"}
+                  {step === 1 ? "Torna al preventivo" : "Indietro"}
                 </button>
                 <button
                   type="button"

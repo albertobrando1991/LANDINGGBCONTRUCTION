@@ -97,6 +97,11 @@ export default function LeadDetail() {
             <div className="space-y-1 font-body text-xs text-fog">
               <div>📞 {lead.telefono || "—"}</div>
               <div>✉ {lead.email || "—"}</div>
+              {lead.indirizzo && (
+                <div className="flex items-start gap-1">
+                  <MapPin className="w-3 h-3 mt-0.5 shrink-0" /> {lead.indirizzo}
+                </div>
+              )}
               <div className="capitalize">Origine: {lead.origine} · {formatDateTime(lead.created_at)}</div>
             </div>
             <div className="mt-4 flex items-center justify-between bg-bg border border-stroke rounded-xl px-3 py-2">
