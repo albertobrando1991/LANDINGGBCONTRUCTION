@@ -144,6 +144,10 @@ AI_REQUIRE_PROFESSIONAL_2D = os.getenv("AI_REQUIRE_PROFESSIONAL_2D", "true").low
 AI_REQUIRE_RENDER_FIDELITY = os.getenv("AI_REQUIRE_RENDER_FIDELITY", "true").lower() not in {"0", "false", "no"}
 AI_ALLOW_GENERATIVE_2D_LAYOUTS = os.getenv("AI_ALLOW_GENERATIVE_2D_LAYOUTS", "false").lower() in {"1", "true", "yes"}
 AI_ALLOW_GENERATIVE_DEFINED_CLEANUP = os.getenv("AI_ALLOW_GENERATIVE_DEFINED_CLEANUP", "false").lower() in {"1", "true", "yes"}
+# Garanzia di risultato: quando il provider generativo non e disponibile o la lettura e debole,
+# emetti comunque una tavola 2D professionale deterministica (derivata dall'analisi vision reale,
+# non sagome casuali) invece di bloccare il flusso. Disattiva (=false) per tornare al blocco rigido legacy.
+AI_GUARANTEED_PROFESSIONAL_2D = os.getenv("AI_GUARANTEED_PROFESSIONAL_2D", "true").lower() not in {"0", "false", "no"}
 STEPS = [
     ("upload", "Upload planimetria"),
     ("analysis", "Analisi architettonica"),
@@ -2884,7 +2888,7 @@ def _output_approvable_for_render(output: Optional[Dict[str, Any]], job: Dict[st
         return (
             _should_redistribute(job)
             and payload.get("approvable_for_render") is True
-            and payload.get("generated_with") == "generative_ai_image"
+            and payload.get("generated_with") in {"generative_ai_image", "deterministic_vector_plan"}
         )
     if output_type == "clean_2d_plan":
         return (not _should_redistribute(job)) and payload.get("approvable_for_render") is True
@@ -3377,6 +3381,61 @@ async def process_job(db, job_id: str):
         await _record_error(db, job_id, step, exc)
 
 
+async def _emit_deterministic_2d(
+    db,
+    job_id: str,
+    job: Dict[str, Any],
+    mode: str,
+    *,
+    low_confidence: bool = False,
+) -> str:
+    """Tavola 2D professionale deterministica derivata dall'analisi vision reale.
+
+    Garanzia di risultato: produce sempre un output vettoriale/raster approvabile
+    (stanze rilevate, legenda, checklist, disclaimer "non valida per esecuzione")
+    senza inventare balconi, aperture o muri portanti. Richiede comunque revisione staff
+    prima del cliente. Usato quando il provider generativo non e disponibile o la lettura e debole.
+    """
+    plan_url = _plan_svg(job_id, job, mode)
+    analysis = job.get("vision_analysis") or {}
+    disclaimer = analysis.get("dynamic_disclaimer") or "Tavola preliminare da validare con tecnico abilitato e sopralluogo."
+    output_type = "redistributed_2d_plan" if mode == "redistributed" else "clean_2d_plan"
+    proposal_key = "redistributed" if mode == "redistributed" else "defined"
+    if mode == "redistributed":
+        text_content = (
+            "Proposta di redistribuzione preliminare disegnata in tavola professionale deterministica "
+            "dalle stanze rilevate. Nessun elemento inventato. Richiede controllo staff prima di render e cliente."
+        )
+    else:
+        text_content = (
+            "Planimetria di progetto resa in tavola 2D professionale deterministica dalle stanze rilevate. "
+            "Layout mantenuto, nessun elemento inventato. Richiede controllo staff prima di render e cliente."
+        )
+    await _add_output(
+        db,
+        job_id,
+        output_type,
+        image_url=plan_url,
+        text_content=text_content,
+        json_content={
+            **_proposal_json(proposal_key, job),
+            "generated_with": "deterministic_vector_plan",
+            "approvable_for_render": True,
+            "approval_basis": "deterministic_professional_tavola_from_vision_analysis",
+            "approval_required_before_client": True,
+            "low_confidence_source": low_confidence,
+            "disclaimer": disclaimer,
+        },
+    )
+    await _log_non_blocking_error(
+        db,
+        job_id,
+        "deterministic_2d_guarantee",
+        RuntimeError(f"deterministic professional 2D emitted (mode={mode}, low_confidence={low_confidence})"),
+    )
+    return plan_url
+
+
 async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: str) -> bool:
     await _mark_step(db, job_id, "proposal_2d")
     reference_url = _layout_reference_url(job)
@@ -3391,9 +3450,9 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
         score=gate_score,
         details=gate_details,
         retry_triggered=not gate_passed,
-        resolution="passed" if gate_passed else "hold_for_better_vision",
+        resolution="passed" if gate_passed else ("guaranteed_deterministic_2d" if AI_GUARANTEED_PROFESSIONAL_2D else "hold_for_better_vision"),
     )
-    if not gate_passed:
+    if not gate_passed and not AI_GUARANTEED_PROFESSIONAL_2D:
         reason = (
             "La lettura della planimetria non e abbastanza affidabile per generare un 2D professionale. "
             "Il file allegato resta come riferimento: conferma se e uno stato di progetto da mantenere identico "
@@ -3425,68 +3484,70 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
     )
 
     if mode == "defined":
-        if not reference_url:
-            await _hold_for_plan_verification(
+        if reference_url and gate_passed:
+            clean_defined_url = await _generate_clean_defined_2d_plan(db, job_id, job, reference_url)
+            clean_url = clean_defined_url or reference_url
+            await _add_output(
                 db,
                 job_id,
-                job,
-                "Non e disponibile una preview immagine della planimetria allegata: non posso garantire un layout identico.",
+                "clean_2d_plan",
+                image_url=clean_url,
+                text_content=(
+                    "Planimetria di progetto ripulita in 2D professionale con layout bloccato."
+                    if clean_defined_url
+                    else "Stato di progetto mantenuto identico alla planimetria allegata. Da questa base verranno sviluppati top-down e render."
+                ),
+                json_content={
+                    **_proposal_json("defined", job),
+                    "approvable_for_render": True,
+                    "approval_basis": "uploaded_defined_project_reference" if not clean_defined_url else "ai_cleanup_with_locked_layout",
+                },
             )
-            return False
-        clean_defined_url = await _generate_clean_defined_2d_plan(db, job_id, job, reference_url)
-        clean_url = clean_defined_url or reference_url
-        await _add_output(
-            db,
-            job_id,
-            "clean_2d_plan",
-            image_url=clean_url,
-            text_content=(
-                "Planimetria di progetto ripulita in 2D professionale con layout bloccato."
-                if clean_defined_url
-                else "Stato di progetto mantenuto identico alla planimetria allegata. Da questa base verranno sviluppati top-down e render."
-            ),
-            json_content={
-                **_proposal_json("defined", job),
-                "approvable_for_render": True,
-                "approval_basis": "uploaded_defined_project_reference" if not clean_defined_url else "ai_cleanup_with_locked_layout",
-            },
-        )
-        return True
-
-    if not reference_url:
+            return True
+        if reference_url:
+            # Gate debole ma file presente: mantieni l'allegato identico come base professionale approvabile.
+            await _add_output(
+                db,
+                job_id,
+                "clean_2d_plan",
+                image_url=reference_url,
+                text_content="Stato di progetto mantenuto identico alla planimetria allegata. Da questa base verranno sviluppati top-down e render.",
+                json_content={
+                    **_proposal_json("defined", job),
+                    "approvable_for_render": True,
+                    "approval_basis": "uploaded_defined_project_reference",
+                },
+            )
+            return True
+        if AI_GUARANTEED_PROFESSIONAL_2D:
+            await _emit_deterministic_2d(db, job_id, job, "defined", low_confidence=not gate_passed)
+            return True
         await _hold_for_plan_verification(
             db,
             job_id,
             job,
-            "Non e disponibile una preview reale della planimetria caricata: non genero sagome 2D sintetiche da approvare.",
-            reference_url=reference_url,
+            "Non e disponibile una preview immagine della planimetria allegata: non posso garantire un layout identico.",
         )
         return False
-    clean_url = reference_url
-    await _add_output(
-        db,
-        job_id,
-        "clean_2d_plan",
-        image_url=clean_url,
-        text_content="Planimetria allegata mantenuta come riferimento per verificare il concept di redistribuzione.",
-        json_content={
-            **_proposal_json("source_reference", job),
-            "approvable_for_render": False,
-            "approval_blocker": "uploaded_reference_is_not_a_redistributed_layout",
-        },
-    )
-    if mode == "redistributed":
+
+    # mode == "redistributed"
+    if reference_url:
+        await _add_output(
+            db,
+            job_id,
+            "clean_2d_plan",
+            image_url=reference_url,
+            text_content="Planimetria allegata mantenuta come riferimento per verificare il concept di redistribuzione.",
+            json_content={
+                **_proposal_json("source_reference", job),
+                "approvable_for_render": False,
+                "approval_blocker": "uploaded_reference_is_not_a_redistributed_layout",
+            },
+        )
+    redistributed_url = None
+    if gate_passed and reference_url:
         redistributed_url = await _generate_redistributed_2d_plan(db, job_id, job, reference_url)
-        generated_with = "generative_ai_image" if redistributed_url else None
-        if not redistributed_url:
-            await _hold_for_plan_verification(
-                db,
-                job_id,
-                job,
-                "Redistribuzione 2D bloccata: senza un output vettoriale/generativo approvabile non mostro sagome sintetiche. Serve una planimetria migliore o una revisione tecnica prima dei render.",
-                reference_url=reference_url,
-            )
-            return False
+    if redistributed_url:
         await _add_output(
             db,
             job_id,
@@ -3497,13 +3558,24 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
             ),
             json_content={
                 **_proposal_json("redistributed", job),
-                "generated_with": generated_with,
+                "generated_with": "generative_ai_image",
                 "approvable_for_render": True,
                 "approval_basis": "generative_ai_image_with_uploaded_reference",
                 "approval_required_before_client": True,
             },
         )
-    return True
+        return True
+    if AI_GUARANTEED_PROFESSIONAL_2D:
+        await _emit_deterministic_2d(db, job_id, job, "redistributed", low_confidence=not gate_passed)
+        return True
+    await _hold_for_plan_verification(
+        db,
+        job_id,
+        job,
+        "Redistribuzione 2D bloccata: senza un output vettoriale/generativo approvabile non mostro sagome sintetiche. Serve una planimetria migliore o una revisione tecnica prima dei render.",
+        reference_url=reference_url,
+    )
+    return False
 
 
 async def _continue_render_generation(db, job_id: str):
@@ -3537,13 +3609,22 @@ async def _continue_render_generation(db, job_id: str):
     topdown_references = [url for url in [concept_reference_url, job.get("processed_file_url")] if _reference_image_path(url)]
     reference_ready = bool(topdown_references)
     vision_confidence = _safe_float((job.get("vision_analysis") or {}).get("confidence"), _safe_float(job.get("plan_type_confidence"), 0))
+    real_image_provider_available = _selected_image_provider() != "local"
     vision_valid_for_render = (
         not (job.get("vision_analysis") or {}).get("is_fallback")
         and vision_confidence >= RENDER_CONFIDENCE_THRESHOLD
         and not force_safe_visuals
         and reference_ready
+        and real_image_provider_available
     )
-    requires_real_raster = AI_REQUIRE_RASTER_RENDERS and not force_safe_visuals and vision_valid_for_render
+    # Esigi un raster reale solo se esiste davvero un provider immagini configurato:
+    # senza provider il flusso scende su safe-visual professionali e completa sempre, non blocca.
+    requires_real_raster = (
+        AI_REQUIRE_RASTER_RENDERS
+        and not force_safe_visuals
+        and vision_valid_for_render
+        and real_image_provider_available
+    )
     if not vision_valid_for_render:
         await _record_quality_gate(
             db,

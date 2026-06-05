@@ -242,6 +242,22 @@ def test_synthetic_redistributed_2d_is_not_approvable_for_render():
     assert svc._output_approvable_for_render(generative, job) is True
 
 
+def test_deterministic_vector_plan_is_approvable_for_render():
+    """Garanzia di risultato: la tavola 2D professionale deterministica e approvabile."""
+    job = {"plan_type_selected": "existing_state", "plan_type_detected": "existing_state"}
+    deterministic = {
+        "output_type": "redistributed_2d_plan",
+        "image_url": "/api/ai-architect/files/outputs/tavola.png",
+        "json_content": {
+            "generated_with": "deterministic_vector_plan",
+            "approvable_for_render": True,
+            "approval_required_before_client": True,
+        },
+    }
+    assert svc.AI_GUARANTEED_PROFESSIONAL_2D is True
+    assert svc._output_approvable_for_render(deterministic, job) is True
+
+
 def test_defined_project_reference_can_be_approvable_when_layout_locked():
     job = {"plan_type_selected": "defined_project", "plan_type_detected": "defined_project"}
     clean_reference = {
