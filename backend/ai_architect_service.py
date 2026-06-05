@@ -2153,15 +2153,27 @@ def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
         "move, add or remove any wall, room, door, window, bathroom, kitchen, stair, balcony or access. "
         "Only translate the same layout into a professional top-down 3D visualization. "
         if defined_mode
-        else ""
+        else (
+            "The provided image is the APPROVED 2D plan and is the SINGLE source of truth. Reproduce it exactly in 3D: "
+            "same exterior perimeter, same wall positions and partitions, same doors and windows, and the SAME function, "
+            "label and position for every room as drawn in the 2D plan. "
+        )
+    )
+    # Regole anti-incoerenza esplicite: errori visti (bagno dentro la cabina armadio, arredo nella stanza sbagliata).
+    coherence_rules = (
+        "STRICT COHERENCE RULES: each room must keep the exact same function and footprint as in the 2D plan; "
+        "do NOT place a bathroom, toilet, sink, shower or bathtub inside a wardrobe, walk-in closet (cabina armadio), "
+        "bedroom, living room or kitchen; sanitary fixtures only inside bathrooms; kitchen fixtures only inside the kitchen; "
+        "beds only inside bedrooms; place every furniture item strictly inside the room it belongs to; "
+        "do not swap, merge, mirror or rotate rooms; keep adjacencies and door connections identical to the 2D plan. "
     )
     return (
         "Draw a premium photorealistic architectural top-down 3D floor plan, dollhouse style, "
         "for an Italian residential renovation concept. Faithfully follow the final layout: "
-        f"{layout_mode}. {fidelity_rule}Keep exterior perimeter, doors, windows, kitchen, bathrooms, living area, "
+        f"{layout_mode}. {fidelity_rule}{coherence_rules}Keep exterior perimeter, doors, windows, kitchen, bathrooms, living area, "
         "night area, circulation paths and furniture coherent and proportional. "
         f"Detected rooms from the vision analysis: {rooms}. "
-        "Source hierarchy: uploaded floor plan -> technical_floor_plan_json -> optimized_floor_plan_json -> visual output. "
+        "Source hierarchy: APPROVED 2D plan image (highest priority) -> technical_floor_plan_json -> optimized_floor_plan_json -> visual output. "
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
         f"stairs, balconies, extra levels or volumes not allowed by the JSON: {plan_details}. "
         f"{render_addendum} "
@@ -3160,6 +3172,95 @@ def _feature_count(analysis: Dict[str, Any], key: str) -> int:
     return len(value) if isinstance(value, list) else 0
 
 
+def _pdf_euro(value: Any) -> str:
+    try:
+        n = int(round(float(value)))
+    except (TypeError, ValueError):
+        return "-"
+    return "EUR " + f"{n:,}".replace(",", ".")
+
+
+# Tre proposte commerciali GB (allineate alla landing Output.jsx).
+PDF_COMMERCIAL_PROPOSALS = [
+    {
+        "key": "essenziale",
+        "titolo": "Soluzione Essenziale",
+        "tagline": "Pratica. Concreta. Subito.",
+        "accent": "#b91c1c",
+        "forniture": "Forniture escluse",
+        "incl": ["Demolizioni e rimozioni", "Impianti a norma DM 37/08", "Pavimenti e rivestimenti", "Tinteggiatura completa"],
+    },
+    {
+        "key": "premium",
+        "titolo": "Soluzione Premium",
+        "tagline": "Trasforma. Ridisegna. Personalizza.",
+        "accent": "#111111",
+        "forniture": "Forniture escluse",
+        "incl": ["Tutto l'Essenziale", "Redistribuzione interna", "Controsoffitti e cartongesso", "Finiture di qualita", "Climatizzazione predisposta"],
+    },
+    {
+        "key": "luxury",
+        "titolo": "Soluzione Luxury",
+        "tagline": "Tutto incluso. Chiavi in mano.",
+        "accent": "#b08948",
+        "forniture": "Forniture incluse",
+        "incl": ["Tutto il Premium", "Sanitari e rubinetterie premium", "Porte e pavimenti inclusi", "Illuminazione di design", "Domotica base"],
+    },
+]
+
+
+def _commercial_proposals_story(job: Dict[str, Any], styles) -> List[Any]:
+    """Tre copertine delle proposte commerciali con range prezzo sotto ciascuna."""
+    estimate = job.get("estimate") or _gb_estimate(job)
+    pacchetti = (estimate or {}).get("pacchetti") or {}
+    flow: List[Any] = [PageBreak(), Paragraph("Proposte Commerciali GB Construction", styles["H1GB"])]
+    flow.append(Paragraph(
+        "Tre livelli di intervento sulla stessa metratura. Range di massima da preventivo predittivo GB, "
+        "da confermare in sopralluogo gratuito dopo verifica di misure e distribuzione.",
+        styles["SmallGB"],
+    ))
+    flow.append(Spacer(1, 4 * mm))
+    for proposal in PDF_COMMERCIAL_PROPOSALS:
+        pack = pacchetti.get(proposal["key"]) or {}
+        low = pack.get("range_basso")
+        high = pack.get("range_alto")
+        if low and high:
+            price = f"Da {_pdf_euro(low)} a {_pdf_euro(high)}"
+        else:
+            price = "Range definito dopo conferma metratura in sopralluogo"
+        costo_mq = pack.get("costo_mq")
+        tempi = pack.get("tempistiche") or "-"
+        sub = []
+        if costo_mq:
+            sub.append(f"~ {_pdf_euro(costo_mq)}/mq")
+        sub.append(f"Tempi indicativi: {tempi}")
+        sub.append(proposal["forniture"])
+        cover = [
+            [Paragraph(f'<font color="white"><b>{proposal["titolo"].upper()}</b></font>', styles["H2GB"])],
+            [Paragraph(f'<font color="#e7e1d5">{proposal["tagline"]}</font>', styles["SmallGB"])],
+            [Paragraph(f'<font color="white"><b>{price}</b></font>', styles["BodyGB"])],
+            [Paragraph(f'<font color="#cfc7b8">{" | ".join(sub)}</font>', styles["SmallGB"])],
+            [Paragraph(f'<font color="#cfc7b8">Include: {", ".join(proposal["incl"])}</font>', styles["SmallGB"])],
+        ]
+        cover_table = Table(cover, colWidths=[156 * mm])
+        cover_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#0b0b0b")),
+            ("LINEBEFORE", (0, 0), (0, -1), 4, colors.HexColor(proposal["accent"])),
+            ("LEFTPADDING", (0, 0), (-1, -1), 12),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        flow.append(cover_table)
+        flow.append(Spacer(1, 5 * mm))
+    flow.append(Paragraph(
+        "I valori sono stime di massima non vincolanti, calcolate dal preventivatore predittivo GB Construction. "
+        "Il prezzo definitivo viene formulato dopo sopralluogo tecnico gratuito e conferma di misure, distribuzione e stato impianti.",
+        styles["SmallGB"],
+    ))
+    return flow
+
+
 def _build_enterprise_pdf(path: Path, job: Dict[str, Any], outputs: List[Dict[str, Any]], advice: str):
     if SimpleDocTemplate is None:
         raise RuntimeError("reportlab non disponibile")
@@ -3217,7 +3318,6 @@ def _build_enterprise_pdf(path: Path, job: Dict[str, Any], outputs: List[Dict[st
         ["Tipo rilevato", _pdf_para(analysis.get("plan_type_detected") or job.get("plan_type_detected"), styles["SmallGB"])],
         ["Qualita analisi", "professionale" if confidence >= VISION_MIN_ACCEPTABLE_CONFIDENCE else "da verificare"],
         ["Metodo", _pdf_para("AI Architect GB - lettura planimetrica professionale con verifica tecnica consigliata", styles["SmallGB"])],
-        ["Output immagini", _pdf_para((job.get("image_generation") or {}).get("provider"), styles["SmallGB"])],
     ]
     story.append(Paragraph("Sintesi Esecutiva", styles["H1GB"]))
     table = Table(summary_data, colWidths=[48 * mm, 108 * mm])
@@ -3235,50 +3335,20 @@ def _build_enterprise_pdf(path: Path, job: Dict[str, Any], outputs: List[Dict[st
     ]))
     story.append(table)
     story.append(Spacer(1, 6 * mm))
-    story.append(Paragraph(_pdf_safe(analysis.get("dynamic_disclaimer") or "Concept preliminare da verificare con tecnico abilitato."), styles["SmallGB"]))
+    story.append(Paragraph("Verifica in Sopralluogo", styles["H2GB"]))
+    story.append(Paragraph(
+        "Importante: misure, superfici e distribuzione degli ambienti riportate in questo concept sono stime preliminari "
+        "ricavate dalla planimetria. Prima di qualsiasi intervento e indispensabile confermare in sede di sopralluogo "
+        "tecnico gratuito le misure reali, la distribuzione definitiva degli spazi, lo stato dei muri portanti e degli "
+        "impianti. I valori potranno variare a seguito del rilievo.",
+        styles["SmallGB"],
+    ))
 
     uploaded_img = _pdf_image(job.get("uploaded_file_url"), 160 * mm, 90 * mm)
     if uploaded_img:
+        story.append(Spacer(1, 4 * mm))
         story.append(Paragraph("File Caricato", styles["H2GB"]))
         story.append(uploaded_img)
-
-    story.append(PageBreak())
-    story.append(Paragraph("Analisi Vision", styles["H1GB"]))
-    rooms = analysis.get("detected_rooms") or []
-    room_rows = [["Ambiente", "Posizione", "Conf.", "Evidenza"]]
-    for room in rooms[:10]:
-        room_rows.append([
-            _pdf_para(room.get("name"), styles["SmallGB"]),
-            _pdf_para(room.get("approx_position"), styles["SmallGB"]),
-            f"{int(_safe_float(room.get('confidence'), 0) * 100)}%",
-            _pdf_para(room.get("evidence"), styles["SmallGB"]),
-        ])
-    if len(room_rows) == 1:
-        room_rows.append(["-", "-", "-", "Nessun ambiente determinabile con confidenza sufficiente."])
-    room_table = Table(room_rows, colWidths=[34 * mm, 28 * mm, 16 * mm, 86 * mm])
-    room_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#b91c1c")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d7d0c3")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7.5),
-    ]))
-    story.append(room_table)
-    story.append(Spacer(1, 7 * mm))
-    counts = [
-        ["Porte", _feature_count(analysis, "doors")],
-        ["Finestre", _feature_count(analysis, "windows")],
-        ["Bagni", _feature_count(analysis, "bathrooms")],
-        ["Cucina/impianti", _feature_count(analysis, "kitchen_zones")],
-        ["Vincoli incerti", _feature_count(analysis, "structural_constraints_uncertain")],
-    ]
-    story.append(Paragraph("Elementi Rilevati", styles["H2GB"]))
-    story.append(Table(counts, colWidths=[60 * mm, 24 * mm], style=[
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d7d0c3")),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-    ]))
 
     story.append(PageBreak())
     story.append(Paragraph("Output Visivi", styles["H1GB"]))
@@ -3319,6 +3389,8 @@ def _build_enterprise_pdf(path: Path, job: Dict[str, Any], outputs: List[Dict[st
         story.append(Paragraph("Metratura non dichiarata o non stimabile dalla planimetria. Il computo viene completato dopo rilievo o conferma dei mq.", styles["BodyGB"]))
     story.append(Paragraph("Disclaimer Legale", styles["H2GB"]))
     story.append(Paragraph("Il presente documento e un concept preliminare generato con supporto AI. Non sostituisce progetto esecutivo, verifica strutturale, verifica catastale, pratica edilizia, computo metrico ufficiale o consulenza di tecnico abilitato.", styles["SmallGB"]))
+
+    story.extend(_commercial_proposals_story(job, styles))
 
     doc.build(story, onFirstPage=cover, onLaterPages=later)
 
@@ -3881,7 +3953,12 @@ async def _continue_render_generation(db, job_id: str):
     existing_outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
     concept_output = _latest_output(existing_outputs, "redistributed_2d_plan") or _latest_output(existing_outputs, "clean_2d_plan")
     concept_reference_url = (concept_output or {}).get("image_url") or job.get("processed_file_url") or job.get("uploaded_file_url")
-    topdown_references = [url for url in [concept_reference_url, job.get("processed_file_url")] if _reference_image_path(url)]
+    if mode == "redistributed":
+        # Il 3D deve essere fedele SOLO al 2D approvato: la planimetria originale ha un layout diverso
+        # e, passata come reference, genera incoerenze (bagno dentro la cabina armadio, arredi fuori posto).
+        topdown_references = [url for url in [concept_reference_url] if _reference_image_path(url)]
+    else:
+        topdown_references = [url for url in [concept_reference_url, job.get("processed_file_url")] if _reference_image_path(url)]
     reference_ready = bool(topdown_references)
     vision_confidence = _safe_float((job.get("vision_analysis") or {}).get("confidence"), _safe_float(job.get("plan_type_confidence"), 0))
     real_image_provider_available = _selected_image_provider() != "local"
@@ -4034,11 +4111,12 @@ async def _continue_render_generation(db, job_id: str):
     )
 
     await _mark_step(db, job_id, "renders")
-    room_references = [
-        url
-        for url in [topdown_url, concept_reference_url, job.get("processed_file_url")]
-        if _reference_image_path(url)
-    ]
+    room_reference_candidates = (
+        [topdown_url, concept_reference_url]
+        if mode == "redistributed"
+        else [topdown_url, concept_reference_url, job.get("processed_file_url")]
+    )
+    room_references = [url for url in room_reference_candidates if _reference_image_path(url)]
     render_tasks = [
         asyncio.create_task(limited_room(index, room_name, room_references))
         for index, room_name in enumerate(room_names, start=1)
@@ -4292,7 +4370,11 @@ async def regenerate_outputs(
         existing_outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
         concept_output = _latest_output(existing_outputs, "redistributed_2d_plan") or _latest_output(existing_outputs, "clean_2d_plan")
         concept_reference_url = (concept_output or {}).get("image_url") or _layout_reference_url(job)
-        topdown_references = [url for url in [concept_reference_url, job.get("processed_file_url")] if _reference_image_path(url)]
+        topdown_references = [
+            url
+            for url in ([concept_reference_url] if mode == "redistributed" else [concept_reference_url, job.get("processed_file_url")])
+            if _reference_image_path(url)
+        ]
         if _selected_image_provider() != "local":
             try:
                 url = await _generate_ai_image(
@@ -4312,15 +4394,14 @@ async def regenerate_outputs(
         existing_outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
         topdown_output = _latest_output(existing_outputs, "topdown_3d_plan")
         concept_output = _latest_output(existing_outputs, "redistributed_2d_plan") or _latest_output(existing_outputs, "clean_2d_plan")
-        room_references = [
-            url
-            for url in [
-                (topdown_output or {}).get("image_url"),
-                (concept_output or {}).get("image_url"),
-                job.get("processed_file_url"),
-            ]
-            if _reference_image_path(url)
+        regen_mode = "redistributed" if _should_redistribute(job) else "defined"
+        room_reference_candidates = [
+            (topdown_output or {}).get("image_url"),
+            (concept_output or {}).get("image_url"),
         ]
+        if regen_mode != "redistributed":
+            room_reference_candidates.append(job.get("processed_file_url"))
+        room_references = [url for url in room_reference_candidates if _reference_image_path(url)]
         for index, room_name in enumerate(_room_names_for_generation(job), start=1):
             if _selected_image_provider() != "local":
                 try:
