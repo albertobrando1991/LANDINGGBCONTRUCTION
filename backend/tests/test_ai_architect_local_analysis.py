@@ -207,3 +207,50 @@ def test_defined_project_contract_locks_uploaded_layout():
     )
     assert "spostamento creativo di muri, aperture, bagni, cucina o accessi" in details["render_contract"]["must_not_add"]
     assert "preserve it exactly" in topdown_prompt
+
+
+def test_synthetic_redistributed_2d_is_not_approvable_for_render():
+    job = {"plan_type_selected": "existing_state", "plan_type_detected": "existing_state"}
+
+    synthetic = {
+        "output_type": "redistributed_2d_plan",
+        "image_url": "/api/ai-architect/files/outputs/fake.svg",
+        "json_content": {
+            "generated_with": "deterministic_safe_plan",
+            "approvable_for_render": True,
+        },
+    }
+    generative = {
+        "output_type": "redistributed_2d_plan",
+        "image_url": "/api/ai-architect/files/outputs/fake.png",
+        "json_content": {
+            "generated_with": "generative_ai_image",
+            "approvable_for_render": True,
+        },
+    }
+    source_reference = {
+        "output_type": "clean_2d_plan",
+        "image_url": "/api/ai-architect/files/outputs/source.png",
+        "json_content": {
+            "approvable_for_render": False,
+            "approval_blocker": "uploaded_reference_is_not_a_redistributed_layout",
+        },
+    }
+
+    assert svc._output_approvable_for_render(synthetic, job) is False
+    assert svc._output_approvable_for_render(source_reference, job) is False
+    assert svc._output_approvable_for_render(generative, job) is True
+
+
+def test_defined_project_reference_can_be_approvable_when_layout_locked():
+    job = {"plan_type_selected": "defined_project", "plan_type_detected": "defined_project"}
+    clean_reference = {
+        "output_type": "clean_2d_plan",
+        "image_url": "/api/ai-architect/files/outputs/source.png",
+        "json_content": {
+            "approvable_for_render": True,
+            "approval_basis": "uploaded_defined_project_reference",
+        },
+    }
+
+    assert svc._output_approvable_for_render(clean_reference, job) is True

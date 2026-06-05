@@ -2777,6 +2777,27 @@ def _latest_output(outputs: List[Dict[str, Any]], output_type: str) -> Optional[
     return matches[-1] if matches else None
 
 
+def _output_json_content(output: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    value = (output or {}).get("json_content")
+    return value if isinstance(value, dict) else {}
+
+
+def _output_approvable_for_render(output: Optional[Dict[str, Any]], job: Dict[str, Any]) -> bool:
+    if not output or not output.get("image_url"):
+        return False
+    output_type = output.get("output_type")
+    payload = _output_json_content(output)
+    if output_type == "redistributed_2d_plan":
+        return (
+            _should_redistribute(job)
+            and payload.get("approvable_for_render") is True
+            and payload.get("generated_with") == "generative_ai_image"
+        )
+    if output_type == "clean_2d_plan":
+        return (not _should_redistribute(job)) and payload.get("approvable_for_render") is True
+    return False
+
+
 def _pdf_image(url: Optional[str], max_width: float, max_height: float):
     if PdfImage is None:
         return None
@@ -3066,7 +3087,11 @@ async def _hold_for_plan_verification(
                 "clean_2d_plan",
                 image_url=reference_url,
                 text_content="Planimetria allegata mantenuta come riferimento: serve verifica prima di generare un concept 2D.",
-                json_content=_proposal_json("source_reference", job),
+                json_content={
+                    **_proposal_json("source_reference", job),
+                    "approvable_for_render": False,
+                    "approval_blocker": "source_reference_only",
+                },
             )
     await _set_job(
         db,
@@ -3326,29 +3351,45 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
                 if clean_defined_url
                 else "Stato di progetto mantenuto identico alla planimetria allegata. Da questa base verranno sviluppati top-down e render."
             ),
-            json_content=_proposal_json("defined", job),
+            json_content={
+                **_proposal_json("defined", job),
+                "approvable_for_render": True,
+                "approval_basis": "uploaded_defined_project_reference" if not clean_defined_url else "ai_cleanup_with_locked_layout",
+            },
         )
         return True
 
-    clean_url = reference_url or _plan_svg(job_id, job, "clean")
+    if not reference_url:
+        await _hold_for_plan_verification(
+            db,
+            job_id,
+            job,
+            "Non e disponibile una preview reale della planimetria caricata: non genero sagome 2D sintetiche da approvare.",
+            reference_url=reference_url,
+        )
+        return False
+    clean_url = reference_url
     await _add_output(
         db,
         job_id,
         "clean_2d_plan",
         image_url=clean_url,
         text_content="Planimetria allegata mantenuta come riferimento per verificare il concept di redistribuzione.",
-        json_content=_proposal_json("source_reference", job),
+        json_content={
+            **_proposal_json("source_reference", job),
+            "approvable_for_render": False,
+            "approval_blocker": "uploaded_reference_is_not_a_redistributed_layout",
+        },
     )
     if mode == "redistributed":
         redistributed_url = await _generate_redistributed_2d_plan(db, job_id, job, reference_url)
-        generated_with = "generative_ai_image" if redistributed_url else "deterministic_safe_plan"
-        redistributed_url = redistributed_url or _plan_svg(job_id, job, "redistributed")
+        generated_with = "generative_ai_image" if redistributed_url else None
         if not redistributed_url:
             await _hold_for_plan_verification(
                 db,
                 job_id,
                 job,
-                "Non ho generato un 2D redistribuito approvabile: manca una reference immagine valida, un provider immagini attivo o una lettura planimetrica sufficientemente affidabile.",
+                "Redistribuzione 2D bloccata: senza un output vettoriale/generativo approvabile non mostro sagome sintetiche. Serve una planimetria migliore o una revisione tecnica prima dei render.",
                 reference_url=reference_url,
             )
             return False
@@ -3358,13 +3399,13 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
             "redistributed_2d_plan",
             image_url=redistributed_url,
             text_content=(
-                "Bozza 2D tecnica vincolata alla lettura della planimetria: non aggiunge balconi, aperture, locali o muri portanti non verificati."
-                if generated_with == "deterministic_safe_plan"
-                else "Nuova distribuzione preliminare generata con AI immagine: richiede controllo staff prima di render e cliente."
+                "Nuova distribuzione preliminare generata con AI immagine: richiede controllo staff prima di render e cliente."
             ),
             json_content={
                 **_proposal_json("redistributed", job),
                 "generated_with": generated_with,
+                "approvable_for_render": True,
+                "approval_basis": "generative_ai_image_with_uploaded_reference",
                 "approval_required_before_client": True,
             },
         )
@@ -3704,14 +3745,14 @@ async def ensure_concept_ready_for_approval(db, job_id: str) -> None:
     outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
     if _should_redistribute(job):
         concept = _latest_output(outputs, "redistributed_2d_plan")
-        if not concept or not concept.get("image_url"):
+        if not _output_approvable_for_render(concept, job):
             raise HTTPException(
                 status_code=400,
-                detail="Concept 2D redistribuito non disponibile o non approvabile. Verifica la planimetria prima di generare i render.",
+                detail="Concept 2D redistribuito non approvabile: non genero render da una planimetria sintetica o non verificata. Serve una planimetria migliore o revisione tecnica.",
             )
         return
     concept = _latest_output(outputs, "clean_2d_plan")
-    if not concept or not concept.get("image_url"):
+    if not _output_approvable_for_render(concept, job):
         raise HTTPException(
             status_code=400,
             detail="Planimetria di progetto non disponibile come riferimento identico. Verifica il file prima di generare i render.",

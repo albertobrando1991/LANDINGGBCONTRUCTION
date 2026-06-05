@@ -175,6 +175,14 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
     job?.status,
   );
   const uploadedPlanUrl = job?.processed_file_url || job?.uploaded_file_url;
+  const concept2d = redistributed2d || clean2d;
+  const conceptPayload = concept2d?.json_content || {};
+  const conceptApprovable = conceptPayload.approvable_for_render === true;
+  const redistributionBlocked =
+    job?.status === "needs_confirmation" &&
+    /redistribuzione 2d bloccata|sagome 2d sintetiche|planimetria migliore|revisione tecnica/i.test(
+      job?.error_message || "",
+    );
 
   const currentProcessIndex = useMemo(() => {
     if (!job) return 0;
@@ -252,6 +260,12 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
 
   const approveConcept = async () => {
     if (!job) return;
+    if (!conceptApprovable) {
+      toast.error(
+        "Concept 2D non approvabile: serve planimetria migliore o revisione tecnica.",
+      );
+      return;
+    }
     setApproving(true);
     try {
       const { data } = await client.post(
@@ -268,6 +282,11 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
     } finally {
       setApproving(false);
     }
+  };
+
+  const restartWithBetterPlan = () => {
+    setJob(null);
+    setStep(1);
   };
 
   const confirmPlanType = async (planType) => {
@@ -705,12 +724,18 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                             </button>
                             <button
                               type="button"
-                              onClick={() => confirmPlanType("existing_state")}
+                              onClick={
+                                redistributionBlocked
+                                  ? restartWithBetterPlan
+                                  : () => confirmPlanType("existing_state")
+                              }
                               disabled={confirming}
                               className="bg-surface border border-stroke text-ink rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
                             >
                               <FileText className="w-4 h-4" />
-                              E' stato attuale: genera nuova 2D
+                              {redistributionBlocked
+                                ? "Carica planimetria migliore"
+                                : "E' stato attuale: genera nuova 2D"}
                             </button>
                           </div>
                           <p className="font-body text-xs text-fog mt-3">
@@ -738,8 +763,7 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                             approvazione.
                           </p>
                           {uploadedPlanUrl &&
-                            (redistributed2d || clean2d)?.image_url !==
-                              uploadedPlanUrl && (
+                            concept2d?.image_url !== uploadedPlanUrl && (
                               <div className="mt-4">
                                 <p className="font-display font-semibold uppercase text-[10px] tracking-wider text-fog mb-2">
                                   Planimetria allegata
@@ -751,18 +775,31 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                                 />
                               </div>
                             )}
-                          {(redistributed2d || clean2d)?.image_url && (
+                          {concept2d?.image_url && (
                             <div className="mt-4">
                               <p className="font-display font-semibold uppercase text-[10px] tracking-wider text-fog mb-2">
-                                Concept 2D da approvare
+                                {conceptApprovable
+                                  ? "Concept 2D da approvare"
+                                  : "2D non approvabile"}
                               </p>
                               <img
-                                src={assetUrl(
-                                  (redistributed2d || clean2d).image_url,
-                                )}
+                                src={assetUrl(concept2d.image_url)}
                                 alt="Concept 2D da approvare"
                                 className="w-full max-h-72 rounded-xl border border-stroke object-contain bg-bg"
                               />
+                            </div>
+                          )}
+                          {!conceptApprovable && (
+                            <div className="mt-4 rounded-xl border border-danger/35 bg-danger/10 p-4">
+                              <p className="font-display font-semibold uppercase text-[10px] tracking-wider text-danger mb-2">
+                                Blocco sicurezza
+                              </p>
+                              <p className="font-body text-xs leading-relaxed text-fog">
+                                Questo output non puo far partire i render: la
+                                redistribuzione non e stata prodotta da una
+                                geometria affidabile. Serve una planimetria piu
+                                leggibile o una revisione tecnica.
+                              </p>
                             </div>
                           )}
                           {(optimizationStrategy.length > 0 ||
@@ -812,19 +849,30 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                             </div>
                           )}
                           <div className="flex flex-wrap gap-3 mt-4">
-                            <button
-                              type="button"
-                              onClick={approveConcept}
-                              disabled={approving}
-                              className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
-                            >
-                              {approving ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="w-4 h-4" />
-                              )}
-                              Approva e genera render
-                            </button>
+                            {conceptApprovable ? (
+                              <button
+                                type="button"
+                                onClick={approveConcept}
+                                disabled={approving}
+                                className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                              >
+                                {approving ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-4 h-4" />
+                                )}
+                                Approva e genera render
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={restartWithBetterPlan}
+                                className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center gap-2"
+                              >
+                                <FileText className="w-4 h-4" />
+                                Carica planimetria migliore
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={downloadReport}

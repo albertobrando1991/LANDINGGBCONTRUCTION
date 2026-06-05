@@ -112,6 +112,8 @@ export default function AIArchitectReview() {
   const report = latest(outputs, "pdf_report");
   const renders = outputs.filter((item) => item.output_type === "room_render");
   const concept = redistributed2d || clean2d;
+  const conceptPayload = concept?.json_content || {};
+  const conceptApprovable = conceptPayload.approvable_for_render === true;
   const uploadedPlanUrl =
     selectedJob?.processed_file_url || selectedJob?.uploaded_file_url;
   const analysisJson =
@@ -313,7 +315,8 @@ export default function AIArchitectReview() {
                         <Download className="w-4 h-4" /> Report
                       </a>
                     )}
-                    {selectedJob.status === "needs_review" && (
+                    {selectedJob.status === "needs_review" &&
+                      conceptApprovable && (
                       <button
                         onClick={() => approve.mutate(selectedJob.id)}
                         disabled={approve.isPending}
@@ -355,7 +358,9 @@ export default function AIArchitectReview() {
                   {concept?.image_url ? (
                     <div>
                       <p className="font-display uppercase text-[10px] tracking-wider text-fog mb-2">
-                        2D da approvare
+                        {conceptApprovable
+                          ? "2D da approvare"
+                          : "2D non approvabile"}
                       </p>
                       <img
                         src={assetUrl(concept.image_url)}
@@ -372,6 +377,19 @@ export default function AIArchitectReview() {
                     <p className="font-body text-xs text-fog mt-3">
                       {concept.text_content}
                     </p>
+                  )}
+                  {concept && !conceptApprovable && (
+                    <div className="mt-3 rounded-xl border border-danger/35 bg-danger/10 p-3">
+                      <p className="font-display uppercase text-[10px] tracking-wider text-danger">
+                        Blocco sicurezza
+                      </p>
+                      <p className="font-body text-xs text-fog mt-1 leading-relaxed">
+                        Output non approvabile per render: planimetria
+                        sintetica, reference semplice o geometria non
+                        verificata. Richiedere planimetria migliore o revisione
+                        tecnica.
+                      </p>
+                    </div>
                   )}
                   {(selectedAutomationVariant.label || pipelineGate.status) && (
                     <div className="mt-4 rounded-xl border border-stroke bg-bg p-3">
