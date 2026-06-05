@@ -133,7 +133,7 @@ AI_IMAGE_CONCURRENCY = max(1, int(os.getenv("AI_IMAGE_CONCURRENCY", "3")))
 AI_RENDER_MAX_ROOMS = max(1, int(os.getenv("AI_RENDER_MAX_ROOMS", "4")))
 AI_REQUIRE_RASTER_RENDERS = os.getenv("AI_REQUIRE_RASTER_RENDERS", "true").lower() not in {"0", "false", "no"}
 REQUIRE_REVIEW_BEFORE_RENDERS = os.getenv("AI_ARCHITECT_REQUIRE_REVIEW", "true").lower() not in {"0", "false", "no"}
-OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5")
+OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2")
 OPENAI_IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "high")
 OPENAI_IMAGE_SIZE_PLAN = os.getenv("OPENAI_IMAGE_SIZE_PLAN", "1536x1024")
 OPENAI_IMAGE_SIZE_RENDER = os.getenv("OPENAI_IMAGE_SIZE_RENDER", "1536x1024")
@@ -3760,28 +3760,25 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
     )
 
     if mode == "defined":
-        if reference_url and gate_passed:
-            clean_defined_url = await _generate_clean_defined_2d_plan(db, job_id, job, reference_url)
-            clean_url = clean_defined_url or reference_url
-            await _add_output(
-                db,
-                job_id,
-                "clean_2d_plan",
-                image_url=clean_url,
-                text_content=(
-                    "Planimetria di progetto ripulita in 2D professionale con layout bloccato."
-                    if clean_defined_url
-                    else "Stato di progetto mantenuto identico alla planimetria allegata. Da questa base verranno sviluppati top-down e render."
-                ),
-                json_content={
-                    **_proposal_json("defined", job),
-                    "approvable_for_render": True,
-                    "approval_basis": "uploaded_defined_project_reference" if not clean_defined_url else "ai_cleanup_with_locked_layout",
-                },
-            )
-            return True
         if reference_url:
-            # Gate debole ma file presente: mantieni l'allegato identico come base professionale approvabile.
+            # gpt-image-2/Fal lavorano in image-to-image sulla planimetria reale: tentiamo la pulizia
+            # generativa anche con gate geometrico debole (il ridisegno e vincolato al file caricato).
+            clean_defined_url = await _generate_clean_defined_2d_plan(db, job_id, job, reference_url)
+            if clean_defined_url:
+                await _add_output(
+                    db,
+                    job_id,
+                    "clean_2d_plan",
+                    image_url=clean_defined_url,
+                    text_content="Planimetria di progetto ripulita in 2D professionale con layout bloccato.",
+                    json_content={
+                        **_proposal_json("defined", job),
+                        "approvable_for_render": True,
+                        "approval_basis": "ai_cleanup_with_locked_layout",
+                    },
+                )
+                return True
+            # Nessuna pulizia generativa: mantieni l'allegato identico come base professionale approvabile.
             await _add_output(
                 db,
                 job_id,
@@ -3821,7 +3818,9 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
             },
         )
     redistributed_url = None
-    if gate_passed and reference_url:
+    if reference_url:
+        # gpt-image-2/Fal ridisegnano in image-to-image dalla planimetria reale: tentiamo sempre la
+        # redistribuzione generativa quando esiste il riferimento, anche con gate geometrico debole.
         redistributed_url = await _generate_redistributed_2d_plan(db, job_id, job, reference_url)
     if redistributed_url:
         await _add_output(
