@@ -180,6 +180,9 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
   const analysisBusy = ["queued", "processing", "analysis_failed"].includes(
     job?.status,
   );
+  const renderWaitActive =
+    ["queued", "processing"].includes(job?.status) &&
+    ["topdown_3d", "renders"].includes(job?.current_step);
   const uploadedPlanUrl = job?.processed_file_url || job?.uploaded_file_url;
   const concept2d = redistributed2d || clean2d;
   const conceptPayload = concept2d?.json_content || {};
@@ -439,6 +442,19 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                     </p>
                   </label>
 
+                  <div className="mt-4 rounded-2xl border border-stroke bg-bg/40 px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <p className="font-body text-sm text-fog">
+                      Non hai una planimetria o preferisci solo il preventivo?
+                    </p>
+                    <button
+                      type="button"
+                      onClick={onSkip}
+                      className="shrink-0 font-display font-semibold uppercase text-sm text-brand hover:text-ink inline-flex items-center gap-2"
+                    >
+                      Vai al preventivo <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
                   <div className="mt-7 space-y-6">
                     <div>
                       <p className="font-display font-semibold uppercase text-sm text-ink mb-3">
@@ -615,6 +631,37 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                       style={{ width: `${job?.progress_percentage || 0}%` }}
                     />
                   </div>
+
+                  {renderWaitActive && (
+                    <div className="mb-6 rounded-2xl border border-gold/40 bg-gold/10 p-5">
+                      <div className="flex items-start gap-4">
+                        <div className="relative mt-0.5 shrink-0">
+                          <Sparkles className="w-6 h-6 text-gold" />
+                          <span className="absolute -inset-2 rounded-full border border-gold/30 animate-ping" />
+                        </div>
+                        <div>
+                          <p className="font-display font-semibold uppercase text-sm text-ink">
+                            Mentre avviene la magia
+                          </p>
+                          <p className="mt-1 font-body text-sm leading-relaxed text-fog">
+                            Stiamo generando i render del tuo progetto. Questa
+                            fase puo richiedere il tempo necessario per
+                            l'elaborazione delle immagini: attendi il
+                            completamento senza ricaricare la pagina.
+                          </p>
+                          <div className="mt-4 flex flex-wrap items-center gap-3">
+                            <span className="inline-flex items-center gap-2 rounded-full border border-gold/35 bg-bg/60 px-4 py-2 font-display text-[10px] font-semibold uppercase tracking-wider text-gold">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              Generazione render in corso
+                            </span>
+                            <span className="font-body text-xs text-fog">
+                              Il sistema aggiornera automaticamente i risultati.
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {(selectedAutomationVariant.label || job?.project_variant_selected) && (
                     <div className="mb-6 rounded-2xl border border-stroke bg-bg p-4">
@@ -1168,7 +1215,7 @@ export default function AIArchitect({ baseConfig, onComplete, onSkip }) {
                   className="font-display font-semibold uppercase text-sm text-fog hover:text-ink inline-flex items-center gap-2"
                 >
                   <ArrowLeft className="w-4 h-4" />{" "}
-                  {step === 1 ? "Continua senza AI" : "Indietro"}
+                  {step === 1 ? "Salta e vai al preventivo" : "Indietro"}
                 </button>
                 <button
                   type="button"
