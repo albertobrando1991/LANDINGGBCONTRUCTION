@@ -106,6 +106,8 @@ export default function AIArchitectReview() {
   const analysis = latest(outputs, "analysis");
   const professionalOutput = latest(outputs, "professional_floorplan");
   const automationOutput = latest(outputs, "floor_plan_automation");
+  const technicalJsonOutput = latest(outputs, "technical_floor_plan_json");
+  const optimizedJsonOutput = latest(outputs, "optimized_floor_plan_json");
   const clean2d = latest(outputs, "clean_2d_plan");
   const redistributed2d = latest(outputs, "redistributed_2d_plan");
   const topdown = latest(outputs, "topdown_3d_plan");
@@ -126,6 +128,14 @@ export default function AIArchitectReview() {
   const floorplanBrief = professionalFloorplan.floorplan_2d || {};
   const floorPlanAutomation =
     selectedJob?.floor_plan_automation || automationOutput?.json_content || {};
+  const technicalFloorPlan =
+    selectedJob?.technical_floor_plan_json ||
+    technicalJsonOutput?.json_content ||
+    {};
+  const optimizedFloorPlan =
+    selectedJob?.optimized_floor_plan_json ||
+    optimizedJsonOutput?.json_content ||
+    {};
   const selectedAutomationVariant =
     floorPlanAutomation.variant_generation?.selected_variant || {};
   const pipelineGate = floorPlanAutomation.pipeline_gate || {};
@@ -426,6 +436,34 @@ export default function AIArchitectReview() {
                         <p className="font-body text-xs text-fog mt-2 leading-relaxed">
                           {pipelineGate.reason}
                         </p>
+                      )}
+                      {(technicalFloorPlan.schema || optimizedFloorPlan.schema) && (
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <div className="rounded-lg border border-stroke bg-surface p-2">
+                            <div className="font-display uppercase text-[9px] text-fog">
+                              JSON tecnico
+                            </div>
+                            <div className="font-display uppercase text-xs text-ink mt-1">
+                              {technicalFloorPlan.source || "-"}
+                            </div>
+                            <div className="font-body text-[11px] text-fog mt-1">
+                              Ambienti:{" "}
+                              {(technicalFloorPlan.rooms || []).length || 0}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-stroke bg-surface p-2">
+                            <div className="font-display uppercase text-[9px] text-fog">
+                              JSON ottimizzato
+                            </div>
+                            <div className="font-display uppercase text-xs text-ink mt-1">
+                              {optimizedFloorPlan.metadata?.selected_variant
+                                ?.label || "-"}
+                            </div>
+                            <div className="font-body text-[11px] text-fog mt-1">
+                              Prompt visuale vincolato
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}

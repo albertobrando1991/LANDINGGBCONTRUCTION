@@ -24,6 +24,11 @@ from engines.floorplan_automation import (
     build_floor_plan_automation_contract,
     normalize_project_variant,
 )
+from engines.floorplan_json_pipeline import (
+    build_optimized_floor_plan_json,
+    build_technical_floor_plan_json,
+    technical_extraction_prompt,
+)
 from engines.professional_floorplan import (
     build_professional_floorplan_package,
     professional_2d_prompt_addendum,
@@ -105,6 +110,7 @@ AI_TEXT_PROVIDER_CHAIN = [
 AI_TEXT_TIMEOUT = max(5, int(os.getenv("AI_TEXT_TIMEOUT", "20")))
 OPENROUTER_TIMEOUT = int(os.getenv("OPENROUTER_TIMEOUT", "45"))
 AI_VISION_REQUEST_TIMEOUT_SECONDS = max(10, int(os.getenv("AI_VISION_REQUEST_TIMEOUT_SECONDS", "90")))
+AI_VISION_MAX_OUTPUT_TOKENS = max(4000, int(os.getenv("AI_VISION_MAX_OUTPUT_TOKENS", "7000")))
 OPENROUTER_MAX_ATTEMPTS = max(1, int(os.getenv("AI_VISION_MAX_ATTEMPTS", "1")))
 AI_VISION_JOB_RETRY_CYCLES = max(1, int(os.getenv("AI_VISION_JOB_RETRY_CYCLES", "1")))
 AI_VISION_JOB_RETRY_DELAY_SECONDS = max(0, int(os.getenv("AI_VISION_JOB_RETRY_DELAY_SECONDS", "0")))
@@ -231,9 +237,14 @@ def _arch_ai_vision_user_prompt(job: Dict[str, Any]) -> str:
         "Per ogni stanza/elemento fornisci evidence e confidence 0..1; aggiungi bounding_box normalizzata 0..1 "
         "solo quando localizzabile, altrimenti omettila. Se un dato non e determinabile, omettilo o marca "
         "verification_required=true: mai indovinare. "
+        "In piu, compila technical_floor_plan_json con il JSON tecnico dettagliato richiesto: ambienti, muri, "
+        "porte, finestre, balconi, arredi, sanitari, cucina, disimpegni, vani tecnici, demolizioni, nuovi tramezzi, "
+        "vincoli, dati mancanti e verifiche in sopralluogo. Usa centimetri, data_status e confidence score; non "
+        "inserire dati tecnici non leggibili come certi. "
         "ROUTING modalita: plan_type_selected=existing_state -> recommended_action=redistribute; "
         "defined_project -> keep_layout; se 'auto' e la classificazione resta sotto 0.75 di confidence -> "
         "ask_confirmation, senza forzare un layout. Compila lo schema strutturato richiesto. "
+        f"PROMPT DETTAGLIATO JSON TECNICO: {technical_extraction_prompt(job)} "
         f"BRIEF UTENTE: {json.dumps(brief, ensure_ascii=False)}"
     )
 
@@ -281,6 +292,10 @@ class DetectedElements(BaseModel):
     kitchen_zones: List[DetectedFeature] = Field(default_factory=list)
     corridors: List[DetectedFeature] = Field(default_factory=list)
     stairs: List[DetectedFeature] = Field(default_factory=list)
+    balconies: List[DetectedFeature] = Field(default_factory=list)
+    furniture: List[DetectedFeature] = Field(default_factory=list)
+    sanitary: List[DetectedFeature] = Field(default_factory=list)
+    technical_shafts: List[DetectedFeature] = Field(default_factory=list)
     structural_constraints_uncertain: List[DetectedFeature] = Field(default_factory=list)
 
 
@@ -304,6 +319,7 @@ class PlanVisionAnalysis(BaseModel):
     recommended_action: Literal["redistribute", "keep_layout", "ask_confirmation", "needs_human_review"]
     measurement_notes: str
     dynamic_disclaimer: str
+    technical_floor_plan_json: Dict[str, Any] = Field(default_factory=dict)
     model_provider: str = "unknown"
     model_name: str = "unknown"
     is_fallback: bool = False
@@ -589,6 +605,8 @@ async def create_job(
         "vision_analysis": None,
         "professional_floorplan": None,
         "floor_plan_automation": None,
+        "technical_floor_plan_json": None,
+        "optimized_floor_plan_json": None,
         "analysis_provider": "anthropic" if _anthropic_api_key() else ("openrouter" if _openrouter_api_key() else "professional-safe-mode"),
         "analysis_model": CLAUDE_VISION_MODEL if _anthropic_api_key() else (OPENROUTER_VISION_MODEL if _openrouter_api_key() else "gb-safe-delivery-v1"),
         "analysis_cache_hit": False,
@@ -607,6 +625,19 @@ async def create_job(
         },
         "prompts": {
             "analysis": ANALYSIS_PROMPT,
+            "technical_extraction": technical_extraction_prompt(
+                {
+                    "plan_type_selected": plan_type_selected,
+                    "project_variant_selected": project_variant_selected,
+                    "style_selected": style_selected,
+                    "project_goal": project_goal,
+                    "priorities": priorities,
+                    "sqm": sqm,
+                    "residents": residents,
+                    "budget": budget,
+                    "notes": _normalize_text(notes),
+                }
+            ),
             "redistribution": REDISTRIBUTION_PROMPT,
             "topdown": TOPDOWN_PROMPT,
             "room_render": ROOM_RENDER_PROMPT,
@@ -783,6 +814,44 @@ async def _persist_automation_contract(db, job_id: str, job: Dict[str, Any]) -> 
         )
     job["floor_plan_automation"] = contract
     return contract
+
+
+async def _persist_floorplan_json_pipeline(db, job_id: str, job: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    technical = build_technical_floor_plan_json(job)
+    optimized = build_optimized_floor_plan_json(job, technical)
+    await _set_job(
+        db,
+        job_id,
+        technical_floor_plan_json=technical,
+        optimized_floor_plan_json=optimized,
+    )
+    existing_technical = await db.ai_architect_outputs.find_one(
+        {"job_id": job_id, "output_type": "technical_floor_plan_json"},
+        sort=[("created_at", -1)],
+    )
+    if not existing_technical:
+        await _add_output(
+            db,
+            job_id,
+            "technical_floor_plan_json",
+            text_content=f"JSON tecnico planimetria: {technical.get('data_status') or technical.get('source')}",
+            json_content=technical,
+        )
+    existing_optimized = await db.ai_architect_outputs.find_one(
+        {"job_id": job_id, "output_type": "optimized_floor_plan_json"},
+        sort=[("created_at", -1)],
+    )
+    if not existing_optimized:
+        await _add_output(
+            db,
+            job_id,
+            "optimized_floor_plan_json",
+            text_content=f"JSON ottimizzato variante: {(optimized.get('metadata') or {}).get('selected_variant', {}).get('label')}",
+            json_content=optimized,
+        )
+    job["technical_floor_plan_json"] = technical
+    job["optimized_floor_plan_json"] = optimized
+    return technical, optimized
 
 
 def _vision_gate_score(analysis: Dict[str, Any]) -> tuple[float, Dict[str, Any]]:
@@ -1154,7 +1223,7 @@ def _openrouter_vision_analysis_sync(job: Dict[str, Any]) -> Dict[str, Any]:
             {"role": "user", "content": content},
         ],
         "temperature": 0,
-        "max_tokens": 4000,
+        "max_tokens": AI_VISION_MAX_OUTPUT_TOKENS,
         "response_format": {
             "type": "json_schema",
             "json_schema": {
@@ -1305,7 +1374,7 @@ def _anthropic_direct_vision_analysis_sync(job: Dict[str, Any]) -> Dict[str, Any
 
     payload: Dict[str, Any] = {
         "model": CLAUDE_VISION_MODEL,
-        "max_tokens": 4000,
+        "max_tokens": AI_VISION_MAX_OUTPUT_TOKENS,
         "temperature": 0,
         "system": ARCH_AI_SYSTEM_PROMPT,
         "messages": [{"role": "user", "content": [plan_block, {"type": "text", "text": prompt}]}],
@@ -1425,7 +1494,7 @@ def _openai_direct_vision_analysis_sync(job: Dict[str, Any]) -> Dict[str, Any]:
             {"role": "user", "content": content},
         ],
         "temperature": 0,
-        "max_output_tokens": 4000,
+        "max_output_tokens": AI_VISION_MAX_OUTPUT_TOKENS,
         "text": {
             "format": {
                 "type": "json_schema",
@@ -2085,6 +2154,7 @@ def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
         f"{layout_mode}. {fidelity_rule}Keep exterior perimeter, doors, windows, kitchen, bathrooms, living area, "
         "night area, circulation paths and furniture coherent and proportional. "
         f"Detected rooms from the vision analysis: {rooms}. "
+        "Source hierarchy: uploaded floor plan -> technical_floor_plan_json -> optimized_floor_plan_json -> visual output. "
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
         f"stairs, balconies, extra levels or volumes not allowed by the JSON: {plan_details}. "
         f"{render_addendum} "
@@ -2116,6 +2186,7 @@ def _room_prompt(job: Dict[str, Any], room_name: str) -> str:
         f"{fidelity_rule}Faithfully follow the top-down layout reference concept: respect positions of walls, doors, "
         "windows, openings, furniture and circulation paths. "
         f"Vision evidence for this room: {room_evidence}. "
+        "Source hierarchy: uploaded floor plan -> technical_floor_plan_json -> optimized_floor_plan_json -> render. "
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
         f"stairs, balconies, extra levels, extra bathrooms or volumes not allowed by the JSON: {plan_details}. "
         f"{render_addendum} "
@@ -2344,6 +2415,8 @@ def _render_svg(job_id: str, job: Dict[str, Any], room_name: str, index: int) ->
 def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
     professional = job.get("professional_floorplan") or _professional_package(job)
     automation = job.get("floor_plan_automation") or _automation_contract(job)
+    technical_json = job.get("technical_floor_plan_json") or build_technical_floor_plan_json(job)
+    optimized_json = job.get("optimized_floor_plan_json") or build_optimized_floor_plan_json(job, technical_json)
     floorplan_2d = professional.get("floorplan_2d") or {}
     professional_payload = {
         "summary": professional.get("summary"),
@@ -2360,6 +2433,15 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
         "generated_variant_count": (automation.get("variant_generation") or {}).get("generated_variant_count"),
         "site_checks_required": ((automation.get("technical_extraction") or {}).get("site_checks_required") or [])[:8],
         "non_negotiable_rules": automation.get("non_negotiable_rules") or [],
+    }
+    json_pipeline_payload = {
+        "technical_schema": technical_json.get("schema"),
+        "technical_source": technical_json.get("source"),
+        "technical_data_status": technical_json.get("data_status"),
+        "rooms_count": len(technical_json.get("rooms") or []),
+        "optimized_schema": optimized_json.get("schema"),
+        "optimized_variant": (optimized_json.get("metadata") or {}).get("selected_variant"),
+        "visual_prompt": optimized_json.get("visual_prompt"),
     }
     detected_rooms = [
         {
@@ -2382,6 +2464,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
             "technical_note": floorplan_2d.get("disclaimer") or "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
             "professional_floorplan": professional_payload,
             "floor_plan_automation": automation_payload,
+            "json_pipeline": json_pipeline_payload,
         }
     if mode == "source_reference":
         return {
@@ -2392,6 +2475,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
             "technical_note": "Nessun layout reinterpretato: serve verifica prima di procedere con render o redistribuzione.",
             "professional_floorplan": professional_payload,
             "floor_plan_automation": automation_payload,
+            "json_pipeline": json_pipeline_payload,
         }
     return {
         "concept": "progetto_definito_mantenuto_identico",
@@ -2405,6 +2489,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
         "technical_note": floorplan_2d.get("disclaimer") or "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
         "professional_floorplan": professional_payload,
         "floor_plan_automation": automation_payload,
+        "json_pipeline": json_pipeline_payload,
     }
 
 
@@ -2412,6 +2497,8 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
     analysis = job.get("vision_analysis") or {}
     professional = job.get("professional_floorplan") or _professional_package(job)
     automation = job.get("floor_plan_automation") or _automation_contract(job)
+    technical_json = job.get("technical_floor_plan_json") or build_technical_floor_plan_json(job)
+    optimized_json = job.get("optimized_floor_plan_json") or build_optimized_floor_plan_json(job, technical_json)
     professional_render_contract = professional.get("render_contract") or {}
     professional_floorplan = professional.get("floorplan_2d") or {}
     defined_mode = mode == "defined" or _is_defined_project_mode(job)
@@ -2504,6 +2591,8 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
             "constraints": automation.get("constraints") or {},
             "clash_detection": automation.get("clash_detection") or {},
         },
+        "technical_floor_plan_json": technical_json,
+        "optimized_floor_plan_json": optimized_json,
         "rooms": rooms,
         "detected_elements": {
             key: [
@@ -2541,7 +2630,7 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
 
 def _plan_details_for_prompt(job: Dict[str, Any], mode: str) -> str:
     details = job.get("plan_details") or _plan_details_json(job, mode)
-    return json.dumps(details, ensure_ascii=False, separators=(",", ":"))[:6000]
+    return json.dumps(details, ensure_ascii=False, separators=(",", ":"))[:10000]
 
 
 def _advice_text(job: Dict[str, Any], mode: str) -> str:
@@ -2682,6 +2771,9 @@ def _claude_advice_text_sync(job: Dict[str, Any], mode: str) -> str:
         "measurement_notes": analysis.get("measurement_notes"),
         "professional_floorplan": job.get("professional_floorplan") or _professional_package(job),
         "floor_plan_automation": job.get("floor_plan_automation") or _automation_contract(job),
+        "technical_floor_plan_json": job.get("technical_floor_plan_json") or build_technical_floor_plan_json(job),
+        "optimized_floor_plan_json": job.get("optimized_floor_plan_json")
+        or build_optimized_floor_plan_json(job, job.get("technical_floor_plan_json") or build_technical_floor_plan_json(job)),
         "gb_pricing": _gb_pricing_context(job.get("estimate")),
     }
     system_prompt = (
@@ -2694,8 +2786,9 @@ def _claude_advice_text_sync(job: Dict[str, Any], mode: str) -> str:
     )
     user_prompt = (
         "Scrivi una sintesi progettuale pronta per il report AI Architect. Usa massimo 220 parole, tono premium ma tecnico. "
-        "Restituisci solo testo piano in 1 o 2 paragrafi. Devi usare professional_floorplan e floor_plan_automation come fonte primaria "
-        "per variante scelta dal cliente, criticita, strategia 2D, checklist, vincoli e controlli. Non proporre varianti non scelte. "
+        "Restituisci solo testo piano in 1 o 2 paragrafi. Devi usare technical_floor_plan_json, optimized_floor_plan_json, "
+        "professional_floorplan e floor_plan_automation come fonte primaria per variante scelta dal cliente, criticita, "
+        "strategia 2D, checklist, vincoli e controlli. Non proporre varianti non scelte. "
         "Includi: sintesi del layout, priorita cliente, interventi consigliati, "
         "motivazione tecnica concreta, materiali e illuminazione, verifiche obbligatorie prima dell'esecutivo, invito alla consulenza GB Construction. "
         "Se citi costi, budget o investimento, usa ESCLUSIVAMENTE le cifre del campo gb_pricing (preventivo predittivo "
@@ -3113,7 +3206,7 @@ def _redistributed_2d_prompt(job: Dict[str, Any]) -> str:
     professional_addendum = professional_2d_prompt_addendum(job.get("professional_floorplan")) if AI_REQUIRE_PROFESSIONAL_2D else ""
     variant = VARIANT_CATALOG[normalize_project_variant(job.get("project_variant_selected"))]
     return (
-        "Create a precise professional 2D architectural renovation layout from the uploaded floor plan reference. "
+        "Create a precise professional 2D architectural renovation layout from the uploaded floor plan reference and optimized_floor_plan_json. "
         "This is NOT a free creative sketch. Preserve the exact external perimeter, building footprint, window positions, "
         "entrance/access points, structural-looking walls, shafts, bathrooms/kitchen wet zones unless clearly movable, "
         "and all proportions visible in the uploaded plan. Propose only a preliminary redistribution inside those constraints. "
@@ -3121,7 +3214,7 @@ def _redistributed_2d_prompt(job: Dict[str, Any]) -> str:
         f"Generate only this variant, no alternatives. Client priorities: {priorities}. "
         "Use clean architectural drafting style, white/cream background, black wall lines, restrained material hatches, "
         "professional plan composition. Do not add rooms, doors, windows, balconies, stairs, second levels or volumes not "
-        f"supported by the reference and this PLAN_DETAILS_JSON: {plan_details}. "
+        f"supported by the reference and this PLAN_DETAILS_JSON / optimized_floor_plan_json contract: {plan_details}. "
         "STRICT_REJECTION_RULES: no balconies/terraces unless clearly visible in the uploaded plan; no kitchen cabinets, "
         "appliances or counters inside bathrooms or service bathrooms; do not label any wall as load-bearing or structural "
         "unless the source explicitly proves it; uncertain walls must be labelled only as verification required. "
@@ -3136,7 +3229,7 @@ def _clean_defined_2d_prompt(job: Dict[str, Any]) -> str:
     professional_addendum = professional_2d_prompt_addendum(job.get("professional_floorplan")) if AI_REQUIRE_PROFESSIONAL_2D else ""
     variant = VARIANT_CATALOG[normalize_project_variant(job.get("project_variant_selected"))]
     return (
-        "Create a clean professional 2D architectural drafting version of the uploaded floor plan. "
+        "Create a clean professional 2D architectural drafting version of the uploaded floor plan and technical_floor_plan_json. "
         "This is a DEFINED PROJECT cleanup, not a redistribution. Preserve exactly the same exterior perimeter, "
         "room relationships, walls, doors, windows, kitchen, bathrooms, stairs, balconies, access points and visible constraints. "
         f"Client-selected variant metadata: {variant['label']} ({variant['strategy']}); keep layout locked unless this is only a graphic cleanup. "
@@ -3256,6 +3349,7 @@ async def process_job(db, job_id: str):
         }
         await _persist_professional_package(db, job_id, job)
         await _persist_automation_contract(db, job_id, job)
+        await _persist_floorplan_json_pipeline(db, job_id, job)
         await _add_output(
             db,
             job_id,
@@ -3426,6 +3520,11 @@ async def _continue_render_generation(db, job_id: str):
             return
     if not job.get("floor_plan_automation"):
         await _persist_automation_contract(db, job_id, job)
+        job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+        if not job:
+            return
+    if not job.get("technical_floor_plan_json") or not job.get("optimized_floor_plan_json"):
+        await _persist_floorplan_json_pipeline(db, job_id, job)
         job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
         if not job:
             return
@@ -3716,6 +3815,11 @@ async def _continue_generation(db, job_id: str, *, require_review: bool = REQUIR
         job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
         if not job:
             return
+    if not job.get("technical_floor_plan_json") or not job.get("optimized_floor_plan_json"):
+        await _persist_floorplan_json_pipeline(db, job_id, job)
+        job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+        if not job:
+            return
     mode = "redistributed" if _should_redistribute(job) else "defined"
 
     layout_ready = await _generate_layout_outputs(db, job_id, job, mode)
@@ -3800,10 +3904,12 @@ async def confirm_job(db, job_id: str, plan_type_selected: str):
         vision_analysis=vision_analysis or job.get("vision_analysis"),
         professional_floorplan=None,
         floor_plan_automation=None,
+        technical_floor_plan_json=None,
+        optimized_floor_plan_json=None,
         requires_confirmation=False,
         status="processing",
     )
-    await db.ai_architect_outputs.delete_many({"job_id": job_id, "output_type": {"$in": ["professional_floorplan", "floor_plan_automation"]}})
+    await db.ai_architect_outputs.delete_many({"job_id": job_id, "output_type": {"$in": ["professional_floorplan", "floor_plan_automation", "technical_floor_plan_json", "optimized_floor_plan_json"]}})
     await _continue_generation(db, job_id)
 
 
@@ -3897,6 +4003,8 @@ async def complete_job_safe_mode(db, job_id: str) -> Dict[str, Any]:
                     "analysis",
                     "professional_floorplan",
                     "floor_plan_automation",
+                    "technical_floor_plan_json",
+                    "optimized_floor_plan_json",
                     "clean_2d_plan",
                     "redistributed_2d_plan",
                     "topdown_3d_plan",
@@ -3959,6 +4067,7 @@ async def complete_job_safe_mode(db, job_id: str) -> Dict[str, Any]:
     job = {**job, "vision_analysis": analysis, "plan_type_detected": analysis["plan_type_detected"]}
     await _persist_professional_package(db, job_id, job)
     await _persist_automation_contract(db, job_id, job)
+    await _persist_floorplan_json_pipeline(db, job_id, job)
     await _continue_generation(db, job_id, require_review=False)
     return await get_job_payload(db, job_id)
 
