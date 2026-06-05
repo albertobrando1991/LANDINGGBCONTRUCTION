@@ -9,6 +9,7 @@ import AIArchitect from "@/landing/AIArchitect";
 import QuickDetails from "@/landing/QuickDetails";
 import ContactGate from "@/landing/ContactGate";
 import Output from "@/landing/Output";
+import BookingModal from "@/landing/BookingModal";
 import SecondChance from "@/landing/SecondChance";
 import Team from "@/landing/Team";
 import Footer from "@/landing/Footer";
@@ -46,10 +47,22 @@ export default function Landing() {
     scrollFlow();
   };
 
-  const handleGateSubmit = (data) => {
+  const handleGateSubmit = (data, values) => {
     setResult(data);
-    // Il lead e creato e inoltrato: salva l'id per collegare l'eventuale analisi planimetria.
-    setConfig((current) => ({ ...current, lead_id: data?.id }));
+    // Lead creato e inoltrato: salva id + contatti per collegare planimetria e prenotazione sopralluogo.
+    setConfig((current) => ({
+      ...current,
+      lead_id: data?.id,
+      lead_contact: values
+        ? {
+            leadId: data?.id,
+            nome: values.nome,
+            email: values.email,
+            telefono: values.telefono,
+            indirizzo: values.indirizzo,
+          }
+        : { leadId: data?.id },
+    }));
     setPhase("output");
     scrollFlow();
   };
@@ -102,6 +115,7 @@ export default function Landing() {
             estimate={result?.estimate}
             aiProject={config?.aiArchitect}
             onStartArchitect={config?.aiArchitect ? undefined : handleStartArchitect}
+            bookingContext={config?.lead_contact}
           />
         )}
         {phase === "architect" && (
@@ -117,6 +131,7 @@ export default function Landing() {
       <SecondChance />
       <Team />
       <Footer />
+      <BookingModal />
     </div>
   );
 }

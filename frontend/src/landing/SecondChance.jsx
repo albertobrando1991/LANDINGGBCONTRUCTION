@@ -17,7 +17,7 @@ const PROJECTS = CANTIERE_VIDEOS.map((project, index) => ({
 const FAQ = [
   {
     q: "Quanto dura una ristrutturazione?",
-    a: "Dipende dalla superficie e dal livello di intervento: una ristrutturazione completa va dai 60 ai 150 giorni. In sopralluogo definiamo un cronoprogramma preciso fase per fase.",
+    a: "Dipende dalla superficie e dal livello di intervento: una ristrutturazione completa va da un minimo di 4 a 6 mesi. In sopralluogo definiamo un cronoprogramma preciso fase per fase.",
   },
   {
     q: "Quali bonus fiscali posso usare?",

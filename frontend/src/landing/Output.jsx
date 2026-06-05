@@ -6,6 +6,7 @@ import Tilt3D from "@/components/Tilt3D";
 import { formatEuro } from "@/lib/format";
 import { WHATSAPP, PROPOSAL_POSTERS } from "@/lib/assets";
 import { BACKEND_URL } from "@/lib/api";
+import { openBooking } from "@/lib/booking";
 
 const PACKAGES = [
   {
@@ -82,7 +83,7 @@ function riskFactors(estimate = {}, data = {}, pkg = {}) {
   return [...new Set(risks)].slice(0, 6);
 }
 
-export default function Output({ estimate, aiProject, onStartArchitect }) {
+export default function Output({ estimate, aiProject, onStartArchitect, bookingContext }) {
   const [selectedPackage, setSelectedPackage] = useState(null);
   const pac = estimate?.pacchetti || {};
   const aiOutputs = aiProject?.outputs || [];
@@ -231,7 +232,7 @@ export default function Output({ estimate, aiProject, onStartArchitect }) {
         <div className="bg-gradient-to-r from-brand/15 to-transparent border border-brand/30 rounded-3xl p-8 mt-10 text-center">
           <h3 className="font-display font-bold uppercase text-2xl md:text-3xl text-ink mb-6">Il prossimo passo è il sopralluogo gratuito.</h3>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button data-testid="output-prenota" className="bg-brand text-white rounded-full px-8 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2 hover:scale-105 transition-transform">
+            <button data-testid="output-prenota" onClick={() => openBooking(bookingContext)} className="bg-brand text-white rounded-full px-8 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2 hover:scale-105 transition-transform">
               <Calendar className="w-5 h-5" /> Prenota sopralluogo gratuito
             </button>
             <a data-testid="output-whatsapp" href={WHATSAPP} target="_blank" rel="noreferrer" className="bg-surface border border-stroke text-ink rounded-full px-8 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2 hover:border-success transition-colors">
@@ -389,7 +390,7 @@ export default function Output({ estimate, aiProject, onStartArchitect }) {
                   <p className="font-body text-sm text-fog">Il prossimo step e confermare misure, stato impianti e finiture in sopralluogo gratuito.</p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3">
-                  <button className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs">Prenota sopralluogo</button>
+                  <button onClick={() => openBooking(bookingContext)} className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs">Prenota sopralluogo</button>
                   <a href={WHATSAPP} target="_blank" rel="noreferrer" className="bg-surface border border-stroke text-ink rounded-full px-5 py-3 font-display font-semibold uppercase text-xs text-center">WhatsApp tecnico</a>
                 </div>
               </div>

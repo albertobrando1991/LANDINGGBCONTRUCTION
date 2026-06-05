@@ -160,6 +160,24 @@ class UnlockEmailBody(BaseModel):
     email: str
 
 
+class SopralluogoSlotCreate(BaseModel):
+    date: str  # YYYY-MM-DD
+    start: str  # HH:MM
+    end: str  # HH:MM
+    tecnico: Optional[str] = None
+
+
+class SopralluogoBook(BaseModel):
+    slot_id: str
+    nome: str
+    email: EmailStr
+    telefono: str
+    citta: Optional[str] = ""
+    indirizzo: Optional[str] = ""
+    lead_id: Optional[str] = None
+    note: Optional[str] = ""
+
+
 class LeadUpdate(BaseModel):
     status: Optional[str] = None
     owner: Optional[str] = None
@@ -995,24 +1013,161 @@ async def pipeline(user: dict = Depends(current_user)):
     return {"columns": cols}
 
 
+def _today_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
 @api.get("/sopralluoghi")
 async def sopralluoghi(user: dict = Depends(current_user)):
-    leads = await db.leads.find({"status": {"$in": ["sopralluogo_fissato", "sopralluogo_fatto"]}}).to_list(500)
+    """Appuntamenti reali: slot prenotati dal calendario, arricchiti col lead collegato."""
+    slots = await db.sopralluogo_slots.find({"status": "booked"}).sort([("date", 1), ("start", 1)]).to_list(500)
     out = []
-    base = datetime.now(timezone.utc)
-    for i, d in enumerate(leads):
-        d = serialize(d)
-        data = (base + timedelta(days=(i + 1), hours=9 + (i % 3) * 2)).replace(minute=0, second=0, microsecond=0)
+    for slot in slots:
+        lead = None
+        if slot.get("lead_id") and ObjectId.is_valid(str(slot["lead_id"])):
+            lead = await db.leads.find_one({"_id": ObjectId(str(slot["lead_id"]))})
+        lead = serialize(lead) if lead else {}
         out.append({
-            "id": d["id"], "cliente": d["nome"], "telefono": d.get("telefono"),
-            "citta": d.get("citta"), "indirizzo": f"{d.get('citta')}",
-            "tipo_immobile": d.get("tipo_immobile"), "mq": d.get("mq"),
-            "tecnico": d.get("owner") or "Giovanni Brancale",
-            "data": data.isoformat(),
-            "completato": d.get("status") == "sopralluogo_fatto",
-            "estimate": d.get("estimate"),
+            "id": str(slot["_id"]),
+            "lead_id": slot.get("lead_id"),
+            "cliente": lead.get("nome") or slot.get("booked_name"),
+            "telefono": lead.get("telefono") or slot.get("booked_phone"),
+            "email": lead.get("email") or slot.get("booked_email"),
+            "citta": lead.get("citta"),
+            "indirizzo": lead.get("indirizzo") or lead.get("citta") or "",
+            "tipo_immobile": lead.get("tipo_immobile"),
+            "mq": lead.get("mq"),
+            "tecnico": slot.get("tecnico") or lead.get("owner") or "Da assegnare",
+            "data": slot["date"],
+            "ora": slot.get("start"),
+            "ora_fine": slot.get("end"),
+            "completato": lead.get("status") == "sopralluogo_fatto",
+            "estimate": lead.get("estimate"),
         })
     return out
+
+
+# ----------------------- Calendario sopralluoghi (slot) -----------------------
+@api.get("/sopralluoghi/slots")
+async def list_sopralluogo_slots(user: dict = Depends(current_user)):
+    docs = await db.sopralluogo_slots.find({}).sort([("date", 1), ("start", 1)]).to_list(1000)
+    return [serialize(d) for d in docs]
+
+
+@api.post("/sopralluoghi/slots")
+async def create_sopralluogo_slot(body: SopralluogoSlotCreate, user: dict = Depends(current_user)):
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", body.date or ""):
+        raise HTTPException(status_code=400, detail="Data non valida (atteso YYYY-MM-DD)")
+    if not re.match(r"^\d{2}:\d{2}$", body.start or "") or not re.match(r"^\d{2}:\d{2}$", body.end or ""):
+        raise HTTPException(status_code=400, detail="Orario non valido (atteso HH:MM)")
+    if body.end <= body.start:
+        raise HTTPException(status_code=400, detail="L'orario di fine deve essere successivo all'inizio")
+    duplicate = await db.sopralluogo_slots.find_one({"date": body.date, "start": body.start})
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Esiste gia uno slot in questa data e orario")
+    doc = {
+        "date": body.date, "start": body.start, "end": body.end,
+        "tecnico": (body.tecnico or "").strip() or None,
+        "status": "free", "lead_id": None,
+        "booked_name": None, "booked_email": None, "booked_phone": None,
+        "created_by": user.get("name"), "created_at": now_iso(), "updated_at": now_iso(),
+    }
+    res = await db.sopralluogo_slots.insert_one(doc)
+    doc["id"] = str(res.inserted_id)
+    return serialize(doc)
+
+
+@api.delete("/sopralluoghi/slots/{slot_id}")
+async def delete_sopralluogo_slot(slot_id: str, user: dict = Depends(current_user)):
+    oid = object_id_or_400(slot_id, "Slot")
+    slot = await db.sopralluogo_slots.find_one({"_id": oid})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot non trovato")
+    if slot.get("status") == "booked":
+        raise HTTPException(status_code=400, detail="Slot gia prenotato: gestiscilo dalla scheda del lead.")
+    await db.sopralluogo_slots.delete_one({"_id": oid})
+    return {"ok": True}
+
+
+@api.get("/public/sopralluoghi/slots")
+async def public_sopralluogo_slots():
+    docs = await db.sopralluogo_slots.find(
+        {"status": "free", "date": {"$gte": _today_iso()}}
+    ).sort([("date", 1), ("start", 1)]).to_list(500)
+    return [
+        {"id": str(d["_id"]), "date": d["date"], "start": d["start"], "end": d["end"]}
+        for d in docs
+    ]
+
+
+@api.post("/public/sopralluoghi/book")
+async def public_book_sopralluogo(body: SopralluogoBook, background_tasks: BackgroundTasks):
+    oid = object_id_or_400(body.slot_id, "Slot")
+    # Claim atomico: solo se lo slot e ancora libero.
+    claim = await db.sopralluogo_slots.update_one(
+        {"_id": oid, "status": "free"},
+        {"$set": {
+            "status": "booked",
+            "booked_name": body.nome,
+            "booked_email": body.email.lower(),
+            "booked_phone": body.telefono,
+            "updated_at": now_iso(),
+        }},
+    )
+    if claim.modified_count == 0:
+        raise HTTPException(status_code=409, detail="Slot non piu disponibile. Scegli un altro orario.")
+    slot = await db.sopralluogo_slots.find_one({"_id": oid})
+    norm = meta_leads_service.normalize_email(body.email)
+    sopr = {
+        "slot_id": str(oid), "date": slot["date"], "start": slot["start"],
+        "end": slot["end"], "tecnico": slot.get("tecnico"),
+    }
+    event = {
+        "id": "ev-" + uuid.uuid4().hex[:8], "tipo": "sopralluogo",
+        "testo": f"Sopralluogo prenotato dal cliente: {slot['date']} {slot['start']}-{slot['end']}",
+        "ts": now_iso(),
+    }
+    lead = None
+    if body.lead_id and ObjectId.is_valid(body.lead_id):
+        lead = await db.leads.find_one({"_id": ObjectId(body.lead_id)})
+    if not lead and norm:
+        lead = await db.leads.find_one({"email_norm": norm})
+    if lead:
+        set_fields = {
+            "status": "sopralluogo_fissato", "sopralluogo": sopr,
+            "status_changed_at": now_iso(), "updated_at": now_iso(),
+        }
+        if body.indirizzo:
+            set_fields["indirizzo"] = body.indirizzo.strip()
+        await db.leads.update_one(
+            {"_id": lead["_id"]},
+            {"$set": set_fields, "$push": {"timeline": event}, "$addToSet": {"tags": "Sopralluogo"}},
+        )
+        lead_id = str(lead["_id"])
+    else:
+        doc = {
+            "nome": body.nome, "email": body.email.lower(), "telefono": body.telefono,
+            "email_norm": norm, "phone_norm": meta_leads_service.normalize_phone(body.telefono),
+            "citta": body.citta or "", "indirizzo": (body.indirizzo or "").strip(),
+            "tipo_immobile": "-", "mq": 0, "livello": "premium", "bagni": 0, "camere": 0,
+            "ambienti": [], "stile": "-", "tempistiche": "Sto valutando",
+            "origine": "sopralluogo", "fonti": ["sopralluogo"],
+            "status": "sopralluogo_fissato", "owner": None, "score": 60, "tags": ["Sopralluogo"],
+            "has_files": False, "note_cliente": body.note or "", "range_basso": 0, "range_alto": 0,
+            "estimate": None, "prossima_azione": "Confermare il sopralluogo e preparare il rilievo",
+            "sopralluogo": sopr,
+            "timeline": [event],
+            "created_at": now_iso(), "last_contact": now_iso(), "status_changed_at": now_iso(),
+        }
+        res = await db.leads.insert_one(doc)
+        lead_id = str(res.inserted_id)
+        doc["id"] = lead_id
+        email_service.enqueue_lead_emails(background_tasks, doc, "sopralluogo")
+    await db.sopralluogo_slots.update_one({"_id": oid}, {"$set": {"lead_id": lead_id}})
+    return {
+        "ok": True, "lead_id": lead_id,
+        "slot": {"date": slot["date"], "start": slot["start"], "end": slot["end"]},
+    }
 
 
 @api.get("/preventivi")
@@ -1151,6 +1306,8 @@ async def startup():
     )
     await db.meta_webhook_events.create_index("leadgen_id", unique=True)
     await db.meta_webhook_events.create_index([("status", 1), ("last_received_at", -1)])
+    await db.sopralluogo_slots.create_index([("date", 1), ("start", 1)])
+    await db.sopralluogo_slots.create_index("status")
     await db.ai_architect_jobs.create_index("created_at")
     await db.ai_architect_jobs.create_index("lead_id")
     await db.ai_architect_jobs.create_index("file_hash")

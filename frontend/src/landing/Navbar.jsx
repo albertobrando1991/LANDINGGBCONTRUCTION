@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
 import { scheduleSmoothScrollToElement } from "@/lib/scroll";
+import { openBooking } from "@/lib/booking";
 
 const LINKS = [
   { label: "Home", id: "hero" },
@@ -72,11 +73,11 @@ export default function Navbar() {
           <span className="absolute -inset-[2px] rounded-full accent-gradient animate-gradient-shift opacity-90" />
           <button
             data-testid="nav-cta-sopralluogo"
-            onClick={() => scrollTo("configuratore", "Preventivo AI")}
+            onClick={() => openBooking()}
             className="relative inline-flex items-center gap-1 rounded-full bg-surface px-3 py-2 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-ink transition-colors group-hover:bg-surface-2 sm:text-xs md:px-4 md:tracking-[0.15em]"
           >
             <span className="sm:hidden">Sopralluogo</span>
-            <span className="hidden sm:inline">Richiedi sopralluogo</span>
+            <span className="hidden sm:inline">Prenota sopralluogo</span>
             <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
         </div>
