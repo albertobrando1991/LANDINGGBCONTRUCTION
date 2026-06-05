@@ -27,6 +27,7 @@ from predictive_data import COEFFICIENTI, voci_as_dicts
 import seed_data
 import ai_service
 import ai_architect_service
+import email_service
 import meta_leads_service
 
 mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
@@ -148,6 +149,7 @@ class EstimateBody(BaseModel):
 
 class CallbackBody(BaseModel):
     nome: str
+    email: Optional[EmailStr] = None
     telefono: str
     messaggio: Optional[str] = ""
 
@@ -354,7 +356,7 @@ async def projects():
 
 
 @api.post("/leads")
-async def create_lead(body: LeadCreate):
+async def create_lead(body: LeadCreate, background_tasks: BackgroundTasks):
     cfg = normalize_config(body.config.model_dump())
     if cfg.get("ai_architect_job_id") and not ObjectId.is_valid(str(cfg["ai_architect_job_id"])):
         cfg["ai_architect_job_id"] = None
@@ -395,19 +397,22 @@ async def create_lead(body: LeadCreate):
         "created_at": now_iso(), "last_contact": now_iso(), "status_changed_at": now_iso(),
     }
     res = await db.leads.insert_one(doc)
+    doc["id"] = str(res.inserted_id)
     if cfg.get("ai_architect_job_id"):
         await db.ai_architect_jobs.update_one(
             {"_id": ObjectId(cfg["ai_architect_job_id"])},
             {"$set": {"lead_id": str(res.inserted_id), "updated_at": now_iso()}},
         )
+    email_service.enqueue_lead_emails(background_tasks, doc, "landing_quote")
     return {"id": str(res.inserted_id), "estimate": est, "score": score}
 
 
 @api.post("/callback")
-async def callback(body: CallbackBody):
+async def callback(body: CallbackBody, background_tasks: BackgroundTasks):
+    email = body.email.lower() if body.email else ""
     doc = {
-        "nome": body.nome, "email": "", "telefono": body.telefono, "citta": "",
-        "email_norm": "", "phone_norm": meta_leads_service.normalize_phone(body.telefono),
+        "nome": body.nome, "email": email, "telefono": body.telefono, "citta": "",
+        "email_norm": meta_leads_service.normalize_email(email), "phone_norm": meta_leads_service.normalize_phone(body.telefono),
         "tipo_immobile": "-", "mq": 0, "livello": "premium", "bagni": 0, "camere": 0,
         "ambienti": [], "stile": "-", "tempistiche": "Sto valutando", "origine": "callback",
         "fonti": ["callback"],
@@ -419,6 +424,8 @@ async def callback(body: CallbackBody):
         "created_at": now_iso(), "last_contact": now_iso(), "status_changed_at": now_iso(),
     }
     res = await db.leads.insert_one(doc)
+    doc["id"] = str(res.inserted_id)
+    email_service.enqueue_lead_emails(background_tasks, doc, "callback")
     return {"id": str(res.inserted_id), "ok": True}
 
 
@@ -667,7 +674,7 @@ async def ai_architect_report(job_id: str):
 
 
 @api.post("/quote/from-ai-project")
-async def quote_from_ai_project(body: AiProjectQuoteCreate):
+async def quote_from_ai_project(body: AiProjectQuoteCreate, background_tasks: BackgroundTasks):
     ai_job_oid = object_id_or_400(body.ai_architect_job_id, "Progetto AI Architect")
     job = await db.ai_architect_jobs.find_one({"_id": ai_job_oid})
     if not job:
@@ -711,10 +718,12 @@ async def quote_from_ai_project(body: AiProjectQuoteCreate):
         "created_at": now_iso(), "last_contact": now_iso(), "status_changed_at": now_iso(),
     }
     res = await db.leads.insert_one(doc)
+    doc["id"] = str(res.inserted_id)
     await db.ai_architect_jobs.update_one(
         {"_id": ai_job_oid},
         {"$set": {"lead_id": str(res.inserted_id), "updated_at": now_iso()}},
     )
+    email_service.enqueue_lead_emails(background_tasks, doc, "ai_quote")
     return {"id": str(res.inserted_id), "estimate": est, "score": score, "ai_architect_job_id": body.ai_architect_job_id}
 
 
