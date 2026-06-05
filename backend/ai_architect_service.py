@@ -2312,6 +2312,225 @@ def _write_plan_png(
     return public_file_url(path)
 
 
+_PLATE_FONT_CANDIDATES_REGULAR = [
+    "arial.ttf",
+    "Arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "DejaVuSans.ttf",
+]
+_PLATE_FONT_CANDIDATES_BOLD = [
+    "arialbd.ttf",
+    "Arial Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "DejaVuSans-Bold.ttf",
+]
+
+
+def _plate_font(size: int, *, bold: bool = False):
+    if ImageFont is None:
+        return None
+    for name in (_PLATE_FONT_CANDIDATES_BOLD if bold else _PLATE_FONT_CANDIDATES_REGULAR):
+        try:
+            return ImageFont.truetype(name, size)
+        except Exception:
+            continue
+    try:
+        return ImageFont.load_default(size)
+    except Exception:
+        try:
+            return ImageFont.load_default()
+        except Exception:
+            return None
+
+
+def _wrap_text(text: str, font, max_width: int, draw) -> List[str]:
+    words = str(text or "").split()
+    if not words:
+        return [""]
+    lines: List[str] = []
+    current = words[0]
+    for word in words[1:]:
+        candidate = f"{current} {word}"
+        try:
+            width = draw.textlength(candidate, font=font)
+        except Exception:
+            width = len(candidate) * (getattr(font, "size", 10) * 0.55)
+        if width <= max_width:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+    return lines
+
+
+def _write_professional_plate(
+    job_id: str,
+    name: str,
+    job: Dict[str, Any],
+    mode: str,
+    base_image_path: Optional[Path],
+    schedule_rows: List[str],
+    *,
+    title: str,
+    legend_items: List[str],
+    technical_notes: List[str],
+    disclaimer: str,
+) -> Optional[str]:
+    """Tavola architettonica professionale che incornicia la planimetria reale caricata.
+
+    Coerente per costruzione (usa l'immagine reale della planimetria allegata), con
+    cartiglio GB, quadro ambienti, legenda, note tecniche e disclaimer. Niente blocchi colorati inventati.
+    """
+    if PILImage is None or ImageDraw is None:
+        return None
+    width, height = 1654, 1169  # A3 landscape ~140dpi
+    bg = "#ffffff"
+    ink = "#141414"
+    red = "#b91c1c"
+    muted = "#6b6b6b"
+    panel_bg = "#f6f3ee"
+    image = PILImage.new("RGB", (width, height), bg)
+    draw = ImageDraw.Draw(image)
+
+    f_brand = _plate_font(30, bold=True)
+    f_title = _plate_font(26, bold=True)
+    f_sub = _plate_font(15)
+    f_h = _plate_font(17, bold=True)
+    f_body = _plate_font(15)
+    f_small = _plate_font(12)
+
+    margin = 46
+    header_h = 104
+    # Header band
+    draw.rectangle([0, 0, width, header_h], fill="#0b0b0b")
+    draw.rectangle([0, header_h, width, header_h + 5], fill=red)
+    _draw_text(draw, (margin, 24), "GB CONSTRUCTION", "#ffffff", f_brand)
+    _draw_text(draw, (margin, 64), "AI ARCHITECT · TAVOLA PRELIMINARE", "#d7d0c3", f_sub)
+    _draw_text(draw, (width - margin - 190, 30), now_iso()[:10], "#d7d0c3", f_sub)
+    _draw_text(draw, (width - margin - 190, 54), "Non valida per esecuzione", "#b9a06a", f_small)
+
+    # Title
+    title_y = header_h + 22
+    _draw_text(draw, (margin, title_y), title[:74], ink, f_title)
+
+    content_top = title_y + 48
+    footer_h = 70
+    content_bottom = height - footer_h - 20
+
+    # Drawing frame (left)
+    draw_w = int(width * 0.60)
+    frame = [margin, content_top, margin + draw_w, content_bottom]
+    draw.rectangle(frame, fill="#fbfaf7", outline=ink, width=3)
+    caption_h = 34
+    inner = [frame[0] + 18, frame[1] + 18, frame[2] - 18, frame[3] - caption_h - 18]
+    if base_image_path is not None:
+        try:
+            plan = PILImage.open(base_image_path).convert("RGB")
+            box_w = inner[2] - inner[0]
+            box_h = inner[3] - inner[1]
+            ratio = min(box_w / plan.width, box_h / plan.height)
+            new_w = max(1, int(plan.width * ratio))
+            new_h = max(1, int(plan.height * ratio))
+            plan = plan.resize((new_w, new_h), PILImage.LANCZOS)
+            off_x = inner[0] + (box_w - new_w) // 2
+            off_y = inner[1] + (box_h - new_h) // 2
+            image.paste(plan, (off_x, off_y))
+        except Exception as exc:
+            logger.warning("Professional plate base image failed: %s", exc)
+            _draw_text(draw, (inner[0] + 20, inner[1] + 20), "Planimetria allegata in elaborazione.", muted, f_body)
+    else:
+        _draw_text(draw, (inner[0] + 20, inner[1] + 20), "Planimetria di base non disponibile come immagine: verifica file.", muted, f_body)
+    _draw_text(
+        draw,
+        (frame[0] + 18, frame[3] - caption_h + 4),
+        f"Base: planimetria allegata (geometria reale) · {str(job.get('original_filename') or '')[:48]}",
+        muted,
+        f_small,
+    )
+
+    # Right panel
+    panel_x = margin + draw_w + 24
+    panel = [panel_x, content_top, width - margin, content_bottom]
+    draw.rectangle(panel, fill=panel_bg, outline="#d8d0c2", width=2)
+    px = panel_x + 22
+    pw = (width - margin) - px - 22
+    py = content_top + 22
+
+    def section(label: str, yy: int) -> int:
+        draw.rectangle([panel_x, yy - 4, width - margin, yy + 26], fill="#111111")
+        _draw_text(draw, (px, yy + 2), label, "#ffffff", f_h)
+        return yy + 40
+
+    py = section("QUADRO AMBIENTI", py)
+    rows = schedule_rows or ["Ambienti non sufficientemente estratti dalla planimetria."]
+    for row in rows[:12]:
+        for line in _wrap_text(f"• {row}", f_body, pw, draw):
+            _draw_text(draw, (px, py), line, ink, f_body)
+            py += 22
+        py += 4
+        if py > content_bottom - 220:
+            break
+
+    py += 8
+    py = section("LEGENDA", py)
+    for item in (legend_items or ["muri esistenti", "aperture mantenute", "interventi proposti", "punti da verificare"])[:6]:
+        _draw_text(draw, (px, py), f"– {str(item)[:46]}", "#3a3a3a", f_small)
+        py += 20
+
+    py += 10
+    py = section("NOTE TECNICHE", py)
+    for note in (technical_notes or ["Perimetro, accessi e aperture mantenuti dal file caricato."])[:5]:
+        for line in _wrap_text(note, f_small, pw, draw):
+            _draw_text(draw, (px, py), line, "#3a3a3a", f_small)
+            py += 18
+        py += 4
+        if py > content_bottom - 30:
+            break
+
+    # Footer band
+    draw.rectangle([0, height - footer_h, width, height], fill="#0b0b0b")
+    foot = (disclaimer or "Tavola preliminare GB Construction.").strip()
+    foot_full = f"{foot}  ·  Da validare con tecnico abilitato e sopralluogo prima di qualsiasi intervento."
+    foot_lines = _wrap_text(foot_full, f_small, width - 2 * margin, draw)[:2]
+    fy = height - footer_h + 16
+    for line in foot_lines:
+        _draw_text(draw, (margin, fy), line, "#e7e1d5", f_small)
+        fy += 20
+
+    path = OUTPUT_DIR / f"{job_id}-{name}.png"
+    image.save(path, "PNG", optimize=True)
+    return public_file_url(path)
+
+
+def _professional_plate_schedule(job: Dict[str, Any], mode: str) -> List[str]:
+    if mode == "redistributed":
+        optimized = job.get("optimized_floor_plan_json") or build_optimized_floor_plan_json(job)
+        rows: List[str] = []
+        for room in (optimized.get("optimized_rooms") or [])[:12]:
+            existing = str(room.get("existing_name") or "Ambiente").strip()
+            new_function = str(room.get("new_function") or "").strip()
+            surface = room.get("surface_sqm")
+            suffix = f" · ~{int(surface)} mq" if isinstance(surface, (int, float)) and surface else ""
+            if new_function and new_function.lower() not in existing.lower():
+                rows.append(f"{existing} → {new_function}{suffix}")
+            else:
+                rows.append(f"{existing}{suffix}")
+        if rows:
+            return rows
+    rooms = _analysis_rooms(job, min_confidence=0.2)
+    rows = []
+    for room in rooms[:12]:
+        name = str(room.get("name") or "Ambiente").strip()
+        conf = int(_safe_float(room.get("confidence"), 0) * 100)
+        area = room.get("estimated_area_sqm")
+        suffix = f" · ~{int(area)} mq" if isinstance(area, (int, float)) and area else ""
+        rows.append(f"{name}{suffix} · conf {conf}%")
+    return rows
+
+
 def _plan_svg(job_id: str, job: Dict[str, Any], mode: str) -> str:
     palette = _style_palette(job.get("style_selected") or "")
     analysis = job.get("vision_analysis") or {}
@@ -3396,11 +3615,32 @@ async def _emit_deterministic_2d(
     senza inventare balconi, aperture o muri portanti. Richiede comunque revisione staff
     prima del cliente. Usato quando il provider generativo non e disponibile o la lettura e debole.
     """
-    plan_url = _plan_svg(job_id, job, mode)
     analysis = job.get("vision_analysis") or {}
     disclaimer = analysis.get("dynamic_disclaimer") or "Tavola preliminare da validare con tecnico abilitato e sopralluogo."
     output_type = "redistributed_2d_plan" if mode == "redistributed" else "clean_2d_plan"
     proposal_key = "redistributed" if mode == "redistributed" else "defined"
+    professional = job.get("professional_floorplan") or _professional_package(job)
+    floorplan_brief = professional.get("floorplan_2d") or {}
+    if mode == "redistributed":
+        plate_title = floorplan_brief.get("title") or "Proposta 2D preliminare · spazi ottimizzati"
+    else:
+        plate_title = floorplan_brief.get("title") or "Planimetria 2D professionale · progetto"
+    base_image_path = _reference_image_path(_layout_reference_url(job))
+    plate_url = _write_professional_plate(
+        job_id,
+        f"{mode}-2d-plate",
+        job,
+        mode,
+        base_image_path,
+        _professional_plate_schedule(job, mode),
+        title=plate_title,
+        legend_items=floorplan_brief.get("legend_items") or [],
+        technical_notes=(floorplan_brief.get("change_summary") or [])
+        + (floorplan_brief.get("constraints_respected") or [])[:2],
+        disclaimer=floorplan_brief.get("disclaimer") or disclaimer,
+    )
+    # Garanzia: se PIL non e disponibile, ricadi sul vecchio SVG schematico piuttosto che bloccare.
+    plan_url = plate_url or _plan_svg(job_id, job, mode)
     if mode == "redistributed":
         text_content = (
             "Proposta di redistribuzione preliminare disegnata in tavola professionale deterministica "
