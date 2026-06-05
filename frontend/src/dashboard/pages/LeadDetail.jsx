@@ -3,10 +3,10 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Phone, MessageCircle, Mail, ArrowLeft, Sparkles, Loader2, Send,
-  AlertTriangle, FileText, MapPin, Home,
+  AlertTriangle, FileText, MapPin, Home, Brain, Download, ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
-import client, { formatApiErrorDetail } from "@/lib/api";
+import client, { BACKEND_URL, formatApiErrorDetail } from "@/lib/api";
 import { formatEuro, formatDateTime } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { STATI, PIPELINE_ORDER, priority, initials } from "@/dashboard/leadMeta";
@@ -43,12 +43,30 @@ export default function LeadDetail() {
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
 
+  const aiJobId = lead?.ai_architect_job_id;
+  const { data: aiJob } = useQuery({
+    queryKey: ["lead-ai-job", aiJobId],
+    enabled: Boolean(aiJobId),
+    queryFn: async () => (await client.get(`/ai-architect/jobs/${aiJobId}`)).data,
+  });
+
   if (isLoading || !lead) return <div className="text-fog font-display uppercase animate-pulse">Caricamento…</div>;
 
   const est = lead.estimate?.pacchetti || {};
   const pkg = est[lead.livello] || {};
   const alerts = lead.estimate?.alerts || [];
   const whatsappUrl = buildWhatsappUrl(lead.telefono, lead.nome);
+
+  const aiOutputs = aiJob?.outputs || [];
+  const aiLatest = (type) => {
+    const items = aiOutputs.filter((o) => o.output_type === type);
+    return items[items.length - 1];
+  };
+  const aiAssetUrl = (url) => (!url ? "" : url.startsWith("http") ? url : `${BACKEND_URL}${url}`);
+  const aiConcept = aiLatest("redistributed_2d_plan") || aiLatest("clean_2d_plan");
+  const aiTopdown = aiLatest("topdown_3d_plan");
+  const aiRenders = aiOutputs.filter((o) => o.output_type === "room_render");
+  const aiReport = aiLatest("pdf_report");
 
   return (
     <div className="space-y-5">
@@ -166,6 +184,63 @@ export default function LeadDetail() {
               </div>
             )}
           </div>
+
+          {aiJobId && (
+            <div className="bg-surface border border-stroke rounded-2xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="font-display font-semibold uppercase text-sm text-ink flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-brand" /> AI Architect
+                </h4>
+                <button
+                  onClick={() => navigate(`/dashboard/ai-architect?job=${aiJobId}`)}
+                  className="font-display uppercase text-[10px] text-brand inline-flex items-center gap-1 hover:text-ink"
+                >
+                  Apri revisione <ExternalLink className="w-3 h-3" />
+                </button>
+              </div>
+              {lead.ai_architect_summary && (
+                <p className="font-body text-xs text-fog mb-3">{lead.ai_architect_summary}</p>
+              )}
+              {aiJob ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    {aiConcept?.image_url && (
+                      <div>
+                        <div className="font-display uppercase text-[9px] text-fog mb-1">Concept 2D</div>
+                        <img src={aiAssetUrl(aiConcept.image_url)} alt="Concept 2D" className="w-full rounded-lg border border-stroke bg-bg object-contain max-h-40" />
+                      </div>
+                    )}
+                    {aiTopdown?.image_url && (
+                      <div>
+                        <div className="font-display uppercase text-[9px] text-fog mb-1">Top-down 3D</div>
+                        <img src={aiAssetUrl(aiTopdown.image_url)} alt="Top-down" className="w-full rounded-lg border border-stroke bg-bg object-contain max-h-40" />
+                      </div>
+                    )}
+                  </div>
+                  {aiRenders.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                      {aiRenders.slice(0, 3).map((r) => (
+                        <img key={r.id} src={aiAssetUrl(r.image_url)} alt={r.room_name || "Render"} className="w-full aspect-square rounded-lg border border-stroke bg-bg object-cover" />
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="font-display uppercase text-[9px] bg-bg border border-stroke rounded-full px-2 py-1 text-fog">
+                      Stato: {aiJob.status || "-"}
+                    </span>
+                    {aiReport?.image_url && (
+                      <a href={aiAssetUrl(aiReport.image_url)} target="_blank" rel="noreferrer"
+                        className="font-display uppercase text-[10px] text-brand inline-flex items-center gap-1 hover:text-ink">
+                        <Download className="w-3 h-3" /> Report PDF
+                      </a>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className="font-body text-xs text-fog">Caricamento progetto AI…</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* RIGHT: timeline */}

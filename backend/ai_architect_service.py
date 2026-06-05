@@ -664,12 +664,24 @@ async def get_job_payload(db, job_id: str) -> Dict[str, Any]:
     outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
     errors = await db.ai_architect_errors.find({"job_id": job_id}).sort("created_at", -1).to_list(50)
     quality_logs = await db.ai_architect_quality_logs.find({"job_id": job_id}).sort("timestamp", 1).to_list(50)
+    # Legame inverso: lead generato da questo progetto AI (per saltare alla scheda lead dalla dashboard).
+    lead_doc = await db.leads.find_one({"ai_architect_job_id": job_id})
+    linked_lead = None
+    if lead_doc:
+        linked_lead = {
+            "id": str(lead_doc["_id"]),
+            "nome": lead_doc.get("nome"),
+            "status": lead_doc.get("status"),
+            "score": lead_doc.get("score"),
+            "citta": lead_doc.get("citta"),
+        }
     return {
         **serialize_doc(job),
         "steps": [{"key": key, "label": label} for key, label in STEPS],
         "outputs": [serialize_doc(o) for o in outputs],
         "errors": [serialize_doc(e) for e in errors],
         "quality_gates": [serialize_doc(q) for q in quality_logs],
+        "linked_lead": linked_lead,
     }
 
 

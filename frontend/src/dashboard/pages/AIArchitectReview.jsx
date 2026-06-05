@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Brain,
   CheckCircle2,
   Download,
+  ExternalLink,
   Eye,
   FileText,
   Image as ImageIcon,
@@ -55,9 +57,12 @@ function qualityLabel(value) {
 }
 
 export default function AIArchitectReview() {
-  const [tab, setTab] = useState("needs_review");
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const deepLinkJob = searchParams.get("job");
+  const [tab, setTab] = useState(deepLinkJob ? "tutti" : "needs_review");
   const [q, setQ] = useState("");
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(deepLinkJob || null);
   const qc = useQueryClient();
 
   const { data: jobs = [], isLoading } = useQuery({
@@ -74,18 +79,26 @@ export default function AIArchitectReview() {
     if (!selectedId && jobs.length > 0) setSelectedId(jobs[0].id);
     if (
       selectedId &&
+      selectedId !== deepLinkJob &&
       jobs.length > 0 &&
       !jobs.some((job) => job.id === selectedId)
     )
       setSelectedId(jobs[0].id);
-  }, [jobs, selectedId]);
+  }, [jobs, selectedId, deepLinkJob]);
 
   const { data: selectedJob, isFetching: loadingJob } = useQuery({
     queryKey: ["ai-architect-job", selectedId],
     enabled: Boolean(selectedId),
     queryFn: async () =>
       (await client.get(`/ai-architect/jobs/${selectedId}`)).data,
+    refetchInterval: (query) =>
+      ["processing", "queued"].includes(query.state.data?.status) ? 3000 : false,
   });
+
+  const invalidateJob = async (jobId) => {
+    await qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] });
+    await qc.invalidateQueries({ queryKey: ["ai-architect-job", jobId] });
+  };
 
   const approve = useMutation({
     mutationFn: (jobId) =>
@@ -95,8 +108,43 @@ export default function AIArchitectReview() {
       }),
     onSuccess: async (_, jobId) => {
       toast.success("Concept approvato. Render avviati.");
-      await qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] });
-      await qc.invalidateQueries({ queryKey: ["ai-architect-job", jobId] });
+      await invalidateJob(jobId);
+    },
+    onError: (err) =>
+      toast.error(formatApiErrorDetail(err.response?.data?.detail)),
+  });
+
+  const confirmPlan = useMutation({
+    mutationFn: ({ jobId, planType }) =>
+      client.post(`/ai-architect/jobs/${jobId}/confirm`, {
+        plan_type_selected: planType,
+      }),
+    onSuccess: async (_, { jobId }) => {
+      toast.success("Tipo planimetria confermato. Elaborazione avviata.");
+      await invalidateJob(jobId);
+    },
+    onError: (err) =>
+      toast.error(formatApiErrorDetail(err.response?.data?.detail)),
+  });
+
+  const regenerate = useMutation({
+    mutationFn: ({ jobId, outputTypes }) =>
+      client.post(`/ai-architect/jobs/${jobId}/regenerate`, {
+        output_types: outputTypes,
+      }),
+    onSuccess: async (_, { jobId }) => {
+      toast.success("Rigenerazione avviata.");
+      await invalidateJob(jobId);
+    },
+    onError: (err) =>
+      toast.error(formatApiErrorDetail(err.response?.data?.detail)),
+  });
+
+  const reanalyze = useMutation({
+    mutationFn: (jobId) => client.post(`/ai-architect/jobs/${jobId}/reanalyze`),
+    onSuccess: async (_, jobId) => {
+      toast.success("Ri-analisi planimetria avviata.");
+      await invalidateJob(jobId);
     },
     onError: (err) =>
       toast.error(formatApiErrorDetail(err.response?.data?.detail)),
@@ -313,6 +361,20 @@ export default function AIArchitectReview() {
                           selectedJob.project_variant_selected}
                       </p>
                     )}
+                    {selectedJob.linked_lead && (
+                      <button
+                        onClick={() =>
+                          navigate(`/dashboard/lead/${selectedJob.linked_lead.id}`)
+                        }
+                        className="mt-2 font-display uppercase text-[10px] text-brand inline-flex items-center gap-1 hover:text-ink"
+                      >
+                        Lead collegato: {selectedJob.linked_lead.nome}
+                        {typeof selectedJob.linked_lead.score === "number"
+                          ? ` (${selectedJob.linked_lead.score}/100)`
+                          : ""}{" "}
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {report?.image_url && (
@@ -340,6 +402,68 @@ export default function AIArchitectReview() {
                         Approva render
                       </button>
                     )}
+                    {selectedJob.status === "needs_confirmation" && (
+                      <>
+                        <button
+                          onClick={() =>
+                            confirmPlan.mutate({ jobId: selectedJob.id, planType: "existing_state" })
+                          }
+                          disabled={confirmPlan.isPending}
+                          className="bg-brand text-white rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                        >
+                          <CheckCircle2 className="w-4 h-4" /> Stato di fatto
+                        </button>
+                        <button
+                          onClick={() =>
+                            confirmPlan.mutate({ jobId: selectedJob.id, planType: "defined_project" })
+                          }
+                          disabled={confirmPlan.isPending}
+                          className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                        >
+                          <CheckCircle2 className="w-4 h-4" /> Progetto definito
+                        </button>
+                      </>
+                    )}
+                    {(selectedJob.status === "completed" ||
+                      selectedJob.status === "needs_review") && (
+                      <>
+                        <button
+                          onClick={() =>
+                            regenerate.mutate({ jobId: selectedJob.id, outputTypes: ["topdown_3d_plan"] })
+                          }
+                          disabled={regenerate.isPending}
+                          className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                        >
+                          {regenerate.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                          Rigenera 3D
+                        </button>
+                        <button
+                          onClick={() =>
+                            regenerate.mutate({ jobId: selectedJob.id, outputTypes: ["room_render"] })
+                          }
+                          disabled={regenerate.isPending}
+                          className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                        >
+                          <ImageIcon className="w-4 h-4" /> Rigenera render
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={() => reanalyze.mutate(selectedJob.id)}
+                      disabled={reanalyze.isPending}
+                      className="bg-surface-2 border border-stroke text-fog hover:text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                    >
+                      {reanalyze.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Brain className="w-4 h-4" />
+                      )}
+                      Ri-analizza
+                    </button>
                   </div>
                 </div>
               </div>
