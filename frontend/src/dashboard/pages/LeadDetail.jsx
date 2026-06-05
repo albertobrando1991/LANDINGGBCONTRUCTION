@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Phone, MessageCircle, Mail, ArrowLeft, Sparkles, Loader2, Send,
-  AlertTriangle, FileText, MapPin, Home, Brain, Download, ExternalLink,
+  AlertTriangle, FileText, MapPin, Home, Brain, Download, ExternalLink, Unlock,
 } from "lucide-react";
 import { toast } from "sonner";
 import client, { BACKEND_URL, formatApiErrorDetail } from "@/lib/api";
@@ -40,6 +40,15 @@ export default function LeadDetail() {
   const suggest = useMutation({
     mutationFn: () => client.post(`/leads/${id}/suggest`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["lead", id] }); toast.success("Suggerimento AI generato"); },
+    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
+  });
+
+  const unlockEmail = useMutation({
+    mutationFn: (email) => client.post(`/leads/unlock-email`, { email }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lead", id] });
+      toast.success("Email sbloccata: il cliente può generare un nuovo preventivo.");
+    },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
 
@@ -104,6 +113,29 @@ export default function LeadDetail() {
               )}
               <div className="capitalize">Origine: {lead.origine} · {formatDateTime(lead.created_at)}</div>
             </div>
+            {lead.email && (
+              <div className="mt-3 flex items-center justify-between gap-2 bg-bg border border-stroke rounded-xl px-3 py-2">
+                <span className="font-body text-[11px] text-fog">
+                  {lead.dedup_released
+                    ? "Email sbloccata: nuova generazione consentita."
+                    : "Limite: un preventivo per email."}
+                </span>
+                {!lead.dedup_released && (
+                  <button
+                    onClick={() => unlockEmail.mutate(lead.email)}
+                    disabled={unlockEmail.isPending}
+                    className="shrink-0 font-display uppercase text-[10px] text-brand hover:text-ink inline-flex items-center gap-1 disabled:opacity-60"
+                  >
+                    {unlockEmail.isPending ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Unlock className="w-3 h-3" />
+                    )}
+                    Sblocca email
+                  </button>
+                )}
+              </div>
+            )}
             <div className="mt-4 flex items-center justify-between bg-bg border border-stroke rounded-xl px-3 py-2">
               <span className="font-display uppercase text-xs text-fog">Lead score</span>
               <span className={`font-display font-bold text-lg ${priority(lead.score).text}`}>{lead.score}/100</span>

@@ -156,6 +156,10 @@ class CallbackBody(BaseModel):
     messaggio: Optional[str] = ""
 
 
+class UnlockEmailBody(BaseModel):
+    email: str
+
+
 class LeadUpdate(BaseModel):
     status: Optional[str] = None
     owner: Optional[str] = None
@@ -358,12 +362,29 @@ async def projects():
     return seed_data.DEMO_PROJECTS
 
 
+# Email con generazioni preventivo illimitate (bypass del limite "uno per email").
+QUOTE_UNLIMITED_EMAILS = {
+    meta_leads_service.normalize_email(value)
+    for value in os.getenv("QUOTE_UNLIMITED_EMAILS", "info@alantis.it").split(",")
+    if value.strip()
+}
+
+
+def _email_has_unlimited_quotes(email: str) -> bool:
+    norm = meta_leads_service.normalize_email(email)
+    return bool(norm) and norm in QUOTE_UNLIMITED_EMAILS
+
+
 async def _existing_lead_for_email(email: str) -> Optional[Dict[str, Any]]:
-    """Lead gia presente per questa email (un solo preventivo per email)."""
+    """Lead attivo per questa email (un solo preventivo per email).
+
+    Esclude i lead 'sbloccati' dallo staff (dedup_released) cosi una nuova
+    generazione e consentita senza cancellare lo storico CRM.
+    """
     norm = meta_leads_service.normalize_email(email)
     if not norm:
         return None
-    return await db.leads.find_one({"email_norm": norm})
+    return await db.leads.find_one({"email_norm": norm, "dedup_released": {"$ne": True}})
 
 
 def _duplicate_email_error(existing: Dict[str, Any]) -> HTTPException:
@@ -379,9 +400,10 @@ def _duplicate_email_error(existing: Dict[str, Any]) -> HTTPException:
 
 @api.post("/leads")
 async def create_lead(body: LeadCreate, background_tasks: BackgroundTasks):
-    existing = await _existing_lead_for_email(body.email)
-    if existing:
-        raise _duplicate_email_error(existing)
+    if not _email_has_unlimited_quotes(body.email):
+        existing = await _existing_lead_for_email(body.email)
+        if existing:
+            raise _duplicate_email_error(existing)
     cfg = normalize_config(body.config.model_dump())
     if cfg.get("ai_architect_job_id") and not ObjectId.is_valid(str(cfg["ai_architect_job_id"])):
         cfg["ai_architect_job_id"] = None
@@ -720,11 +742,12 @@ async def quote_from_ai_project(body: AiProjectQuoteCreate, background_tasks: Ba
     if not job:
         raise HTTPException(status_code=404, detail="Progetto AI Architect non trovato")
 
-    existing = await _existing_lead_for_email(body.email)
-    # Consenti il collegamento se il lead esistente e proprio quello gia legato a questo job;
-    # blocca invece un secondo preventivo con la stessa email su un job diverso.
-    if existing and str(existing.get("ai_architect_job_id") or "") != body.ai_architect_job_id:
-        raise _duplicate_email_error(existing)
+    if not _email_has_unlimited_quotes(body.email):
+        existing = await _existing_lead_for_email(body.email)
+        # Consenti il collegamento se il lead esistente e proprio quello gia legato a questo job;
+        # blocca invece un secondo preventivo con la stessa email su un job diverso.
+        if existing and str(existing.get("ai_architect_job_id") or "") != body.ai_architect_job_id:
+            raise _duplicate_email_error(existing)
 
     cfg = normalize_config(body.config.model_dump())
     cfg["has_files"] = True
@@ -810,6 +833,34 @@ async def lead_counts(user: dict = Depends(current_user)):
     for d in docs:
         counts[d.get("status", "nuovo")] = counts.get(d.get("status", "nuovo"), 0) + 1
     return {"counts": counts, "totale": len(docs)}
+
+
+@api.post("/leads/unlock-email")
+async def unlock_email(body: UnlockEmailBody, user: dict = Depends(current_user)):
+    """Sblocca un'email: consente una nuova generazione preventivo senza cancellare lo storico.
+
+    I lead esistenti restano nel CRM ma marcati dedup_released, cosi il limite
+    'uno per email' non li conta piu come blocco.
+    """
+    norm = meta_leads_service.normalize_email(body.email)
+    if not norm:
+        raise HTTPException(status_code=400, detail="Email non valida")
+    event = {
+        "id": "ev-" + uuid.uuid4().hex[:8],
+        "tipo": "nota",
+        "testo": f"Email sbloccata da {user.get('name') or 'staff'}: consentita nuova generazione preventivo.",
+        "ts": now_iso(),
+        "autore": user.get("name"),
+    }
+    res = await db.leads.update_many(
+        {"email_norm": norm},
+        {
+            "$set": {"dedup_released": True, "dedup_released_at": now_iso(), "updated_at": now_iso()},
+            "$addToSet": {"tags": "Email sbloccata"},
+            "$push": {"timeline": event},
+        },
+    )
+    return {"email": norm, "unlocked": res.modified_count}
 
 
 @api.get("/leads/{lead_id}")
