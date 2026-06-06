@@ -662,6 +662,15 @@ async def get_job_payload(db, job_id: str) -> Dict[str, Any]:
     job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
     if not job:
         raise HTTPException(status_code=404, detail="Job AI Architect non trovato")
+    # Planimetrie caricate come PDF non sono renderizzabili in <img>: assicura un
+    # preview PNG (rigenerato lazy) cosi la dashboard mostra sempre la planimetria.
+    if (job.get("processed_file_type") or "").lower() == "pdf" or not job.get("processed_file_url"):
+        try:
+            refreshed = await ensure_processed_reference(db, job_id)
+            if refreshed:
+                job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)}) or job
+        except Exception:
+            logger.exception("ensure_processed_reference failed for job %s", job_id)
     outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
     errors = await db.ai_architect_errors.find({"job_id": job_id}).sort("created_at", -1).to_list(50)
     quality_logs = await db.ai_architect_quality_logs.find({"job_id": job_id}).sort("timestamp", 1).to_list(50)

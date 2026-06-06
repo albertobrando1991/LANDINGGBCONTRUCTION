@@ -44,6 +44,54 @@ function assetUrl(url) {
   return `${BACKEND_URL}${url}`;
 }
 
+function isPdfUrl(url) {
+  return typeof url === "string" && url.split("?")[0].toLowerCase().endsWith(".pdf");
+}
+
+// Immagine asset robusta: i PDF non sono renderizzabili in <img> (planimetrie
+// caricate come PDF) e gli asset possono mancare se lo storage e stato ripulito.
+// In entrambi i casi mostra una card con link "Apri/Scarica" invece dell'icona rotta.
+function AssetImage({ url, alt, className }) {
+  const [failed, setFailed] = useState(false);
+  const full = assetUrl(url);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
+
+  if (!url) return null;
+
+  if (isPdfUrl(url) || failed) {
+    return (
+      <div className={`grid place-items-center text-center p-4 rounded-xl border border-stroke bg-bg ${className || ""}`}>
+        <div className="space-y-2">
+          <FileText className="w-6 h-6 text-fog mx-auto" />
+          <p className="font-body text-xs text-fog">
+            {isPdfUrl(url) ? "Anteprima PDF non incorporabile." : "Immagine non disponibile."}
+          </p>
+          <a
+            href={full}
+            target="_blank"
+            rel="noreferrer"
+            className="font-display uppercase text-[10px] text-brand hover:text-ink inline-flex items-center gap-1"
+          >
+            <ExternalLink className="w-3 h-3" /> Apri {alt || "file"}
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={full}
+      alt={alt}
+      onError={() => setFailed(true)}
+      className={className}
+    />
+  );
+}
+
 function latest(outputs, type) {
   const items = (outputs || []).filter((item) => item.output_type === type);
   return items[items.length - 1];
@@ -489,9 +537,9 @@ export default function AIArchitectReview() {
                         <p className="font-display uppercase text-[10px] tracking-wider text-fog mb-2">
                           Planimetria allegata
                         </p>
-                        <img
-                          src={assetUrl(uploadedPlanUrl)}
-                          alt="Planimetria allegata"
+                        <AssetImage
+                          url={uploadedPlanUrl}
+                          alt="planimetria allegata"
                           className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-[300px]"
                         />
                       </div>
@@ -514,9 +562,9 @@ export default function AIArchitectReview() {
                           <Download className="w-3 h-3" /> Scarica
                         </a>
                       </div>
-                      <img
-                        src={assetUrl(concept.image_url)}
-                        alt="Concept 2D"
+                      <AssetImage
+                        url={concept.image_url}
+                        alt="concept 2D"
                         className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-[460px]"
                       />
                     </div>
@@ -767,9 +815,9 @@ export default function AIArchitectReview() {
                     )}
                   </div>
                   {topdown?.image_url ? (
-                    <img
-                      src={assetUrl(topdown.image_url)}
-                      alt="Top-down"
+                    <AssetImage
+                      url={topdown.image_url}
+                      alt="vista top-down"
                       className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-80"
                     />
                   ) : (
@@ -811,9 +859,9 @@ export default function AIArchitectReview() {
                             <Download className="w-3.5 h-3.5" />
                           </a>
                           <a href={assetUrl(render.image_url)} target="_blank" rel="noreferrer">
-                            <img
-                              src={assetUrl(render.image_url)}
-                              alt={render.room_name || "Render"}
+                            <AssetImage
+                              url={render.image_url}
+                              alt={render.room_name || "render"}
                               className="w-full aspect-video object-cover"
                             />
                           </a>
