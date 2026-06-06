@@ -7,6 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import client, { formatApiErrorDetail } from "@/lib/api";
 import { formatEuro, relativeDate } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
+import { openEmailCompose } from "@/lib/emailCompose";
 import { STATI, priority, initials } from "@/dashboard/leadMeta";
 
 const TABS = [
@@ -138,7 +139,11 @@ export default function LeadInbox() {
                       ) : (
                         <span className="opacity-30"><MessageCircle className="w-4 h-4" /></span>
                       )}
-                      <a href={`mailto:${l.email}`} className="hover:text-ink"><Mail className="w-4 h-4" /></a>
+                      {l.email ? (
+                        <button onClick={() => openEmailCompose({ leadId: l.id, email: l.email, nome: l.nome })} className="hover:text-ink"><Mail className="w-4 h-4" /></button>
+                      ) : (
+                        <span className="opacity-30"><Mail className="w-4 h-4" /></span>
+                      )}
                       <button onClick={() => navigate(`/dashboard/lead/${l.id}`)} className="hover:text-brand"><Eye className="w-4 h-4" /></button>
                     </div>
                   </td>

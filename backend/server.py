@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from pathlib import Path
 import os
+import asyncio
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR.parent / '.env')
@@ -956,6 +957,64 @@ async def cleanup_test_leads(body: LeadsCleanupBody, user: dict = Depends(requir
                   "booked_email": None, "booked_phone": None, "updated_at": now_iso()}},
     )
     return {"ok": True, "deleted": res.deleted_count, "kept": len(kept_ids), "kept_emails": list(keep)}
+
+
+@api.get("/email/status")
+async def email_status(user: dict = Depends(current_user)):
+    return {"configured": email_service.is_configured()}
+
+
+@api.post("/leads/{lead_id}/email")
+async def send_lead_email(
+    lead_id: str,
+    subject: str = Form(...),
+    body: str = Form(...),
+    to: Optional[str] = Form(None),
+    attachments: List[UploadFile] = File(default=[]),
+    user: dict = Depends(current_user),
+):
+    """Invio email manuale dallo staff al cliente dall'email ufficiale (SMTP/Zimbra), con allegati."""
+    lead = await db.leads.find_one({"_id": object_id_or_400(lead_id, "Lead")})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead non trovato")
+    to_email = (to or lead.get("email") or "").strip()
+    if not to_email:
+        raise HTTPException(status_code=400, detail="Email destinatario mancante")
+    files_payload = []
+    for upload in attachments or []:
+        content = await upload.read()
+        if not content:
+            continue
+        if len(content) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail=f"Allegato troppo grande: {upload.filename}")
+        files_payload.append({
+            "filename": upload.filename or "allegato",
+            "content": content,
+            "mime": upload.content_type or "application/octet-stream",
+        })
+    try:
+        await asyncio.to_thread(
+            email_service.send_custom_email,
+            to_email=to_email,
+            subject=subject,
+            body_text=body,
+            attachments=files_payload,
+            reply_to=email_service._notification_email(),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Invio email non riuscito: {exc}")
+    event = {
+        "id": "ev-" + uuid.uuid4().hex[:8], "tipo": "messaggio",
+        "testo": f"Email inviata a {to_email} da {user.get('name') or 'staff'}: {subject}"
+                 + (f" ({len(files_payload)} allegati)" if files_payload else ""),
+        "ts": now_iso(), "autore": user.get("name"),
+    }
+    await db.leads.update_one(
+        {"_id": lead["_id"]},
+        {"$set": {"last_contact": now_iso(), "updated_at": now_iso()},
+         "$push": {"timeline": {"$each": [event], "$position": 0}}},
+    )
+    return {"ok": True, "to": to_email, "attachments": len(files_payload)}
 
 
 @api.post("/leads/{lead_id}/timeline")

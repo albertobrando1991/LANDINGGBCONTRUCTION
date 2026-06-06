@@ -236,6 +236,49 @@ def _send_message(message: EmailMessage) -> None:
         smtp.send_message(message)
 
 
+def send_custom_email(
+    *,
+    to_email: str,
+    subject: str,
+    body_text: str,
+    attachments: Optional[list] = None,
+    reply_to: Optional[str] = None,
+) -> None:
+    """Invio email manuale dallo staff tramite l'email ufficiale (SMTP/Zimbra), con allegati.
+
+    attachments: lista di dict {"filename": str, "content": bytes, "mime": str}.
+    """
+    if not is_configured():
+        raise RuntimeError("SMTP/email ufficiale non configurato")
+    if not (to_email or "").strip():
+        raise RuntimeError("Destinatario mancante")
+    message = EmailMessage()
+    message["From"] = formataddr((_sender_name(), _sender_email()))
+    message["To"] = to_email
+    message["Subject"] = subject or "GB Construction"
+    if reply_to:
+        message["Reply-To"] = reply_to
+    message.set_content(body_text or "")
+    html_body = (
+        "<div style=\"font-family:Arial,sans-serif;font-size:14px;line-height:1.5;"
+        "color:#202020;white-space:pre-wrap\">" + _safe(body_text) + "</div>"
+    )
+    message.add_alternative(html_body, subtype="html")
+    for att in attachments or []:
+        content = att.get("content")
+        if not content:
+            continue
+        mime = att.get("mime") or "application/octet-stream"
+        maintype, _, subtype = mime.partition("/")
+        message.add_attachment(
+            content,
+            maintype=maintype or "application",
+            subtype=subtype or "octet-stream",
+            filename=att.get("filename") or "allegato",
+        )
+    _send_message(message)
+
+
 def send_lead_emails(lead: Dict[str, Any], kind: str = "lead") -> None:
     if not is_configured():
         logger.warning("SMTP not configured: lead email notifications skipped")

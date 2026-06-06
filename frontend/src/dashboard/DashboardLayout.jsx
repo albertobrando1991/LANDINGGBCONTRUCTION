@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/dashboard/Avatar";
+import EmailComposeModal from "@/dashboard/EmailComposeModal";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   DropdownMenuLabel, DropdownMenuSeparator,
@@ -140,6 +141,8 @@ export default function DashboardLayout() {
           <Outlet />
         </main>
       </div>
+
+      <EmailComposeModal />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import client, { BACKEND_URL, formatApiErrorDetail } from "@/lib/api";
 import { formatEuro, formatDateTime } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
+import { openEmailCompose } from "@/lib/emailCompose";
 import { STATI, PIPELINE_ORDER, priority, initials } from "@/dashboard/leadMeta";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -113,7 +114,11 @@ export default function LeadDetail() {
               ) : (
                 <span className="flex flex-col items-center gap-1 bg-bg border border-stroke rounded-xl py-2 text-fog/40"><MessageCircle className="w-4 h-4" /><span className="text-[10px] font-display uppercase">WhatsApp</span></span>
               )}
-              <a href={`mailto:${lead.email}`} className="flex flex-col items-center gap-1 bg-bg border border-stroke rounded-xl py-2 text-fog hover:text-ink hover:border-brand transition-colors"><Mail className="w-4 h-4" /><span className="text-[10px] font-display uppercase">Email</span></a>
+              {lead.email ? (
+                <button type="button" onClick={() => openEmailCompose({ leadId: lead.id, email: lead.email, nome: lead.nome })} className="flex flex-col items-center gap-1 bg-bg border border-stroke rounded-xl py-2 text-fog hover:text-ink hover:border-brand transition-colors"><Mail className="w-4 h-4" /><span className="text-[10px] font-display uppercase">Email</span></button>
+              ) : (
+                <span className="flex flex-col items-center gap-1 bg-bg border border-stroke rounded-xl py-2 text-fog/40"><Mail className="w-4 h-4" /><span className="text-[10px] font-display uppercase">Email</span></span>
+              )}
             </div>
             <div className="space-y-1 font-body text-xs text-fog">
               <div>📞 {lead.telefono || "—"}</div>
