@@ -108,10 +108,10 @@ VOCI_STANDARD = [
     ("VS-064", "Forniture bagno", "Rubinetteria di design", "cad", 180, 280, 140, 340, "forniture_incluse", "bagni*3", "Miscelatori premium"),
     ("VS-065", "Forniture bagno", "Termoarredo scaldasalviette", "cad", 320, 460, 250, 560, "forniture_incluse", "bagni", "Elettrico/idraulico"),
     ("VS-066", "Forniture bagno", "Set accessori bagno", "cad", 180, 280, 140, 340, "forniture_incluse", "bagni", "Porta-asciugamani, ecc."),
-    # --- Forniture cucina (Luxury) ---
-    ("VS-067", "Forniture cucina", "Predisposizione cucina su misura", "a corpo", 1200, 1900, 950, 2300, "forniture_incluse and cucina", "1", "Coordinamento fornitore"),
-    ("VS-068", "Forniture cucina", "Top cucina in quarzo", "m", 320, 480, 250, 580, "forniture_incluse and cucina", "4", "Lavorazione su misura"),
-    ("VS-069", "Forniture cucina", "Elettrodomestici da incasso", "cad", 3200, 4800, 2600, 5800, "forniture_incluse and cucina", "1", "Set completo classe A"),
+    # NB: la fornitura cucina (mobili/top/elettrodomestici) NON è prevista nelle
+    # proposte: le forniture luxury sono solo quelle del computo Pomigliano
+    # (infissi, cassonetti, tapparelle, porte, blindata, pavimenti/rivestimento,
+    # sanitari/bagno, caldaia, condizionatori, illuminazione). Voci cucina rimosse.
     # --- Illuminazione (Luxury) ---
     ("VS-070", "Illuminazione", "Corpi illuminanti di design", "cad", 120, 190, 95, 230, "forniture_incluse", "camere+soggiorno+bagni", "Marchi premium"),
     ("VS-071", "Illuminazione", "Strip LED architetturali", "m", 28, 42, 22, 52, "forniture_incluse", "mq*0.40", "Con alimentatori"),

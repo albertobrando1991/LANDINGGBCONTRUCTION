@@ -227,6 +227,50 @@ class TestDashboard:
         assert isinstance(data, list)
         assert len(data) >= 3
 
+    def test_cantieri_crud(self, admin_client):
+        cantiere_id = None
+        payload = {
+            "cliente": f"TEST Cantiere {int(time.time())}",
+            "indirizzo": "Via Test 1, Napoli",
+            "avanzamento": 12,
+            "milestone": "Avvio impianti",
+            "milestone_data": "2026-06-20",
+            "capocantiere": "Giovanni Brancale",
+            "importo": 45000,
+            "criticita": None,
+            "stato": "attivo",
+        }
+        try:
+            r = admin_client.post(f"{API}/cantieri", json=payload)
+            assert r.status_code == 200, r.text
+            created = r.json()
+            cantiere_id = created["id"]
+            assert created["cliente"] == payload["cliente"]
+            assert created["stato"] == "attivo"
+            assert created["fasi"]
+
+            r = admin_client.patch(f"{API}/cantieri/{cantiere_id}", json={
+                "avanzamento": 35,
+                "stato": "in_pausa",
+                "criticita": "TEST attesa materiale",
+                "fasi": [
+                    {"nome": "Demolizioni", "stato": "completata"},
+                    {"nome": "Impianti", "stato": "in_corso"},
+                ],
+            })
+            assert r.status_code == 200, r.text
+            updated = r.json()
+            assert updated["avanzamento"] == 35
+            assert updated["stato"] == "in_pausa"
+            assert updated["criticita"] == "TEST attesa materiale"
+
+            r = admin_client.get(f"{API}/cantieri", params={"stato": "in_pausa"})
+            assert r.status_code == 200
+            assert any(c["id"] == cantiere_id for c in r.json())
+        finally:
+            if cantiere_id:
+                admin_client.delete(f"{API}/cantieri/{cantiere_id}")
+
 
 # --------------- Reports ---------------
 class TestReports:
@@ -258,12 +302,15 @@ class TestSettings:
         d = r.json()
         assert isinstance(d, dict) and len(d) >= 10
 
-    def test_voci_86(self, admin_client):
+    def test_voci_catalogo(self, admin_client):
         r = admin_client.get(f"{API}/voci")
         assert r.status_code == 200
         d = r.json()
         assert isinstance(d, list)
-        assert len(d) >= 86, f"Expected 86 voci, got {len(d)}"
+        # Fornitura cucina rimossa (non prevista): catalogo a 83 voci.
+        assert len(d) >= 83, f"Expected >=83 voci, got {len(d)}"
+        assert not any("cucina" in (v.get("categoria") or "").lower() for v in d), \
+            "La categoria 'Forniture cucina' non deve essere presente nel catalogo"
 
     def test_list_staff(self, admin_client):
         r = admin_client.get(f"{API}/staff")
