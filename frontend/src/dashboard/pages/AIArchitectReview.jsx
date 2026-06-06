@@ -498,11 +498,22 @@ export default function AIArchitectReview() {
                     )}
                   {concept?.image_url ? (
                     <div>
-                      <p className="font-display uppercase text-[10px] tracking-wider text-fog mb-2">
-                        {conceptApprovable
-                          ? "2D da approvare"
-                          : "2D non approvabile"}
-                      </p>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <p className="font-display uppercase text-[10px] tracking-wider text-fog">
+                          {conceptApprovable
+                            ? "2D da approvare"
+                            : "2D non approvabile"}
+                        </p>
+                        <a
+                          href={assetUrl(concept.image_url)}
+                          download
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-display uppercase text-[10px] text-brand hover:text-ink inline-flex items-center gap-1"
+                        >
+                          <Download className="w-3 h-3" /> Scarica
+                        </a>
+                      </div>
                       <img
                         src={assetUrl(concept.image_url)}
                         alt="Concept 2D"
@@ -736,11 +747,24 @@ export default function AIArchitectReview() {
 
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
                 <div className="rounded-2xl border border-stroke bg-surface p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Eye className="w-5 h-5 text-brand" />
-                    <h3 className="font-display font-semibold uppercase text-sm text-ink">
-                      Top-down
-                    </h3>
+                  <div className="flex items-center justify-between gap-2 mb-4">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-5 h-5 text-brand" />
+                      <h3 className="font-display font-semibold uppercase text-sm text-ink">
+                        Top-down
+                      </h3>
+                    </div>
+                    {topdown?.image_url && (
+                      <a
+                        href={assetUrl(topdown.image_url)}
+                        download
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-display uppercase text-[10px] text-brand hover:text-ink inline-flex items-center gap-1"
+                      >
+                        <Download className="w-3 h-3" /> Scarica
+                      </a>
+                    )}
                   </div>
                   {topdown?.image_url ? (
                     <img
@@ -756,26 +780,56 @@ export default function AIArchitectReview() {
                 </div>
 
                 <div className="rounded-2xl border border-stroke bg-surface p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <ImageIcon className="w-5 h-5 text-brand" />
-                    <h3 className="font-display font-semibold uppercase text-sm text-ink">
-                      Render ambienti
-                    </h3>
+                  <div className="flex items-center justify-between gap-2 mb-4">
+                    <div className="flex items-center gap-2">
+                      <ImageIcon className="w-5 h-5 text-brand" />
+                      <h3 className="font-display font-semibold uppercase text-sm text-ink">
+                        Render ambienti
+                      </h3>
+                    </div>
+                    {renders.length > 0 && (
+                      <span className="font-display uppercase text-[10px] text-fog">
+                        {renders.length} render
+                      </span>
+                    )}
                   </div>
                   {renders.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {renders.slice(0, 4).map((render) => (
+                      {renders.map((render) => (
                         <div
                           key={render.id}
-                          className="rounded-xl border border-stroke bg-bg overflow-hidden"
+                          className="rounded-xl border border-stroke bg-bg overflow-hidden group relative"
                         >
-                          <img
-                            src={assetUrl(render.image_url)}
-                            alt={render.room_name || "Render"}
-                            className="w-full aspect-video object-cover"
-                          />
-                          <div className="px-3 py-2 font-display uppercase text-[10px] text-brand">
-                            {render.room_name}
+                          <a
+                            href={assetUrl(render.image_url)}
+                            download
+                            target="_blank"
+                            rel="noreferrer"
+                            className="absolute top-2 right-2 z-10 bg-bg/90 border border-stroke rounded-full p-1.5 text-brand hover:text-ink opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Scarica render"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </a>
+                          <a href={assetUrl(render.image_url)} target="_blank" rel="noreferrer">
+                            <img
+                              src={assetUrl(render.image_url)}
+                              alt={render.room_name || "Render"}
+                              className="w-full aspect-video object-cover"
+                            />
+                          </a>
+                          <div className="px-3 py-2 flex items-center justify-between gap-2">
+                            <span className="font-display uppercase text-[10px] text-brand truncate">
+                              {render.room_name}
+                            </span>
+                            <a
+                              href={assetUrl(render.image_url)}
+                              download
+                              target="_blank"
+                              rel="noreferrer"
+                              className="shrink-0 font-display uppercase text-[9px] text-fog hover:text-ink inline-flex items-center gap-1"
+                            >
+                              <Download className="w-3 h-3" /> Scarica
+                            </a>
                           </div>
                         </div>
                       ))}

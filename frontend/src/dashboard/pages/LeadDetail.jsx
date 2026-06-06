@@ -3,9 +3,10 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Phone, MessageCircle, Mail, ArrowLeft, Sparkles, Loader2, Send,
-  AlertTriangle, FileText, MapPin, Home, Brain, Download, ExternalLink, Unlock,
+  AlertTriangle, FileText, MapPin, Home, Brain, Download, ExternalLink, Unlock, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 import client, { BACKEND_URL, formatApiErrorDetail } from "@/lib/api";
 import { formatEuro, formatDateTime } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
@@ -18,6 +19,7 @@ export default function LeadDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [note, setNote] = useState("");
   const [noteType, setNoteType] = useState("nota");
 
@@ -48,6 +50,16 @@ export default function LeadDetail() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["lead", id] });
       toast.success("Email sbloccata: il cliente può generare un nuovo preventivo.");
+    },
+    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
+  });
+
+  const removeLead = useMutation({
+    mutationFn: () => client.delete(`/leads/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lead-counts"] });
+      toast.success("Lead eliminato");
+      navigate("/dashboard/inbox");
     },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
@@ -159,6 +171,19 @@ export default function LeadDetail() {
               {(!lead.tags || lead.tags.length === 0) && <span className="font-body text-xs text-fog">Nessun tag</span>}
             </div>
           </div>
+
+          {user?.role === "admin" && (
+            <button
+              onClick={() => {
+                if (window.confirm(`Eliminare definitivamente il lead di ${lead.nome}?`)) removeLead.mutate();
+              }}
+              disabled={removeLead.isPending}
+              className="w-full bg-danger/10 border border-danger/40 text-danger rounded-2xl py-3 font-display uppercase text-xs inline-flex items-center justify-center gap-2 hover:bg-danger/20 transition-colors disabled:opacity-60"
+            >
+              {removeLead.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Elimina lead
+            </button>
+          )}
         </div>
 
         {/* CENTER: configurazione + stima */}

@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Phone, MessageCircle, Mail, Eye, Search } from "lucide-react";
-import client from "@/lib/api";
+import { Phone, MessageCircle, Mail, Eye, Search, Trash2, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import client, { formatApiErrorDetail } from "@/lib/api";
 import { formatEuro, relativeDate } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { STATI, priority, initials } from "@/dashboard/leadMeta";
@@ -31,6 +33,8 @@ export default function LeadInbox() {
   const [origine, setOrigine] = useState(params.get("origine") || "tutte");
   const [q, setQ] = useState(params.get("q") || "");
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const { user } = useAuth();
 
   const { data: leads = [], isLoading } = useQuery({
     queryKey: ["leads", tab, q, origine],
@@ -38,9 +42,33 @@ export default function LeadInbox() {
     refetchInterval: 30000,
   });
 
+  const cleanupTest = useMutation({
+    mutationFn: () => client.post("/leads/cleanup-test", { keep_emails: [] }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["lead-counts"] });
+      toast.success(`Eliminati ${res.data.deleted} lead di test (mantenuti ${res.data.kept}).`);
+    },
+    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
+  });
+
   return (
     <div className="space-y-5">
-      <h1 className="font-display font-bold uppercase text-3xl text-ink">Lead Inbox</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display font-bold uppercase text-3xl text-ink">Lead Inbox</h1>
+        {user?.role === "admin" && (
+          <button
+            onClick={() => {
+              if (window.confirm("Eliminare tutti i lead di test/esempio? Resteranno solo i lead reali (info@alantis.it).")) cleanupTest.mutate();
+            }}
+            disabled={cleanupTest.isPending}
+            className="bg-danger/10 border border-danger/40 text-danger rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 hover:bg-danger/20 transition-colors disabled:opacity-60"
+          >
+            {cleanupTest.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            Pulisci lead di test
+          </button>
+        )}
+      </div>
 
       <div className="flex flex-wrap gap-2">
         {TABS.map((t) => (

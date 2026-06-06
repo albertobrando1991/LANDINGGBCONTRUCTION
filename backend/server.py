@@ -916,6 +916,48 @@ async def update_lead(lead_id: str, body: LeadUpdate, user: dict = Depends(curre
     return serialize(doc)
 
 
+@api.delete("/leads/{lead_id}")
+async def delete_lead(lead_id: str, user: dict = Depends(require_admin)):
+    oid = object_id_or_400(lead_id, "Lead")
+    existing = await db.leads.find_one({"_id": oid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Lead non trovato")
+    await db.leads.delete_one({"_id": oid})
+    # Libera eventuali slot sopralluogo collegati e scollega i job AI.
+    await db.sopralluogo_slots.update_many(
+        {"lead_id": lead_id},
+        {"$set": {"status": "free", "lead_id": None, "booked_name": None,
+                  "booked_email": None, "booked_phone": None, "updated_at": now_iso()}},
+    )
+    await db.ai_architect_jobs.update_many({"lead_id": lead_id}, {"$set": {"lead_id": None}})
+    return {"ok": True, "deleted": str(oid)}
+
+
+class LeadsCleanupBody(BaseModel):
+    keep_emails: List[str] = Field(default_factory=list)
+
+
+@api.post("/leads/cleanup-test")
+async def cleanup_test_leads(body: LeadsCleanupBody, user: dict = Depends(require_admin)):
+    """Elimina tutti i lead tranne quelli con le email da conservare (default: whitelist illimitata).
+
+    Pensato per ripulire i lead di esempio/test lasciando solo i lead reali.
+    """
+    keep = {meta_leads_service.normalize_email(e) for e in body.keep_emails if e.strip()}
+    keep |= QUOTE_UNLIMITED_EMAILS  # info@alantis.it sempre conservata
+    keep = {e for e in keep if e}
+    kept_docs = await db.leads.find({"email_norm": {"$in": list(keep)}}).to_list(500)
+    kept_ids = {str(d["_id"]) for d in kept_docs}
+    res = await db.leads.delete_many({"email_norm": {"$nin": list(keep)}})
+    # Libera slot e scollega job dei lead eliminati.
+    await db.sopralluogo_slots.update_many(
+        {"lead_id": {"$nin": list(kept_ids)}, "status": "booked"},
+        {"$set": {"status": "free", "lead_id": None, "booked_name": None,
+                  "booked_email": None, "booked_phone": None, "updated_at": now_iso()}},
+    )
+    return {"ok": True, "deleted": res.deleted_count, "kept": len(kept_ids), "kept_emails": list(keep)}
+
+
 @api.post("/leads/{lead_id}/timeline")
 async def add_timeline(lead_id: str, body: TimelineEvent, user: dict = Depends(current_user)):
     ev = {"id": "ev-" + uuid.uuid4().hex[:8], "tipo": body.tipo,
