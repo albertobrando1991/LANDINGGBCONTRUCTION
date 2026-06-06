@@ -1127,17 +1127,24 @@ async def public_book_sopralluogo(body: SopralluogoBook, background_tasks: Backg
         "testo": f"Sopralluogo prenotato dal cliente: {slot['date']} {slot['start']}-{slot['end']}",
         "ts": now_iso(),
     }
+    # Anti-IDOR: onora lead_id solo se l'email della prenotazione coincide col lead indicato,
+    # cosi un lead_id altrui non puo essere dirottato da un POST pubblico. Il match per sola
+    # email collega comunque, ma senza mai sovrascrivere dati sensibili gia presenti.
     lead = None
-    if body.lead_id and ObjectId.is_valid(body.lead_id):
-        lead = await db.leads.find_one({"_id": ObjectId(body.lead_id)})
+    if body.lead_id and ObjectId.is_valid(body.lead_id) and norm:
+        candidate = await db.leads.find_one({"_id": ObjectId(body.lead_id)})
+        if candidate and candidate.get("email_norm") == norm:
+            lead = candidate
     if not lead and norm:
         lead = await db.leads.find_one({"email_norm": norm})
     if lead:
-        set_fields = {
-            "status": "sopralluogo_fissato", "sopralluogo": sopr,
-            "status_changed_at": now_iso(), "updated_at": now_iso(),
-        }
-        if body.indirizzo:
+        set_fields = {"sopralluogo": sopr, "updated_at": now_iso()}
+        # Non far retrocedere un lead gia avanzato: fissa lo stato solo da fasi iniziali.
+        if lead.get("status") in (None, "nuovo", "qualificato", "sopralluogo_fissato"):
+            set_fields["status"] = "sopralluogo_fissato"
+            set_fields["status_changed_at"] = now_iso()
+        # Mai sovrascrivere l'indirizzo di un cliente esistente da endpoint pubblico: solo se mancante.
+        if body.indirizzo and not (lead.get("indirizzo") or "").strip():
             set_fields["indirizzo"] = body.indirizzo.strip()
         await db.leads.update_one(
             {"_id": lead["_id"]},
