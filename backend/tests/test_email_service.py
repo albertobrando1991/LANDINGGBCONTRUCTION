@@ -78,3 +78,47 @@ def test_email_service_sends_internal_and_customer_messages(monkeypatch):
     assert sent_messages[0]["To"] == "dashboard@gbconstruction.it"
     assert sent_messages[0]["Reply-To"] == "mario@example.com"
     assert sent_messages[1]["To"] == "mario@example.com"
+    html_body = sent_messages[1].get_body(preferencelist=("html",)).get_content()
+    assert "https://gbconstruction.it/brand/gb-logo.png" in html_body
+    assert "#C62828" in html_body
+    assert "Costruiamo valore. Trasformiamo spazi." in html_body
+
+
+def test_custom_email_uses_branded_layout(monkeypatch):
+    sent_messages = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None, context=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def login(self, username, password):
+            pass
+
+        def send_message(self, message):
+            sent_messages.append(message)
+
+    monkeypatch.setenv("SMTP_HOST", "mail.gbconstruction.it")
+    monkeypatch.setenv("SMTP_PORT", "465")
+    monkeypatch.setenv("SMTP_USERNAME", "dashboard@gbconstruction.it")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+    monkeypatch.setenv("MAIL_FROM_EMAIL", "dashboard@gbconstruction.it")
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://gbconstruction.it")
+    monkeypatch.setattr(email_service.smtplib, "SMTP_SSL", FakeSMTP)
+
+    email_service.send_custom_email(
+        to_email="cliente@example.com",
+        subject="Aggiornamento cantiere",
+        body_text="Stato avanzamento: 45%",
+    )
+
+    assert len(sent_messages) == 1
+    html_body = sent_messages[0].get_body(preferencelist=("html",)).get_content()
+    assert "https://gbconstruction.it/brand/gb-logo.png" in html_body
+    assert "Aggiornamento cantiere" in html_body
+    assert "Stato avanzamento: 45%" in html_body

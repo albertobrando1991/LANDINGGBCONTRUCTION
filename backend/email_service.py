@@ -11,6 +11,13 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger("gb.email")
 
+BRAND_RED = "#C62828"
+BRAND_ONYX = "#0F0F10"
+BRAND_STEEL = "#4A4A4D"
+BRAND_CONCRETE = "#6E6E6E"
+BRAND_LIGHT = "#D9D9D9"
+BRAND_BG = "#F4F4F4"
+
 
 def _env(name: str, fallback: str = "") -> str:
     return (os.environ.get(name) or fallback).strip()
@@ -50,11 +57,18 @@ def _notification_email() -> str:
     return _env("LEAD_NOTIFICATION_EMAIL", _env("MAIL_TO", _sender_email()))
 
 
+def _public_url() -> str:
+    return _env("APP_PUBLIC_URL", "https://gbconstruction.it").rstrip("/")
+
+
+def _logo_url() -> str:
+    return _env("MAIL_LOGO_URL", _env("BRAND_LOGO_URL", f"{_public_url()}/brand/gb-logo.png"))
+
+
 def _dashboard_lead_url(lead_id: Optional[str]) -> str:
     if not lead_id:
         return ""
-    public_url = _env("APP_PUBLIC_URL", "https://gbconstruction.it").rstrip("/")
-    return f"{public_url}/dashboard/lead/{lead_id}"
+    return f"{_public_url()}/dashboard/lead/{lead_id}"
 
 
 def _safe(value: Any) -> str:
@@ -100,11 +114,77 @@ def _html_table(rows: list[tuple[str, Any]]) -> str:
     for label, value in rows:
         rendered.append(
             "<tr>"
-            f"<td style='padding:8px 10px;border-bottom:1px solid #eee;color:#666'>{_safe(label)}</td>"
-            f"<td style='padding:8px 10px;border-bottom:1px solid #eee;color:#111'><strong>{_safe(value) or '-'}</strong></td>"
+            f"<td style='padding:12px 14px;border-bottom:1px solid #e7e7e7;color:{BRAND_CONCRETE};"
+            "font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;width:34%'>"
+            f"{_safe(label)}</td>"
+            f"<td style='padding:12px 14px;border-bottom:1px solid #e7e7e7;color:{BRAND_ONYX};"
+            "font-size:14px;font-weight:600'>"
+            f"{_safe(value) or '-'}</td>"
             "</tr>"
         )
-    return "<table cellpadding='0' cellspacing='0' style='border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px'>" + "".join(rendered) + "</table>"
+    return (
+        "<table cellpadding='0' cellspacing='0' role='presentation' "
+        "style='border-collapse:collapse;width:100%;font-family:Montserrat,Arial,sans-serif;"
+        "border:1px solid #e7e7e7;background:#fff'>"
+        + "".join(rendered)
+        + "</table>"
+    )
+
+
+def _email_shell(title: str, html_body: str, preheader: str = "") -> str:
+    safe_title = _safe(title or "GB Construction")
+    safe_preheader = _safe(preheader or "GB Construction - Costruiamo valore. Trasformiamo spazi.")
+    logo_url = _safe(_logo_url())
+    return f"""<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{safe_title}</title>
+  </head>
+  <body style="margin:0;padding:0;background:{BRAND_BG};font-family:Montserrat,Arial,sans-serif;color:{BRAND_ONYX};">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">{safe_preheader}</div>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:{BRAND_BG};margin:0;padding:0;">
+      <tr>
+        <td align="center" style="padding:28px 14px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:680px;border-collapse:collapse;">
+            <tr>
+              <td style="background:{BRAND_ONYX};padding:0;border-radius:6px 6px 0 0;overflow:hidden;">
+                <div style="height:5px;background:{BRAND_RED};line-height:5px;font-size:5px;">&nbsp;</div>
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                  <tr>
+                    <td style="padding:24px 28px 18px 28px;">
+                      <img src="{logo_url}" width="132" alt="GB Construction" style="display:block;width:132px;max-width:132px;height:auto;border:0;outline:none;text-decoration:none;margin:0 0 18px 0;">
+                      <div style="font-family:Oswald,Arial,sans-serif;color:#ffffff;font-size:12px;letter-spacing:.22em;text-transform:uppercase;font-weight:700;">
+                        Costruiamo valore. Trasformiamo spazi.
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#ffffff;border-left:1px solid #dedede;border-right:1px solid #dedede;padding:30px 28px;">
+                <h1 style="font-family:Oswald,Arial,sans-serif;margin:0 0 20px 0;color:{BRAND_ONYX};font-size:28px;line-height:1.12;text-transform:uppercase;letter-spacing:.02em;">
+                  {safe_title}
+                </h1>
+                <div style="height:3px;width:72px;background:{BRAND_RED};margin:0 0 24px 0;line-height:3px;font-size:3px;">&nbsp;</div>
+                {html_body}
+              </td>
+            </tr>
+            <tr>
+              <td style="background:{BRAND_ONYX};border-radius:0 0 6px 6px;padding:20px 28px;color:{BRAND_LIGHT};font-size:12px;line-height:1.6;">
+                <strong style="font-family:Oswald,Arial,sans-serif;color:#ffffff;text-transform:uppercase;letter-spacing:.08em;">GB Construction S.R.L.</strong><br>
+                Via San Giacomo 35, 80013 Casalnuovo di Napoli (NA)<br>
+                <span style="color:{BRAND_LIGHT};">info@gbconstruction.it</span> &nbsp;|&nbsp; +39 389 658 4125
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>"""
 
 
 def _admin_body(lead: Dict[str, Any], kind: str) -> tuple[str, str]:
@@ -133,14 +213,16 @@ def _admin_body(lead: Dict[str, Any], kind: str) -> tuple[str, str]:
 
     action = (
         f"<p style='margin:20px 0'><a href='{_safe(dashboard_url)}' "
-        "style='display:inline-block;background:#c62828;color:#fff;text-decoration:none;"
-        "padding:12px 18px;border-radius:999px;font-weight:bold'>Apri scheda lead</a></p>"
+        f"style='display:inline-block;background:{BRAND_RED};color:#fff;text-decoration:none;"
+        "padding:13px 18px;border-radius:4px;font-family:Oswald,Arial,sans-serif;"
+        "font-weight:700;text-transform:uppercase;letter-spacing:.08em'>Apri scheda lead</a></p>"
         if dashboard_url
         else ""
     )
     html_body = (
-        "<div style='font-family:Arial,sans-serif;color:#111;line-height:1.5'>"
-        f"<h2 style='margin:0 0 12px'>Nuova {html.escape(label.lower())}</h2>"
+        f"<div style='font-family:Montserrat,Arial,sans-serif;color:{BRAND_ONYX};line-height:1.55'>"
+        f"<p style='margin:0 0 18px;color:{BRAND_STEEL};font-size:15px'>"
+        f"Nuova <strong>{html.escape(label.lower())}</strong> ricevuta dalla piattaforma GB Construction.</p>"
         f"{_html_table(rows)}"
         f"{action}"
         "</div>"
@@ -200,11 +282,12 @@ def _customer_body(lead: Dict[str, Any], kind: str) -> tuple[str, str]:
     text_lines.extend(["", "A presto,", "GB Construction"])
 
     html_body = (
-        "<div style='font-family:Arial,sans-serif;color:#111;line-height:1.5'>"
-        f"<p>Ciao <strong>{_safe(name)}</strong>,</p>"
-        f"<p>{_safe(intro)}</p>"
+        f"<div style='font-family:Montserrat,Arial,sans-serif;color:{BRAND_ONYX};line-height:1.58'>"
+        f"<p style='margin:0 0 14px;font-size:15px'>Ciao <strong>{_safe(name)}</strong>,</p>"
+        f"<p style='margin:0 0 20px;color:{BRAND_STEEL};font-size:15px'>{_safe(intro)}</p>"
         f"{_html_table(details)}"
-        "<p style='margin-top:20px'>A presto,<br><strong>GB Construction</strong></p>"
+        f"<p style='margin-top:22px;color:{BRAND_STEEL};font-size:14px'>"
+        f"A presto,<br><strong style='color:{BRAND_ONYX}'>GB Construction</strong></p>"
         "</div>"
     )
     return "\n".join(text_lines), html_body
@@ -226,7 +309,10 @@ def _build_message(
     if reply_to:
         message["Reply-To"] = reply_to
     message.set_content(text_body)
-    message.add_alternative(html_body, subtype="html")
+    message.add_alternative(
+        _email_shell(subject, html_body, preheader=text_body[:180]),
+        subtype="html",
+    )
     return message
 
 
@@ -277,10 +363,13 @@ def send_custom_email(
         message["Reply-To"] = reply_to
     message.set_content(body_text or "")
     html_body = (
-        "<div style=\"font-family:Arial,sans-serif;font-size:14px;line-height:1.5;"
-        "color:#202020;white-space:pre-wrap\">" + _safe(body_text) + "</div>"
+        f"<div style=\"font-family:Montserrat,Arial,sans-serif;font-size:15px;line-height:1.6;"
+        f"color:{BRAND_ONYX};white-space:pre-wrap\">" + _safe(body_text) + "</div>"
     )
-    message.add_alternative(html_body, subtype="html")
+    message.add_alternative(
+        _email_shell(subject or "GB Construction", html_body, preheader=(body_text or "")[:180]),
+        subtype="html",
+    )
     for att in attachments or []:
         content = att.get("content")
         if not content:
