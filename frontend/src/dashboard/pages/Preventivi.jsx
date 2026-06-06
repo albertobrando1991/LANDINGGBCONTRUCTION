@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { MessageCircle, FileText } from "lucide-react";
@@ -5,9 +6,11 @@ import client from "@/lib/api";
 import { formatEuro } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { STATI } from "@/dashboard/leadMeta";
+import NuovoPreventivoModal from "@/dashboard/NuovoPreventivoModal";
 
 export default function Preventivi() {
   const navigate = useNavigate();
+  const [modalOpen, setModalOpen] = useState(false);
   const { data: list = [], isLoading } = useQuery({
     queryKey: ["preventivi"],
     queryFn: async () => (await client.get("/preventivi")).data,
@@ -20,8 +23,10 @@ export default function Preventivi() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="font-display font-bold uppercase text-3xl text-ink">Preventivi</h1>
-        <button className="bg-brand text-white rounded-full px-5 py-2 font-display uppercase text-xs tracking-wider hover:scale-105 transition-transform">+ Nuovo preventivo</button>
+        <button onClick={() => setModalOpen(true)} className="bg-brand text-white rounded-full px-5 py-2 font-display uppercase text-xs tracking-wider hover:scale-105 transition-transform">+ Nuovo preventivo</button>
       </div>
+
+      <NuovoPreventivoModal open={modalOpen} onClose={() => setModalOpen(false)} />
 
       <div className="bg-surface border border-stroke rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
@@ -51,7 +56,7 @@ export default function Preventivi() {
                 </td>
                 <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-2 text-fog">
-                    <button className="hover:text-ink"><FileText className="w-4 h-4" /></button>
+                    <button onClick={() => navigate(`/dashboard/lead/${p.id}`)} className="hover:text-ink" title="Apri scheda"><FileText className="w-4 h-4" /></button>
                     {buildWhatsappUrl(p.telefono, p.cliente) ? (
                       <a href={buildWhatsappUrl(p.telefono, p.cliente)} target="_blank" rel="noreferrer" className="hover:text-success"><MessageCircle className="w-4 h-4" /></a>
                     ) : (

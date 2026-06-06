@@ -50,6 +50,16 @@ PIPELINE_STATI = [
 ]
 STATO_LABELS = dict(PIPELINE_STATI)
 VALID_LEVELS = {"essenziale", "premium", "luxury"}
+CANTIERE_STATI = {"attivo", "in_pausa", "completato"}
+CANTIERE_FASE_STATI = {"completata", "in_corso", "da_iniziare"}
+DEFAULT_CANTIERE_FASI = [
+    {"nome": "Demolizioni", "stato": "da_iniziare"},
+    {"nome": "Impianti", "stato": "da_iniziare"},
+    {"nome": "Massetti", "stato": "da_iniziare"},
+    {"nome": "Pavimenti", "stato": "da_iniziare"},
+    {"nome": "Finiture", "stato": "da_iniziare"},
+    {"nome": "Consegna", "stato": "da_iniziare"},
+]
 DEFAULT_CORS_ORIGIN_REGEX = (
     r"https?://("
     r"localhost|127\.0\.0\.1|"
@@ -224,6 +234,41 @@ class AiProjectQuoteCreate(BaseModel):
     tracking: Dict[str, Any] = Field(default_factory=dict)
     ai_architect_job_id: str
     config: LeadConfig
+
+
+class CantiereFase(BaseModel):
+    nome: str
+    stato: str = "da_iniziare"
+
+
+class CantiereCreate(BaseModel):
+    cliente: Optional[str] = ""
+    indirizzo: Optional[str] = ""
+    avanzamento: int = Field(default=0, ge=0, le=100)
+    milestone: Optional[str] = ""
+    milestone_data: Optional[str] = None
+    capocantiere: Optional[str] = ""
+    importo: float = Field(default=0, ge=0)
+    criticita: Optional[str] = None
+    fasi: List[CantiereFase] = Field(default_factory=list)
+    stato: str = "attivo"
+    lead_id: Optional[str] = None
+    note: Optional[str] = ""
+
+
+class CantiereUpdate(BaseModel):
+    cliente: Optional[str] = None
+    indirizzo: Optional[str] = None
+    avanzamento: Optional[int] = Field(default=None, ge=0, le=100)
+    milestone: Optional[str] = None
+    milestone_data: Optional[str] = None
+    capocantiere: Optional[str] = None
+    importo: Optional[float] = Field(default=None, ge=0)
+    criticita: Optional[str] = None
+    fasi: Optional[List[CantiereFase]] = None
+    stato: Optional[str] = None
+    lead_id: Optional[str] = None
+    note: Optional[str] = None
 
 
 # ----------------------- Auth routes -----------------------
@@ -1252,6 +1297,7 @@ async def public_book_sopralluogo(body: SopralluogoBook, background_tasks: Backg
             {"$set": set_fields, "$push": {"timeline": event}, "$addToSet": {"tags": "Sopralluogo"}},
         )
         lead_id = str(lead["_id"])
+        email_lead = {**lead, **set_fields, "id": lead_id}
     else:
         doc = {
             "nome": body.nome, "email": body.email.lower(), "telefono": body.telefono,
@@ -1270,12 +1316,54 @@ async def public_book_sopralluogo(body: SopralluogoBook, background_tasks: Backg
         res = await db.leads.insert_one(doc)
         lead_id = str(res.inserted_id)
         doc["id"] = lead_id
-        email_service.enqueue_lead_emails(background_tasks, doc, "sopralluogo")
+        email_lead = doc
     await db.sopralluogo_slots.update_one({"_id": oid}, {"$set": {"lead_id": lead_id}})
+    # Conferma sopralluogo al cliente + notifica staff, sia per lead nuovo che esistente.
+    email_service.enqueue_lead_emails(background_tasks, email_lead, "sopralluogo")
     return {
         "ok": True, "lead_id": lead_id,
         "slot": {"date": slot["date"], "start": slot["start"], "end": slot["end"]},
     }
+
+
+@api.post("/preventivi")
+async def create_preventivo(body: LeadCreate, user: dict = Depends(current_user)):
+    """Preventivo creato manualmente dallo staff (cliente da telefono/sportello).
+
+    Calcola la stima col motore predittivo e crea un lead in fase preventivo,
+    intestato allo staff. Niente email automatica: lo staff invia manualmente.
+    """
+    cfg = normalize_config(body.config.model_dump())
+    if cfg.get("ai_architect_job_id") and not ObjectId.is_valid(str(cfg["ai_architect_job_id"])):
+        cfg["ai_architect_job_id"] = None
+    est = calcola_preventivo(cfg)
+    score = lead_score(cfg, cfg.get("has_files", False))
+    pkg = est["pacchetti"][cfg["livello"]]
+    tags = ["Staff"]
+    if cfg["livello"] in ("premium", "luxury"):
+        tags.append(cfg["livello"].capitalize())
+    doc = {
+        "nome": body.nome, "email": body.email.lower(), "telefono": body.telefono,
+        "email_norm": meta_leads_service.normalize_email(body.email),
+        "phone_norm": meta_leads_service.normalize_phone(body.telefono),
+        "citta": body.citta, "indirizzo": (body.indirizzo or "").strip(),
+        "newsletter": body.newsletter, "privacy": body.privacy,
+        "tipo_immobile": cfg["tipo_immobile"], "mq": cfg["mq"], "livello": cfg["livello"],
+        "bagni": cfg["bagni"], "camere": cfg["camere"], "cucina": cfg["cucina"],
+        "ambienti": cfg["ambienti"], "stile": cfg["stile"], "tempistiche": cfg["tempistiche"],
+        "origine": "staff", "fonti": ["staff"], "status": "preventivo_preparazione",
+        "owner": user.get("name"), "score": score, "tags": tags,
+        "has_files": False, "note_cliente": "",
+        "range_basso": pkg["range_basso"], "range_alto": pkg["range_alto"],
+        "estimate": est, "prossima_azione": "Verificare i dati e inviare il preventivo al cliente",
+        "timeline": [{"id": "ev-" + uuid.uuid4().hex[:8], "tipo": "lead_ricevuto",
+                      "testo": f"Preventivo creato da {user.get('name') or 'staff'} - "
+                               f"{cfg['tipo_immobile']} {cfg['mq']}mq a {body.citta}",
+                      "ts": now_iso(), "autore": user.get("name")}],
+        "created_at": now_iso(), "last_contact": now_iso(), "status_changed_at": now_iso(),
+    }
+    res = await db.leads.insert_one(doc)
+    return {"id": str(res.inserted_id), "estimate": est, "score": score}
 
 
 @api.get("/preventivi")
@@ -1296,10 +1384,203 @@ async def preventivi(user: dict = Depends(current_user)):
     return out
 
 
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _default_cantiere_fasi() -> List[Dict[str, str]]:
+    return [dict(fase) for fase in DEFAULT_CANTIERE_FASI]
+
+
+def _validate_cantiere_stato(stato: Optional[str]) -> str:
+    clean = _clean_text(stato) or "attivo"
+    if clean not in CANTIERE_STATI:
+        raise HTTPException(status_code=400, detail="Stato cantiere non valido")
+    return clean
+
+
+def _normalize_cantiere_fasi(fasi: Optional[List[CantiereFase]]) -> List[Dict[str, str]]:
+    if not fasi:
+        return _default_cantiere_fasi()
+    out = []
+    for fase in fasi:
+        raw = fase.model_dump() if hasattr(fase, "model_dump") else dict(fase)
+        nome = _clean_text(raw.get("nome"))
+        stato = _clean_text(raw.get("stato")) or "da_iniziare"
+        if not nome:
+            continue
+        if stato not in CANTIERE_FASE_STATI:
+            raise HTTPException(status_code=400, detail=f"Stato fase non valido: {stato}")
+        out.append({"nome": nome, "stato": stato})
+    if not out:
+        raise HTTPException(status_code=400, detail="Inserisci almeno una fase")
+    return out
+
+
+def _lead_importo_medio(lead: Optional[Dict[str, Any]]) -> float:
+    if not lead:
+        return 0
+    basso = float(lead.get("range_basso") or 0)
+    alto = float(lead.get("range_alto") or 0)
+    return round((basso + alto) / 2) if basso or alto else 0
+
+
+async def _load_cantiere_lead(lead_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    lead_id = _clean_text(lead_id)
+    if not lead_id:
+        return None
+    oid = object_id_or_400(lead_id, "Lead")
+    lead = await db.leads.find_one({"_id": oid})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead collegato non trovato")
+    return lead
+
+
+def _build_cantiere_doc(body: CantiereCreate, lead: Optional[Dict[str, Any]], user: dict) -> Dict[str, Any]:
+    data = body.model_dump()
+    cliente = _clean_text(data.get("cliente")) or _clean_text(lead.get("nome") if lead else "")
+    if not cliente:
+        raise HTTPException(status_code=400, detail="Cliente obbligatorio")
+    indirizzo = _clean_text(data.get("indirizzo"))
+    if not indirizzo and lead:
+        indirizzo = _clean_text(lead.get("indirizzo")) or _clean_text(lead.get("citta"))
+    capocantiere = _clean_text(data.get("capocantiere"))
+    if not capocantiere and lead:
+        capocantiere = _clean_text(lead.get("owner"))
+    doc = {
+        "cliente": cliente,
+        "indirizzo": indirizzo,
+        "avanzamento": int(data.get("avanzamento") or 0),
+        "milestone": _clean_text(data.get("milestone")) or "Apertura cantiere",
+        "milestone_data": _clean_text(data.get("milestone_data")) or None,
+        "capocantiere": capocantiere or "Da assegnare",
+        "importo": float(data.get("importo") or _lead_importo_medio(lead)),
+        "criticita": _clean_text(data.get("criticita")) or None,
+        "fasi": _normalize_cantiere_fasi(body.fasi),
+        "stato": _validate_cantiere_stato(data.get("stato")),
+        "lead_id": _clean_text(data.get("lead_id")) or None,
+        "note": _clean_text(data.get("note")),
+        "created_by": user.get("name") or user.get("email"),
+        "updated_by": user.get("name") or user.get("email"),
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    if doc["stato"] == "completato":
+        doc["completed_at"] = now_iso()
+        doc["avanzamento"] = 100
+    return doc
+
+
+async def _mark_lead_as_cantiere(lead: Dict[str, Any], cantiere_id: str, user: dict):
+    event = {
+        "id": "ev-" + uuid.uuid4().hex[:8],
+        "tipo": "cantiere",
+        "testo": f"Cantiere avviato da {user.get('name') or 'staff'}",
+        "ts": now_iso(),
+        "autore": user.get("name"),
+    }
+    set_fields = {
+        "cantiere_id": cantiere_id,
+        "last_contact": now_iso(),
+        "updated_at": now_iso(),
+    }
+    if lead.get("status") != "chiuso_vinto":
+        set_fields["status"] = "chiuso_vinto"
+        set_fields["status_changed_at"] = now_iso()
+    await db.leads.update_one(
+        {"_id": lead["_id"]},
+        {
+            "$set": set_fields,
+            "$addToSet": {"tags": "Cantiere"},
+            "$push": {"timeline": {"$each": [event], "$position": 0}},
+        },
+    )
+
+
 @api.get("/cantieri")
-async def cantieri(user: dict = Depends(current_user)):
-    docs = await db.cantieri.find({}).to_list(100)
+async def cantieri(stato: Optional[str] = "attivo", user: dict = Depends(current_user)):
+    query: Dict[str, Any] = {}
+    if stato and stato != "tutti":
+        clean_stato = _validate_cantiere_stato(stato)
+        if clean_stato == "attivo":
+            query["$or"] = [{"stato": "attivo"}, {"stato": {"$exists": False}}]
+        else:
+            query["stato"] = clean_stato
+    docs = await db.cantieri.find(query).sort([("milestone_data", 1), ("updated_at", -1)]).to_list(500)
     return [serialize(d) for d in docs]
+
+
+@api.post("/cantieri")
+async def create_cantiere(body: CantiereCreate, user: dict = Depends(current_user)):
+    lead = await _load_cantiere_lead(body.lead_id)
+    lead_id = _clean_text(body.lead_id)
+    if lead_id:
+        duplicate = await db.cantieri.find_one({"lead_id": lead_id, "stato": {"$ne": "completato"}})
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Esiste gia un cantiere attivo collegato a questo lead")
+    doc = _build_cantiere_doc(body, lead, user)
+    res = await db.cantieri.insert_one(doc)
+    cantiere_id = str(res.inserted_id)
+    if lead:
+        await _mark_lead_as_cantiere(lead, cantiere_id, user)
+    saved = await db.cantieri.find_one({"_id": res.inserted_id})
+    return serialize(saved)
+
+
+@api.patch("/cantieri/{cantiere_id}")
+async def update_cantiere(cantiere_id: str, body: CantiereUpdate, user: dict = Depends(current_user)):
+    oid = object_id_or_400(cantiere_id, "Cantiere")
+    existing = await db.cantieri.find_one({"_id": oid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    data = body.model_dump(exclude_unset=True)
+    updates: Dict[str, Any] = {}
+
+    for field in ("indirizzo", "milestone", "capocantiere", "note"):
+        if field in data:
+            updates[field] = _clean_text(data.get(field))
+    if "cliente" in data:
+        cliente = _clean_text(data.get("cliente"))
+        if not cliente:
+            raise HTTPException(status_code=400, detail="Cliente obbligatorio")
+        updates["cliente"] = cliente
+    if "criticita" in data:
+        updates["criticita"] = _clean_text(data.get("criticita")) or None
+    if "milestone_data" in data:
+        updates["milestone_data"] = _clean_text(data.get("milestone_data")) or None
+    if "avanzamento" in data and data.get("avanzamento") is not None:
+        updates["avanzamento"] = int(data["avanzamento"])
+    if "importo" in data and data.get("importo") is not None:
+        updates["importo"] = float(data["importo"])
+    if "fasi" in data:
+        updates["fasi"] = _normalize_cantiere_fasi(body.fasi)
+    if "stato" in data:
+        updates["stato"] = _validate_cantiere_stato(data.get("stato"))
+        if updates["stato"] == "completato":
+            updates["avanzamento"] = 100
+            updates["completed_at"] = now_iso()
+    if "lead_id" in data:
+        lead = await _load_cantiere_lead(data.get("lead_id"))
+        updates["lead_id"] = _clean_text(data.get("lead_id")) or None
+        if lead:
+            await _mark_lead_as_cantiere(lead, cantiere_id, user)
+
+    if not updates:
+        return serialize(existing)
+    updates["updated_at"] = now_iso()
+    updates["updated_by"] = user.get("name") or user.get("email")
+    await db.cantieri.update_one({"_id": oid}, {"$set": updates})
+    saved = await db.cantieri.find_one({"_id": oid})
+    return serialize(saved)
+
+
+@api.delete("/cantieri/{cantiere_id}")
+async def delete_cantiere(cantiere_id: str, user: dict = Depends(require_admin)):
+    oid = object_id_or_400(cantiere_id, "Cantiere")
+    res = await db.cantieri.delete_one({"_id": oid})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    return {"ok": True}
 
 
 @api.get("/reports")
@@ -1416,6 +1697,8 @@ async def startup():
     await db.meta_webhook_events.create_index([("status", 1), ("last_received_at", -1)])
     await db.sopralluogo_slots.create_index([("date", 1), ("start", 1)])
     await db.sopralluogo_slots.create_index("status")
+    await db.cantieri.create_index("stato")
+    await db.cantieri.create_index("lead_id")
     await db.ai_architect_jobs.create_index("created_at")
     await db.ai_architect_jobs.create_index("lead_id")
     await db.ai_architect_jobs.create_index("file_hash")
@@ -1433,6 +1716,10 @@ async def startup():
     if await db.cantieri.count_documents({}) == 0:
         await db.cantieri.insert_many(seed_data.build_demo_cantieri())
         logger.info("Seeded demo cantieri")
+    await db.cantieri.update_many(
+        {"stato": {"$exists": False}},
+        {"$set": {"stato": "attivo", "updated_at": now_iso()}},
+    )
 
 
 @app.on_event("shutdown")

@@ -150,7 +150,24 @@ def _admin_body(lead: Dict[str, Any], kind: str) -> tuple[str, str]:
 
 def _customer_body(lead: Dict[str, Any], kind: str) -> tuple[str, str]:
     name = lead.get("nome") or "cliente"
-    if kind == "callback" or lead.get("origine") == "callback":
+    if kind == "sopralluogo":
+        sopr = lead.get("sopralluogo") or {}
+        quando = " ".join(
+            str(p) for p in [sopr.get("date"), sopr.get("start")] if p
+        ) or "-"
+        if sopr.get("start") and sopr.get("end"):
+            quando = f"{sopr.get('date')} dalle {sopr.get('start')} alle {sopr.get('end')}"
+        intro = (
+            "il tuo sopralluogo e confermato. Un tecnico GB Construction ti raggiungera "
+            "all'indirizzo indicato nella data e orario qui sotto."
+        )
+        details = [
+            ("Data e orario", quando),
+            ("Tecnico", sopr.get("tecnico")),
+            ("Indirizzo", lead.get("indirizzo")),
+            ("Telefono", lead.get("telefono")),
+        ]
+    elif kind == "callback" or lead.get("origine") == "callback":
         intro = (
             "abbiamo ricevuto la tua richiesta di richiamo. "
             "Il team GB Construction ti contattera al numero indicato entro breve."
@@ -307,9 +324,14 @@ def send_lead_emails(lead: Dict[str, Any], kind: str = "lead") -> None:
 
     try:
         text_body, html_body = _customer_body(lead, kind)
+        customer_subject = (
+            "Sopralluogo confermato - GB Construction"
+            if kind == "sopralluogo"
+            else "Abbiamo ricevuto la tua richiesta - GB Construction"
+        )
         customer_message = _build_message(
             to_email=customer_email,
-            subject="Abbiamo ricevuto la tua richiesta - GB Construction",
+            subject=customer_subject,
             text_body=text_body,
             html_body=html_body,
         )
