@@ -7,6 +7,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 from email.utils import formataddr
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger("gb.email")
@@ -17,6 +18,18 @@ BRAND_STEEL = "#4A4A4D"
 BRAND_CONCRETE = "#6E6E6E"
 BRAND_LIGHT = "#D9D9D9"
 BRAND_BG = "#F4F4F4"
+
+# Logo email-optimized incorporato inline (CID): i client posta spesso bloccano
+# le immagini remote, l'embed garantisce che il logo GB compaia sempre.
+EMAIL_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "email-logo.png"
+_LOGO_CID = "gblogo"
+
+
+def _logo_bytes() -> Optional[bytes]:
+    try:
+        return EMAIL_LOGO_PATH.read_bytes()
+    except OSError:
+        return None
 
 
 def _env(name: str, fallback: str = "") -> str:
@@ -131,10 +144,10 @@ def _html_table(rows: list[tuple[str, Any]]) -> str:
     )
 
 
-def _email_shell(title: str, html_body: str, preheader: str = "") -> str:
+def _email_shell(title: str, html_body: str, preheader: str = "", logo_src: Optional[str] = None) -> str:
     safe_title = _safe(title or "GB Construction")
     safe_preheader = _safe(preheader or "GB Construction - Costruiamo valore. Trasformiamo spazi.")
-    logo_url = _safe(_logo_url())
+    logo_url = _safe(logo_src or _logo_url())
     return f"""<!doctype html>
 <html>
   <head>
@@ -293,6 +306,31 @@ def _customer_body(lead: Dict[str, Any], kind: str) -> tuple[str, str]:
     return "\n".join(text_lines), html_body
 
 
+def _attach_branded_html(
+    message: EmailMessage,
+    *,
+    subject: str,
+    html_body: str,
+    text_body: str,
+) -> None:
+    """Aggiunge la parte HTML brandizzata col logo GB incorporato inline (CID).
+
+    Se il logo non e disponibile su disco, ricade sull'URL remoto cosi l'email
+    parte comunque. Da chiamare dopo message.set_content(text)."""
+    logo = _logo_bytes()
+    logo_src = f"cid:{_LOGO_CID}" if logo else None
+    shell = _email_shell(
+        subject or "GB Construction",
+        html_body,
+        preheader=(text_body or "")[:180],
+        logo_src=logo_src,
+    )
+    message.add_alternative(shell, subtype="html")
+    if logo:
+        html_part = message.get_payload()[-1]
+        html_part.add_related(logo, maintype="image", subtype="png", cid=f"<{_LOGO_CID}>")
+
+
 def _build_message(
     *,
     to_email: str,
@@ -309,10 +347,7 @@ def _build_message(
     if reply_to:
         message["Reply-To"] = reply_to
     message.set_content(text_body)
-    message.add_alternative(
-        _email_shell(subject, html_body, preheader=text_body[:180]),
-        subtype="html",
-    )
+    _attach_branded_html(message, subject=subject, html_body=html_body, text_body=text_body)
     return message
 
 
@@ -366,9 +401,11 @@ def send_custom_email(
         f"<div style=\"font-family:Montserrat,Arial,sans-serif;font-size:15px;line-height:1.6;"
         f"color:{BRAND_ONYX};white-space:pre-wrap\">" + _safe(body_text) + "</div>"
     )
-    message.add_alternative(
-        _email_shell(subject or "GB Construction", html_body, preheader=(body_text or "")[:180]),
-        subtype="html",
+    _attach_branded_html(
+        message,
+        subject=subject or "GB Construction",
+        html_body=html_body,
+        text_body=body_text or "",
     )
     for att in attachments or []:
         content = att.get("content")
