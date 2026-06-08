@@ -63,6 +63,7 @@ chainlit.md
 .chainlit
 .ipynb_checkpoints/
 .ac
+.grok/plugins/
 
 # Deployment
 .vercel

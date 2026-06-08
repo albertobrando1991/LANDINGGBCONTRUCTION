@@ -1,0 +1,25 @@
+﻿[plugins]
+# Project-local plugins for web and web development (linked to installed marketplace plugins)
+paths = [
+    ".grok/plugins"
+]
+enabled = [
+    "claude-code-workflows",
+    "ecc",
+    # Additional web dev focused bundles (sourced via ecc / claude-code-workflows)
+    "ui-design",
+    "javascript-typescript",
+    "frontend-mobile-development",
+    "frontend-design",
+    "full-stack-orchestration",
+    "backend-development",
+    "seo-content-creation",
+    "seo-technical-optimization",
+    "web-scripting",
+]
+
+[skills]
+paths = [
+    ".grok/skills",
+    "~/.grok/skills"
+]
