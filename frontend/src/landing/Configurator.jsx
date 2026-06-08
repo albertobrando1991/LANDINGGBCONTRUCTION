@@ -14,8 +14,7 @@ import {
   Flame,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import HlsVideo from "@/components/HlsVideo";
-import { STYLE_VIDEO_POSTERS, STYLE_VIDEOS } from "@/lib/assets";
+import { STYLE_VIDEO_POSTERS } from "@/lib/assets";
 
 const TIPI = [
   { id: "appartamento", label: "Appartamento", Icon: Home },
@@ -110,18 +109,7 @@ export default function Configurator({ onComplete }) {
       return image;
     });
 
-    const preloadedVideos = STILI.map((style) => {
-      const link = document.createElement("link");
-      link.rel = "preload";
-      link.as = "video";
-      link.type = "video/mp4";
-      link.href = STYLE_VIDEOS[style];
-      document.head.appendChild(link);
-      return link;
-    });
-
     return () => {
-      preloadedVideos.forEach((link) => link.remove());
       preloadedImages.forEach((image) => {
         image.src = "";
       });
@@ -423,18 +411,11 @@ export default function Configurator({ onComplete }) {
                               src={STYLE_VIDEO_POSTERS[s]}
                               alt=""
                               aria-hidden="true"
-                              loading="eager"
+                              loading={step === 5 ? "eager" : "lazy"}
                               decoding="async"
                               className="pointer-events-none absolute inset-0 h-full w-full object-cover"
                             />
-                            <HlsVideo
-                              src={STYLE_VIDEOS[s]}
-                              poster={STYLE_VIDEO_POSTERS[s]}
-                              preload="auto"
-                              lazy={false}
-                              className="absolute inset-0 h-full w-full object-cover"
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
+                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
                             <span className="absolute bottom-3 left-3 right-3 font-display font-semibold uppercase text-sm text-ink">
                               {s}
                             </span>

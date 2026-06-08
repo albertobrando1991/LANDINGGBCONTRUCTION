@@ -67,13 +67,15 @@ export default function SocialProof() {
                   aria-label={`Apri video completo ${c.nome}`}
                   className="relative aspect-[4/5] w-full rounded-2xl overflow-hidden border border-stroke group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                 >
-                  <HlsVideo
-                    src={c.src}
-                    poster={c.poster}
-                    preload="metadata"
+                  <img
+                    src={c.poster}
+                    alt=""
+                    aria-hidden="true"
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                   {c.label && (
                     <div className="absolute top-3 left-3 font-display font-semibold uppercase tracking-wider text-[10px] bg-brand text-white px-2 py-1 rounded">
                       {c.label}

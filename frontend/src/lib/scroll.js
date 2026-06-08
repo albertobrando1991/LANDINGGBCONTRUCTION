@@ -119,6 +119,12 @@ export function smoothScrollToElement(target, options = {}) {
   );
   const resolvedBehavior = prefersReducedMotion() ? "auto" : behavior;
 
+  if (isMobileViewport()) {
+    cancelSmoothScroll();
+    window.scrollTo({ top: targetTop, behavior: "auto" });
+    return;
+  }
+
   if (resolvedBehavior === "smooth") {
     animateScrollTo(targetTop, duration);
     return;
