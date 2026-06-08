@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Brain,
   CheckCircle2,
+  Coins,
   Download,
   ExternalLink,
   Eye,
@@ -137,6 +138,12 @@ export default function AIArchitectReview() {
       ).data,
   });
 
+  const { data: creditSummary } = useQuery({
+    queryKey: ["ai-credits"],
+    queryFn: async () => (await client.get("/ai-credits")).data,
+    refetchInterval: 30000,
+  });
+
   useEffect(() => {
     if (tab === "new") return;
     if (!selectedId && jobs.length > 0) setSelectedId(jobs[0].id);
@@ -167,6 +174,7 @@ export default function AIArchitectReview() {
   const invalidateJob = async (jobId) => {
     await qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] });
     await qc.invalidateQueries({ queryKey: ["ai-architect-job", jobId] });
+    await qc.invalidateQueries({ queryKey: ["ai-credits"] });
   };
 
   const approve = useMutation({
@@ -284,6 +292,16 @@ export default function AIArchitectReview() {
       ? "EUR " + Math.round(value).toLocaleString("it-IT")
       : "—";
 
+  const formatCredits = (value) => Number(value || 0).toLocaleString("it-IT");
+  const creditAlerts = creditSummary?.alerts || [];
+  const unlimitedCredits = creditSummary?.unlimited_generation_access === true;
+  const creditDanger = creditAlerts.some(
+    (alert) => alert.severity === "danger",
+  );
+  const creditWarning = creditAlerts.some(
+    (alert) => alert.severity === "warning",
+  );
+
   const counts = useMemo(() => {
     return jobs.reduce(
       (acc, job) => {
@@ -334,6 +352,103 @@ export default function AIArchitectReview() {
         </div>
       </div>
 
+      {creditSummary && (
+        <div
+          className={`rounded-2xl border p-5 ${
+            creditDanger
+              ? "border-danger/40 bg-danger/10"
+              : creditWarning
+                ? "border-warning/40 bg-warning/10"
+                : "border-success/30 bg-success/10"
+          }`}
+        >
+          <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div
+                className={`mt-0.5 rounded-xl p-2 ${
+                  creditDanger
+                    ? "bg-danger/15 text-danger"
+                    : creditWarning
+                      ? "bg-warning/15 text-warning"
+                      : "bg-success/15 text-success"
+                }`}
+              >
+                {creditAlerts.length > 0 ? (
+                  <AlertTriangle className="w-5 h-5" />
+                ) : (
+                  <Coins className="w-5 h-5" />
+                )}
+              </div>
+              <div>
+                <p className="font-display font-semibold uppercase text-sm text-ink">
+                  {unlimitedCredits
+                    ? "Generazioni AI illimitate attive"
+                    : `Crediti AI disponibili: ${formatCredits(
+                        creditSummary.total_remaining_credits,
+                      )}`}
+                </p>
+                <p className="font-body text-xs text-fog mt-1">
+                  {unlimitedCredits
+                    ? `Whitelist attiva per ${(
+                        creditSummary.unlimited_generation_emails || []
+                      ).join(", ")}. Il consumo viene tracciato ma non scala il saldo.`
+                    : `Inclusi mensili: ${formatCredits(
+                        creditSummary.monthly?.remaining_credits,
+                      )} / ${formatCredits(
+                        creditSummary.monthly?.credits_total,
+                      )} · Pacchetti: ${formatCredits(
+                        creditSummary.pack_remaining_credits,
+                      )}`}
+                </p>
+                {creditAlerts.length > 0 ? (
+                  <div className="mt-3 space-y-1">
+                    {creditAlerts.map((alert) => (
+                      <p
+                        key={alert.type}
+                        className={`font-body text-sm leading-relaxed ${
+                          alert.severity === "danger"
+                            ? "text-danger"
+                            : "text-warning"
+                        }`}
+                      >
+                        <span className="font-display uppercase text-xs">
+                          {alert.title}:{" "}
+                        </span>
+                        {alert.message}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="font-body text-sm text-success mt-2">
+                    {unlimitedCredits
+                      ? "Le generazioni AI sono abilitate senza consumo crediti per questa email."
+                      : "Saldo sufficiente per nuove generazioni pubbliche."}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 min-w-0">
+              {(creditSummary.pack_presets || []).map((pack) => (
+                <div
+                  key={pack.key}
+                  className="rounded-xl border border-stroke bg-surface px-3 py-2"
+                >
+                  <div className="font-display uppercase text-[9px] text-fog">
+                    {pack.label}
+                  </div>
+                  <div className="font-display font-bold text-sm text-ink">
+                    EUR {pack.amount_eur}
+                  </div>
+                  <div className="font-body text-[10px] text-fog">
+                    {formatCredits(pack.credits)} crediti
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {tab === "new" ? (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
@@ -357,6 +472,7 @@ export default function AIArchitectReview() {
               embedded
               onComplete={async (aiJob) => {
                 await qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] });
+                await qc.invalidateQueries({ queryKey: ["ai-credits"] });
                 setSelectedId(aiJob.id);
                 setTab("tutti");
               }}

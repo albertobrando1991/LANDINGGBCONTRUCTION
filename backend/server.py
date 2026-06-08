@@ -28,6 +28,7 @@ from predictive_data import COEFFICIENTI, voci_as_dicts
 import seed_data
 import ai_service
 import ai_architect_service
+import ai_credit_service
 import email_service
 import meta_leads_service
 
@@ -113,6 +114,13 @@ async def require_admin(request: Request) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Accesso riservato agli amministratori")
     return user
+
+
+async def optional_current_user(request: Request) -> Optional[dict]:
+    try:
+        return await authlib.get_current_user(request, db)
+    except HTTPException:
+        return None
 
 
 # ----------------------- Models -----------------------
@@ -207,6 +215,13 @@ class StaffCreate(BaseModel):
     email: EmailStr
     password: str
     role: str = "staff"
+
+
+class AiCreditPackGrant(BaseModel):
+    credits: int
+    amount_eur: Optional[float] = None
+    label: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class AiArchitectConfirm(BaseModel):
@@ -569,9 +584,15 @@ async def create_ai_architect_job(
     notes: Optional[str] = Form(None),
     lead_id: Optional[str] = Form(None),
 ):
+    linked_lead_id = lead_id if (lead_id and ObjectId.is_valid(lead_id)) else None
+    await ai_credit_service.require_available_for_generation(
+        db,
+        ai_credit_service.RATE_CARD["ai_architect_preliminary"]["credits"],
+        lead_id=linked_lead_id,
+        public_message=True,
+    )
     # Nuovo flusso: il lead viene creato prima, poi si avvia l'analisi planimetria.
     # Colleghiamo subito il job al lead esistente (bidirezionale) per la dashboard.
-    linked_lead_id = lead_id if (lead_id and ObjectId.is_valid(lead_id)) else None
     job = await ai_architect_service.create_job(
         db,
         upload=planimetria,
@@ -616,6 +637,11 @@ async def create_staff_ai_architect_job(
     lead_id: Optional[str] = Form(None),
     user: dict = Depends(current_user),
 ):
+    await ai_credit_service.require_available_for_generation(
+        db,
+        ai_credit_service.RATE_CARD["ai_architect_preliminary"]["credits"],
+        user=user,
+    )
     linked_lead_id = lead_id if (lead_id and ObjectId.is_valid(lead_id)) else None
     job = await ai_architect_service.create_job(
         db,
@@ -634,6 +660,7 @@ async def create_staff_ai_architect_job(
         usage_context="staff",
         created_by_role=user.get("role"),
         created_by_name=user.get("name") or user.get("email"),
+        created_by_email=user.get("email"),
     )
     if linked_lead_id:
         await db.leads.update_one(
@@ -695,9 +722,18 @@ async def get_ai_architect_job(job_id: str):
 
 
 @api.post("/ai-architect/jobs/{job_id}/reanalyze")
-async def reanalyze_ai_architect_job(job_id: str, background_tasks: BackgroundTasks):
-    if not await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)}):
+async def reanalyze_ai_architect_job(job_id: str, request: Request, background_tasks: BackgroundTasks):
+    user = await optional_current_user(request)
+    job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+    if not job:
         raise HTTPException(status_code=404, detail="Progetto AI Architect non trovato")
+    await ai_credit_service.require_available_for_generation(
+        db,
+        ai_credit_service.RATE_CARD["ai_architect_preliminary"]["credits"],
+        user=user,
+        job=job,
+        public_message=user is None,
+    )
     await ai_architect_service.ensure_processed_reference(db, job_id)
     await db.ai_architect_outputs.delete_many({
         "job_id": job_id,
@@ -766,6 +802,15 @@ async def complete_safe_ai_architect_job(job_id: str):
 
 @api.post("/ai-architect/jobs/{job_id}/confirm")
 async def confirm_ai_architect_job(job_id: str, body: AiArchitectConfirm, background_tasks: BackgroundTasks):
+    job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job AI Architect non trovato")
+    await ai_credit_service.require_available_for_generation(
+        db,
+        ai_credit_service.RATE_CARD["ai_architect_preliminary"]["credits"],
+        job=job,
+        public_message=True,
+    )
     await db.ai_architect_jobs.update_one(
         {"_id": ObjectId(job_id)},
         {"$set": {
@@ -781,7 +826,18 @@ async def confirm_ai_architect_job(job_id: str, body: AiArchitectConfirm, backgr
 
 
 @api.post("/ai-architect/jobs/{job_id}/approve")
-async def approve_ai_architect_job(job_id: str, body: AiArchitectApprove, background_tasks: BackgroundTasks):
+async def approve_ai_architect_job(job_id: str, request: Request, body: AiArchitectApprove, background_tasks: BackgroundTasks):
+    user = await optional_current_user(request)
+    job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job AI Architect non trovato")
+    await ai_credit_service.require_available_for_generation(
+        db,
+        ai_credit_service.render_stage_credits(job),
+        user=user,
+        job=job,
+        public_message=user is None,
+    )
     await ai_architect_service.ensure_concept_ready_for_approval(db, job_id)
     await db.ai_architect_jobs.update_one(
         {"_id": ObjectId(job_id)},
@@ -815,7 +871,18 @@ async def approve_ai_architect_job(job_id: str, body: AiArchitectApprove, backgr
 
 
 @api.post("/ai-architect/jobs/{job_id}/regenerate")
-async def regenerate_ai_architect_job(job_id: str, body: AiArchitectRegenerate, background_tasks: BackgroundTasks):
+async def regenerate_ai_architect_job(job_id: str, request: Request, body: AiArchitectRegenerate, background_tasks: BackgroundTasks):
+    user = await optional_current_user(request)
+    job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job AI Architect non trovato")
+    await ai_credit_service.require_available_for_generation(
+        db,
+        ai_credit_service.regeneration_credits(job, body.output_types),
+        user=user,
+        job=job,
+        public_message=user is None,
+    )
     requested = set(body.output_types or [])
     is_concept_regeneration = bool(
         requested & {"concept_2d", "clean_2d_plan", "redistributed_2d_plan"}
@@ -846,6 +913,7 @@ async def regenerate_ai_architect_job(job_id: str, body: AiArchitectRegenerate, 
         style_selected=body.style_selected,
         output_types=body.output_types,
         correction_notes=body.correction_notes,
+        charge_id=uuid.uuid4().hex,
     )
     return await ai_architect_service.get_job_payload(db, job_id)
 
@@ -1139,12 +1207,25 @@ async def suggest_action(lead_id: str, user: dict = Depends(current_user)):
     doc = await db.leads.find_one({"_id": ObjectId(lead_id)})
     if not doc:
         raise HTTPException(status_code=404, detail="Lead non trovato")
+    await ai_credit_service.require_available_for_generation(
+        db,
+        ai_credit_service.RATE_CARD["lead_suggestion"]["credits"],
+        user=user,
+    )
     try:
         suggestion = await ai_service.suggest_next_action(serialize(doc))
     except Exception as e:
         logger.exception("AI suggest failed")
         raise HTTPException(status_code=502, detail=f"Servizio AI non disponibile: {e}")
     await db.leads.update_one({"_id": ObjectId(lead_id)}, {"$set": {"prossima_azione": suggestion}})
+    await ai_credit_service.charge_credits(
+        db,
+        action_key="lead_suggestion",
+        idempotency_key=f"lead_suggestion:{lead_id}:{uuid.uuid4().hex}",
+        user=user,
+        lead_id=lead_id,
+        metadata={"lead_nome": doc.get("nome")},
+    )
     return {"suggestion": suggestion}
 
 
@@ -1702,12 +1783,43 @@ async def reports(user: dict = Depends(require_admin)):
 @api.post("/reports/insights")
 async def reports_insights(user: dict = Depends(require_admin)):
     rep = await reports(user)
+    await ai_credit_service.require_available_for_generation(
+        db,
+        ai_credit_service.RATE_CARD["report_insights"]["credits"],
+        user=user,
+    )
     try:
         text = await ai_service.generate_insights(rep["kpi"])
     except Exception as e:
         logger.exception("insights failed")
         raise HTTPException(status_code=502, detail=f"Servizio AI non disponibile: {e}")
+    await ai_credit_service.charge_credits(
+        db,
+        action_key="report_insights",
+        idempotency_key=f"report_insights:{user.get('id')}:{uuid.uuid4().hex}",
+        user=user,
+        metadata={"kpi": rep.get("kpi")},
+    )
     return {"insights": text}
+
+
+# ----------------------- AI credits -----------------------
+@api.get("/ai-credits")
+async def ai_credits_summary(user: dict = Depends(current_user)):
+    return await ai_credit_service.summary(db, user=user)
+
+
+@api.post("/ai-credits/packs")
+async def grant_ai_credit_pack(body: AiCreditPackGrant, user: dict = Depends(require_admin)):
+    pack = await ai_credit_service.grant_pack(
+        db,
+        credits=body.credits,
+        amount_eur=body.amount_eur,
+        label=body.label,
+        notes=body.notes,
+        user=user,
+    )
+    return {"pack": pack, "summary": await ai_credit_service.summary(db, user=user)}
 
 
 # ----------------------- Settings / admin -----------------------
@@ -1766,6 +1878,12 @@ async def startup():
         [("cache_type", 1), ("file_hash", 1), ("schema_version", 1), ("provider", 1), ("model", 1)],
         unique=True,
     )
+    await db.ai_credit_buckets.create_index("key", unique=True)
+    await db.ai_credit_buckets.create_index([("account_id", 1), ("bucket_type", 1), ("expires_at", 1)])
+    await db.ai_credit_ledger.create_index("idempotency_key", unique=True)
+    await db.ai_credit_ledger.create_index([("account_id", 1), ("created_at", -1)])
+    await db.ai_usage_events.create_index([("account_id", 1), ("created_at", -1)])
+    await ai_credit_service.ensure_base_credit_pack(db)
     await authlib.seed_users(db)
     if await db.leads.count_documents({}) == 0:
         await db.leads.insert_many(seed_data.build_demo_leads())

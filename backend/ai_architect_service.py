@@ -20,6 +20,8 @@ from fastapi import HTTPException, UploadFile
 from pymongo import ReturnDocument
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+import ai_credit_service
+
 from engines.floorplan_automation import (
     VARIANT_CATALOG,
     build_floor_plan_automation_contract,
@@ -649,6 +651,7 @@ async def create_job(
     usage_context: str = "public",
     created_by_role: Optional[str] = None,
     created_by_name: Optional[str] = None,
+    created_by_email: Optional[str] = None,
 ) -> Dict[str, Any]:
     if plan_type_selected not in PLAN_TYPES:
         raise HTTPException(status_code=400, detail="Tipo planimetria non valido")
@@ -667,6 +670,7 @@ async def create_job(
         "usage_context": normalized_usage_context,
         "created_by_role": created_by_role,
         "created_by_name": created_by_name,
+        "created_by_email": created_by_email,
         "render_room_limit": render_room_limit,
         "uploaded_file_url": file_info["url"],
         "uploaded_file_path": file_info["path"],
@@ -4531,6 +4535,21 @@ async def _continue_render_generation(db, job_id: str):
     advice = await _generate_advice_text(db, job_id, job, mode)
     await _add_output(db, job_id, "advice", text_content=advice)
     await _generate_report(db, job_id, job, advice)
+    render_action_key = ai_credit_service.render_stage_action_key(job)
+    await ai_credit_service.charge_credits(
+        db,
+        action_key=render_action_key,
+        idempotency_key=f"ai_architect:{job_id}:renders:{len(room_names)}",
+        job_id=job_id,
+        lead_id=str(job.get("lead_id") or "") or None,
+        job=job,
+        metadata={
+            "usage_context": job.get("usage_context") or "public",
+            "render_count": len(room_names),
+            "render_room_limit": _render_room_limit_for_job(job),
+            "topdown_generated": True,
+        },
+    )
 
     await _set_job(
         db,
@@ -4576,6 +4595,19 @@ async def _continue_generation(db, job_id: str, *, require_review: bool = REQUIR
     layout_ready = await _generate_layout_outputs(db, job_id, job, mode)
     if not layout_ready:
         return
+    await ai_credit_service.charge_credits(
+        db,
+        action_key="ai_architect_preliminary",
+        idempotency_key=f"ai_architect:{job_id}:preliminary",
+        job_id=job_id,
+        lead_id=str(job.get("lead_id") or "") or None,
+        job=job,
+        metadata={
+            "usage_context": job.get("usage_context") or "public",
+            "plan_type": job.get("plan_type_selected"),
+            "project_variant": job.get("project_variant_selected"),
+        },
+    )
 
     if require_review:
         await _set_job(
@@ -4732,6 +4764,18 @@ async def _regenerate_concept_2d(
     layout_ready = await _generate_layout_outputs(db, job_id, job, mode)
     if not layout_ready:
         return
+    await ai_credit_service.charge_credits(
+        db,
+        action_key="ai_architect_regen_2d",
+        idempotency_key=f"ai_architect:{job_id}:regen_2d:{job.get('layout_regeneration_count') or 1}",
+        job_id=job_id,
+        lead_id=str(job.get("lead_id") or "") or None,
+        job=job,
+        metadata={
+            "usage_context": job.get("usage_context") or "public",
+            "correction_notes": notes,
+        },
+    )
 
     await _set_job(
         db,
@@ -4753,6 +4797,7 @@ async def regenerate_outputs(
     style_selected: Optional[str] = None,
     output_types: Optional[List[str]] = None,
     correction_notes: Optional[str] = None,
+    charge_id: Optional[str] = None,
 ):
     job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
     if not job:
@@ -4827,6 +4872,23 @@ async def regenerate_outputs(
         await _add_output(db, job_id, "advice", text_content=advice)
     if "pdf_report" in requested:
         await _generate_report(db, job_id, job, advice)
+
+    credits = ai_credit_service.regeneration_credits(job, output_types)
+    if credits > 0:
+        await ai_credit_service.charge_credits(
+            db,
+            action_key="ai_architect_regeneration",
+            credits=credits,
+            idempotency_key=f"ai_architect:{job_id}:regeneration:{charge_id or uuid.uuid4().hex}",
+            job_id=job_id,
+            job=job,
+            lead_id=str(job.get("lead_id") or "") or None,
+            metadata={
+                "usage_context": job.get("usage_context") or "public",
+                "requested_output_types": sorted(requested),
+                "room_render_limit": _render_room_limit_for_job(job),
+            },
+        )
 
     await _set_job(db, job_id, status="completed", current_step="complete", progress_percentage=100)
 

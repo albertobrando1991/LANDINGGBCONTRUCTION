@@ -181,8 +181,8 @@ Regola commerciale consigliata:
 
 | Pacchetto | Prezzo | Costo medio credito | Uso tipico |
 |---|---:|---:|---|
-| Mini 10.000 | 10 EUR + IVA | 0,001 EUR | circa 4 job completi utente oppure 11 preliminari |
-| Starter 25.000 | 25 EUR + IVA | 0,001 EUR | circa 10 job completi utente oppure 27 preliminari |
+| Starter 20.000 | 20 EUR + IVA | 0,001 EUR | circa 8 job completi utente oppure 22 preliminari |
+| Plus 25.000 | 25 EUR + IVA | 0,001 EUR | circa 10 job completi utente oppure 27 preliminari |
 | Growth 50.000 | 50 EUR + IVA | 0,001 EUR | circa 21 job completi utente oppure 55 preliminari |
 | Pro 100.000 | 100 EUR + IVA | 0,001 EUR | circa 42 job completi utente oppure 111 preliminari |
 | Scale 250.000 | 250 EUR + IVA | 0,001 EUR | alto utilizzo staff/campagne |
@@ -194,9 +194,13 @@ Regole pacchetti:
 - i pacchetti sono cumulabili;
 - scadenza consigliata: 12 mesi dalla data di acquisto;
 - consumo dei crediti: prima i 30.000 crediti mensili inclusi, poi i crediti pacchetto con scadenza piu vicina;
+- pacchetto base gia attivo: 20.000 crediti, equivalente a Starter 20;
+- whitelist temporanea: info@alantis.it ha generazioni AI illimitate e non scala crediti;
 - saldo crediti visibile in area admin;
-- invio alert a 20%, 10% e 0% del saldo pacchetto;
+- avviso dashboard "crediti in esaurimento" sotto 10.000 crediti;
+- avviso dashboard "crediti insufficienti" quando il saldo non copre un AI Architect pubblico completo;
 - blocco preventivo delle azioni AI costose se il saldo non basta.
+- lato utente pubblico, in caso di saldo insufficiente, mostrare un messaggio neutro: "Il servizio AI non e' momentaneamente disponibile. Contatta lo staff GB Construction per informazioni."
 
 ## 10. Esempi di consumo per il cliente
 
@@ -227,7 +231,7 @@ Esempio D - campagna con 20 progetti completi:
 - 20 x 2.350 crediti = 47.000 crediti;
 - il piano base copre 30.000 crediti;
 - extra necessario = 17.000 crediti;
-- consigliato pacchetto Starter 25.000 a 25 EUR + IVA.
+- consigliato pacchetto Starter 20.000 a 20 EUR + IVA.
 
 ## 11. Margine atteso
 
@@ -284,7 +288,7 @@ La proposta piu coerente e':
 - canone base 200 EUR/mese + IVA con 30.000 crediti AI inclusi non cumulabili;
 - credito AI come micro-credito: 1.000 crediti = 1 EUR;
 - tariffario AI a costo + circa 50%, con AI Architect preliminare a 900 crediti, job completo utente a 2.350 crediti e job completo staff a 3.400 crediti;
-- pacchetti da 10.000, 25.000, 50.000, 100.000 e 250.000 crediti;
+- pacchetti da 20.000, 25.000, 50.000, 100.000 e 250.000 crediti;
 - ledger tecnico obbligatorio prima del go-live commerciale del sistema crediti.
 
 Questo modello mantiene basso l'ingresso mensile, permette uso interno frequente dello staff, riduce il costo lead pubblico limitando i render utente a 2 ambienti, evita l'effetto "AI illimitata" e mantiene il margine sui provider vicino al 50%, senza trasformare i crediti AI in una voce troppo esosa.
