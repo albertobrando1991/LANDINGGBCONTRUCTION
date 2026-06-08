@@ -144,7 +144,14 @@ function ToggleButton({ active, children, onClick, className = "" }) {
   );
 }
 
-export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) {
+export default function AIArchitect({
+  baseConfig,
+  leadId,
+  onComplete,
+  onSkip,
+  staffMode = false,
+  embedded = false,
+}) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(initialForm);
   const [job, setJob] = useState(null);
@@ -265,13 +272,20 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
       if (form.budget) payload.append("budget", form.budget);
       if (form.notes) payload.append("notes", form.notes);
       if (leadId) payload.append("lead_id", leadId);
-      const { data } = await client.post("/ai-architect/jobs", payload, {
+      const endpoint = staffMode
+        ? "/ai-architect/staff/jobs"
+        : "/ai-architect/jobs";
+      const { data } = await client.post(endpoint, payload, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setJob(data);
       setConceptFeedback("");
       setStep(3);
-      toast.success("Analisi AI Architect avviata");
+      toast.success(
+        staffMode
+          ? "AI Architect interno avviato"
+          : "Analisi AI Architect avviata",
+      );
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
     } finally {
@@ -402,12 +416,20 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
 
   const continueToQuote = () => {
     if (!job) return;
-    onComplete({
+    onComplete?.({
       ...job,
       ai_architect_job_id: job.id,
       ai_architect_summary: `${form.goal} - ${form.style}`,
       selected_style: form.style,
     });
+  };
+
+  const handleBack = () => {
+    if (step > 1) {
+      setStep((s) => s - 1);
+      return;
+    }
+    onSkip?.();
   };
 
   const goNext = () => {
@@ -418,7 +440,11 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
   return (
     <section
       id="ai-architect"
-      className="relative min-h-screen py-20 px-6 bg-bg overflow-hidden"
+      className={
+        embedded
+          ? "relative bg-transparent overflow-hidden"
+          : "relative min-h-screen py-20 px-6 bg-bg overflow-hidden"
+      }
     >
       <div className="absolute inset-0 blueprint-grid opacity-[0.025]" />
       <div className="relative max-w-7xl mx-auto">
@@ -428,11 +454,14 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
               AI Architect Layout & Render
             </p>
             <h2 className="font-display font-bold uppercase text-4xl md:text-6xl tracking-tight text-ink leading-none">
-              Carica la tua planimetria e visualizza il progetto con l'AI
+              {staffMode
+                ? "Genera un AI Architect completo dalla dashboard"
+                : "Carica la tua planimetria e visualizza il progetto con l'AI"}
             </h2>
             <p className="font-body text-fog mt-5 max-w-xl">
-              Analisi preliminare, concept 2D, vista top-down e render degli
-              ambienti principali prima della richiesta preventivo.
+              {staffMode
+                ? "Upload interno, analisi, concept 2D, approvazione e render collegati alla pipeline staff."
+                : "Analisi preliminare, concept 2D, vista top-down e render degli ambienti principali prima della richiesta preventivo."}
             </p>
             <div className="mt-8">
               <div className="flex justify-between font-display text-xs uppercase text-fog mb-2">
@@ -486,19 +515,21 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                     </p>
                   </label>
 
-                  <div className="mt-4 rounded-2xl border border-stroke bg-bg/40 px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <p className="font-body text-sm text-fog">
-                      L'analisi della planimetria è opzionale: il tuo preventivo è
-                      già pronto.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={onSkip}
-                      className="shrink-0 font-display font-semibold uppercase text-sm text-brand hover:text-ink inline-flex items-center gap-2"
-                    >
-                      Torna al preventivo <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </div>
+                  {!staffMode && onSkip && (
+                    <div className="mt-4 rounded-2xl border border-stroke bg-bg/40 px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <p className="font-body text-sm text-fog">
+                        L'analisi della planimetria è opzionale: il tuo
+                        preventivo è già pronto.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={onSkip}
+                        className="shrink-0 font-display font-semibold uppercase text-sm text-brand hover:text-ink inline-flex items-center gap-2"
+                      >
+                        Torna al preventivo <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
 
                   <div className="mt-7 space-y-6">
                     <div>
@@ -708,7 +739,8 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                     </div>
                   )}
 
-                  {(selectedAutomationVariant.label || job?.project_variant_selected) && (
+                  {(selectedAutomationVariant.label ||
+                    job?.project_variant_selected) && (
                     <div className="mb-6 rounded-2xl border border-stroke bg-bg p-4">
                       <div className="grid gap-3 sm:grid-cols-3">
                         <div>
@@ -933,7 +965,8 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                                   </div>
                                 </div>
                               )}
-                              {floorplanBrief.approval_checklist?.length > 0 && (
+                              {floorplanBrief.approval_checklist?.length >
+                                0 && (
                                 <div className="rounded-xl border border-warning/35 bg-warning/10 p-4">
                                   <p className="font-display font-semibold uppercase text-[10px] tracking-wider text-warning mb-2">
                                     Checklist approvazione
@@ -970,7 +1003,9 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                               <textarea
                                 id="concept-feedback"
                                 value={conceptFeedback}
-                                onChange={(e) => setConceptFeedback(e.target.value)}
+                                onChange={(e) =>
+                                  setConceptFeedback(e.target.value)
+                                }
                                 rows={3}
                                 placeholder="Esempio: la cabina armadio deve avere accesso dalla camera da letto, non dal bagno; non chiudere il passaggio camera-cabina."
                                 className="mt-2 w-full resize-none rounded-xl border border-stroke bg-surface px-4 py-3 font-body text-sm text-ink outline-none transition-colors placeholder:text-fog focus:border-brand"
@@ -979,7 +1014,9 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                                 <button
                                   type="button"
                                   onClick={regenerateConcept2d}
-                                  disabled={!conceptFeedback.trim() || regenerating}
+                                  disabled={
+                                    !conceptFeedback.trim() || regenerating
+                                  }
                                   className="bg-surface border border-stroke text-ink rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-50"
                                 >
                                   <RotateCw
@@ -989,7 +1026,8 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                                 </button>
                                 {job?.layout_correction_notes && (
                                   <p className="font-body text-xs text-fog leading-relaxed">
-                                    Ultima correzione: {job.layout_correction_notes}
+                                    Ultima correzione:{" "}
+                                    {job.layout_correction_notes}
                                   </p>
                                 )}
                               </div>
@@ -1000,11 +1038,14 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                                 Rigenerazione 2D gia utilizzata
                               </p>
                               <p className="font-body text-xs leading-relaxed text-fog mt-2">
-                                Ogni utente puo rigenerare la planimetria una sola volta. Per ulteriori modifiche, chiedi allo staff GB Construction durante il sopralluogo.
+                                Ogni utente puo rigenerare la planimetria una
+                                sola volta. Per ulteriori modifiche, chiedi allo
+                                staff GB Construction durante il sopralluogo.
                               </p>
                               {job?.layout_correction_notes && (
                                 <p className="font-body text-xs text-fog leading-relaxed mt-2">
-                                  Ultima correzione: {job.layout_correction_notes}
+                                  Ultima correzione:{" "}
+                                  {job.layout_correction_notes}
                                 </p>
                               )}
                             </div>
@@ -1207,7 +1248,8 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                           {pipelineGate.reason}
                         </p>
                       )}
-                      {(technicalFloorPlan.schema || optimizedFloorPlan.schema) && (
+                      {(technicalFloorPlan.schema ||
+                        optimizedFloorPlan.schema) && (
                         <div className="mt-3 grid gap-3 md:grid-cols-2">
                           <div className="rounded-xl border border-stroke bg-surface p-4">
                             <p className="font-display uppercase text-[10px] text-fog">
@@ -1279,11 +1321,14 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
 
                   <div className="mt-7 rounded-3xl border border-brand/40 bg-brand/10 p-6 text-center">
                     <h4 className="font-display font-bold uppercase text-2xl text-ink">
-                      Progetto collegato alla tua richiesta
+                      {staffMode
+                        ? "Job AI Architect interno completato"
+                        : "Progetto collegato alla tua richiesta"}
                     </h4>
                     <p className="font-body text-sm text-fog mt-2">
-                      Analisi e render sono collegati al preventivo già inviato.
-                      GB Construction ti ricontatta per la consulenza.
+                      {staffMode
+                        ? "Analisi, concept, render e report sono salvati nella dashboard staff."
+                        : "Analisi e render sono collegati al preventivo già inviato. GB Construction ti ricontatta per la consulenza."}
                     </p>
                     <div className="flex flex-col sm:flex-row justify-center gap-3 mt-5">
                       <button
@@ -1291,18 +1336,22 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                         onClick={continueToQuote}
                         className="bg-brand text-white rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2"
                       >
-                        Torna al preventivo aggiornato{" "}
+                        {staffMode
+                          ? "Apri scheda in revisione"
+                          : "Torna al preventivo aggiornato"}{" "}
                         <ArrowRight className="w-5 h-5" />
                       </button>
-                      <a
-                        href={WHATSAPP}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="bg-surface border border-stroke text-ink rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2"
-                      >
-                        <MessageCircle className="w-5 h-5 text-success" /> Parla
-                        con un consulente
-                      </a>
+                      {!staffMode && (
+                        <a
+                          href={WHATSAPP}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="bg-surface border border-stroke text-ink rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2"
+                        >
+                          <MessageCircle className="w-5 h-5 text-success" />{" "}
+                          Parla con un consulente
+                        </a>
+                      )}
                     </div>
                     {report?.image_url && (
                       <p className="font-body text-xs text-fog mt-4">
@@ -1316,16 +1365,18 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
 
             {step < 3 && (
               <div className="flex items-center justify-between mt-8">
-                <button
-                  type="button"
-                  onClick={() =>
-                    step === 1 ? onSkip() : setStep((s) => s - 1)
-                  }
-                  className="font-display font-semibold uppercase text-sm text-fog hover:text-ink inline-flex items-center gap-2"
-                >
-                  <ArrowLeft className="w-4 h-4" />{" "}
-                  {step === 1 ? "Torna al preventivo" : "Indietro"}
-                </button>
+                {step > 1 || onSkip ? (
+                  <button
+                    type="button"
+                    onClick={handleBack}
+                    className="font-display font-semibold uppercase text-sm text-fog hover:text-ink inline-flex items-center gap-2"
+                  >
+                    <ArrowLeft className="w-4 h-4" />{" "}
+                    {step === 1 ? "Torna al preventivo" : "Indietro"}
+                  </button>
+                ) : (
+                  <span />
+                )}
                 <button
                   type="button"
                   onClick={goNext}

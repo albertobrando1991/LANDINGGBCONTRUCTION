@@ -132,6 +132,8 @@ FAL_IMAGE_TIMEOUT = int(os.getenv("FAL_IMAGE_TIMEOUT", "300"))
 FAL_QUEUE_POLL_INTERVAL_SECONDS = max(2, int(os.getenv("FAL_QUEUE_POLL_INTERVAL_SECONDS", "5")))
 AI_IMAGE_CONCURRENCY = max(1, int(os.getenv("AI_IMAGE_CONCURRENCY", "3")))
 AI_RENDER_MAX_ROOMS = max(1, int(os.getenv("AI_RENDER_MAX_ROOMS", "4")))
+AI_RENDER_MAX_ROOMS_PUBLIC = max(1, int(os.getenv("AI_RENDER_MAX_ROOMS_PUBLIC", "2")))
+AI_RENDER_MAX_ROOMS_STAFF = max(1, int(os.getenv("AI_RENDER_MAX_ROOMS_STAFF", str(AI_RENDER_MAX_ROOMS))))
 AI_REQUIRE_RASTER_RENDERS = os.getenv("AI_REQUIRE_RASTER_RENDERS", "true").lower() not in {"0", "false", "no"}
 REQUIRE_REVIEW_BEFORE_RENDERS = os.getenv("AI_ARCHITECT_REQUIRE_REVIEW", "true").lower() not in {"0", "false", "no"}
 OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2")
@@ -490,6 +492,27 @@ def _selected_image_provider() -> str:
     return "local"
 
 
+def _normalize_usage_context(value: Optional[str]) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"staff", "staff_dashboard", "internal", "admin", "operations"}:
+        return "staff"
+    return "public"
+
+
+def _render_room_limit_for_job(job: Dict[str, Any]) -> int:
+    explicit_limit = job.get("render_room_limit")
+    if isinstance(explicit_limit, int) and explicit_limit > 0:
+        return explicit_limit
+    if isinstance(explicit_limit, str) and explicit_limit.isdigit():
+        return max(1, int(explicit_limit))
+
+    role = str(job.get("created_by_role") or "").strip().lower()
+    context = _normalize_usage_context(job.get("usage_context") or job.get("created_via"))
+    if context == "staff" or role in {"staff", "operations", "admin"}:
+        return AI_RENDER_MAX_ROOMS_STAFF
+    return AI_RENDER_MAX_ROOMS_PUBLIC
+
+
 def _guess_mime(path: Path, file_type: str) -> str:
     if file_type == "pdf":
         return "application/pdf"
@@ -623,10 +646,15 @@ async def create_job(
     notes: Optional[str],
     user_id: Optional[str] = None,
     lead_id: Optional[str] = None,
+    usage_context: str = "public",
+    created_by_role: Optional[str] = None,
+    created_by_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     if plan_type_selected not in PLAN_TYPES:
         raise HTTPException(status_code=400, detail="Tipo planimetria non valido")
     project_variant_selected = normalize_project_variant(project_variant_selected)
+    normalized_usage_context = _normalize_usage_context(usage_context)
+    render_room_limit = AI_RENDER_MAX_ROOMS_STAFF if normalized_usage_context == "staff" else AI_RENDER_MAX_ROOMS_PUBLIC
 
     object_id = ObjectId()
     job_id = str(object_id)
@@ -636,6 +664,10 @@ async def create_job(
         "_id": object_id,
         "user_id": user_id,
         "lead_id": lead_id,
+        "usage_context": normalized_usage_context,
+        "created_by_role": created_by_role,
+        "created_by_name": created_by_name,
+        "render_room_limit": render_room_limit,
         "uploaded_file_url": file_info["url"],
         "uploaded_file_path": file_info["path"],
         "processed_file_url": file_info["processed_url"],
@@ -689,6 +721,7 @@ async def create_job(
             "quality": OPENAI_IMAGE_QUALITY,
             "plan_size": OPENAI_IMAGE_SIZE_PLAN,
             "render_size": OPENAI_IMAGE_SIZE_RENDER,
+            "room_render_limit": render_room_limit,
         },
         "prompts": {
             "analysis": ANALYSIS_PROMPT,
@@ -2403,7 +2436,7 @@ def _room_names_for_generation(job: Dict[str, Any]) -> List[str]:
         names.append("Cabina Armadio")
     if "lavanderia" in priorities and "Lavanderia" not in names:
         names.append("Lavanderia")
-    return names[:AI_RENDER_MAX_ROOMS]
+    return names[:_render_room_limit_for_job(job)]
 
 
 def _draw_text(draw, xy, text: str, fill: str, font=None):
@@ -4511,6 +4544,7 @@ async def _continue_render_generation(db, job_id: str):
             "generation_ms": int((time.perf_counter() - pipeline_started) * 1000),
             "image_provider": image_provider_label,
             "render_count": len(room_names),
+            "render_room_limit": _render_room_limit_for_job(job),
         },
     )
 

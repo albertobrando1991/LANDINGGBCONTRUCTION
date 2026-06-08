@@ -107,6 +107,42 @@ def test_fal_gpt_image_2_schema_helpers():
     assert svc._fal_image_size("1024x1024") == "square_hd"
 
 
+def test_public_ai_architect_jobs_generate_two_room_renders(monkeypatch):
+    monkeypatch.setattr(svc, "AI_RENDER_MAX_ROOMS_PUBLIC", 2)
+    monkeypatch.setattr(svc, "AI_RENDER_MAX_ROOMS_STAFF", 4)
+    job = {
+        "usage_context": "public",
+        "vision_analysis": {
+            "detected_rooms": [
+                {"name": "Soggiorno", "confidence": 0.9},
+                {"name": "Cucina", "confidence": 0.9},
+                {"name": "Camera", "confidence": 0.9},
+                {"name": "Bagno", "confidence": 0.9},
+            ]
+        },
+    }
+
+    assert svc._room_names_for_generation(job) == ["Soggiorno", "Cucina"]
+
+
+def test_staff_ai_architect_jobs_keep_staff_room_render_limit(monkeypatch):
+    monkeypatch.setattr(svc, "AI_RENDER_MAX_ROOMS_PUBLIC", 2)
+    monkeypatch.setattr(svc, "AI_RENDER_MAX_ROOMS_STAFF", 4)
+    job = {
+        "usage_context": "staff",
+        "vision_analysis": {
+            "detected_rooms": [
+                {"name": "Soggiorno", "confidence": 0.9},
+                {"name": "Cucina", "confidence": 0.9},
+                {"name": "Camera", "confidence": 0.9},
+                {"name": "Bagno", "confidence": 0.9},
+            ]
+        },
+    }
+
+    assert svc._room_names_for_generation(job) == ["Soggiorno", "Cucina", "Camera", "Bagno"]
+
+
 def test_plan_details_json_contains_render_contract():
     analysis = svc._safe_mode_analysis_json(
         {

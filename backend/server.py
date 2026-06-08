@@ -600,6 +600,55 @@ async def create_ai_architect_job(
     return await ai_architect_service.get_job_payload(db, job["id"])
 
 
+@api.post("/ai-architect/staff/jobs")
+async def create_staff_ai_architect_job(
+    background_tasks: BackgroundTasks,
+    planimetria: UploadFile = File(...),
+    plan_type_selected: str = Form(...),
+    project_variant_selected: str = Form("premium_suite"),
+    style_selected: str = Form(...),
+    project_goal: str = Form(...),
+    priorities: str = Form("[]"),
+    sqm: Optional[float] = Form(None),
+    residents: Optional[int] = Form(None),
+    budget: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    lead_id: Optional[str] = Form(None),
+    user: dict = Depends(current_user),
+):
+    linked_lead_id = lead_id if (lead_id and ObjectId.is_valid(lead_id)) else None
+    job = await ai_architect_service.create_job(
+        db,
+        upload=planimetria,
+        plan_type_selected=plan_type_selected,
+        project_variant_selected=project_variant_selected,
+        style_selected=style_selected,
+        project_goal=project_goal,
+        priorities=_parse_priorities(priorities),
+        sqm=sqm,
+        residents=residents,
+        budget=budget,
+        notes=notes,
+        lead_id=linked_lead_id,
+        user_id=user.get("id"),
+        usage_context="staff",
+        created_by_role=user.get("role"),
+        created_by_name=user.get("name") or user.get("email"),
+    )
+    if linked_lead_id:
+        await db.leads.update_one(
+            {"_id": ObjectId(linked_lead_id)},
+            {"$set": {
+                "ai_architect_job_id": job["id"],
+                "has_files": True,
+                "updated_at": now_iso(),
+            },
+             "$addToSet": {"tags": "AI Architect"}},
+        )
+    background_tasks.add_task(ai_architect_service.process_job, db, job["id"])
+    return await ai_architect_service.get_job_payload(db, job["id"])
+
+
 @api.get("/ai-architect/jobs")
 async def list_ai_architect_jobs(
     status: Optional[str] = None,

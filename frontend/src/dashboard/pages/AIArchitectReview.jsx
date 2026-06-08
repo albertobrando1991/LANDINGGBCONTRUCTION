@@ -18,8 +18,10 @@ import {
 import { toast } from "sonner";
 import client, { BACKEND_URL, formatApiErrorDetail } from "@/lib/api";
 import { relativeDate } from "@/lib/format";
+import AIArchitect from "@/landing/AIArchitect";
 
 const TABS = [
+  { key: "new", label: "Nuovo" },
   { key: "needs_review", label: "Da approvare" },
   { key: "processing", label: "In lavorazione" },
   { key: "needs_confirmation", label: "Da confermare" },
@@ -49,7 +51,9 @@ function assetUrl(url) {
 }
 
 function isPdfUrl(url) {
-  return typeof url === "string" && url.split("?")[0].toLowerCase().endsWith(".pdf");
+  return (
+    typeof url === "string" && url.split("?")[0].toLowerCase().endsWith(".pdf")
+  );
 }
 
 // Immagine asset robusta: i PDF non sono renderizzabili in <img> (planimetrie
@@ -67,11 +71,15 @@ function AssetImage({ url, alt, className }) {
 
   if (isPdfUrl(url) || failed) {
     return (
-      <div className={`grid place-items-center text-center p-4 rounded-xl border border-stroke bg-bg ${className || ""}`}>
+      <div
+        className={`grid place-items-center text-center p-4 rounded-xl border border-stroke bg-bg ${className || ""}`}
+      >
         <div className="space-y-2">
           <FileText className="w-6 h-6 text-fog mx-auto" />
           <p className="font-body text-xs text-fog">
-            {isPdfUrl(url) ? "Anteprima PDF non incorporabile." : "Immagine non disponibile."}
+            {isPdfUrl(url)
+              ? "Anteprima PDF non incorporabile."
+              : "Immagine non disponibile."}
           </p>
           <a
             href={full}
@@ -120,6 +128,7 @@ export default function AIArchitectReview() {
 
   const { data: jobs = [], isLoading } = useQuery({
     queryKey: ["ai-architect-jobs", tab, q],
+    enabled: tab !== "new",
     queryFn: async () =>
       (
         await client.get("/ai-architect/jobs", {
@@ -129,6 +138,7 @@ export default function AIArchitectReview() {
   });
 
   useEffect(() => {
+    if (tab === "new") return;
     if (!selectedId && jobs.length > 0) setSelectedId(jobs[0].id);
     if (
       selectedId &&
@@ -137,7 +147,7 @@ export default function AIArchitectReview() {
       !jobs.some((job) => job.id === selectedId)
     )
       setSelectedId(jobs[0].id);
-  }, [jobs, selectedId, deepLinkJob]);
+  }, [jobs, selectedId, deepLinkJob, tab]);
 
   const { data: selectedJob, isFetching: loadingJob } = useQuery({
     queryKey: ["ai-architect-job", selectedId],
@@ -145,7 +155,9 @@ export default function AIArchitectReview() {
     queryFn: async () =>
       (await client.get(`/ai-architect/jobs/${selectedId}`)).data,
     refetchInterval: (query) =>
-      ["processing", "queued"].includes(query.state.data?.status) ? 3000 : false,
+      ["processing", "queued"].includes(query.state.data?.status)
+        ? 3000
+        : false,
   });
 
   useEffect(() => {
@@ -232,7 +244,9 @@ export default function AIArchitectReview() {
   const analysisJson =
     analysis?.json_content || selectedJob?.vision_analysis || {};
   const professionalFloorplan =
-    selectedJob?.professional_floorplan || professionalOutput?.json_content || {};
+    selectedJob?.professional_floorplan ||
+    professionalOutput?.json_content ||
+    {};
   const technicalFindings = professionalFloorplan.technical_findings || [];
   const optimizationStrategy =
     professionalFloorplan.optimization_strategy || [];
@@ -320,8 +334,8 @@ export default function AIArchitectReview() {
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-5">
-        <section className="lg:w-[430px] space-y-4">
+      {tab === "new" ? (
+        <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {TABS.map((item) => (
               <button
@@ -337,249 +351,640 @@ export default function AIArchitectReview() {
               </button>
             ))}
           </div>
-
-          <div className="flex items-center gap-2 bg-surface border border-stroke rounded-full px-4 py-2">
-            <Search className="w-4 h-4 text-fog" />
-            <input
-              value={q}
-              onChange={(event) => setQ(event.target.value)}
-              placeholder="Cerca file, stile, obiettivo..."
-              className="bg-transparent outline-none text-ink placeholder:text-fog w-full text-sm"
+          <div className="rounded-2xl border border-stroke bg-surface p-4 md:p-6">
+            <AIArchitect
+              staffMode
+              embedded
+              onComplete={async (aiJob) => {
+                await qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] });
+                setSelectedId(aiJob.id);
+                setTab("tutti");
+              }}
             />
           </div>
+        </div>
+      ) : (
+        <div className="flex flex-col lg:flex-row gap-5">
+          <section className="lg:w-[430px] space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {TABS.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setTab(item.key)}
+                  className={`font-display uppercase text-xs tracking-wider px-4 py-2 rounded-full border transition-colors ${
+                    tab === item.key
+                      ? "bg-brand text-white border-brand"
+                      : "bg-surface text-fog border-stroke hover:text-ink"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
 
-          <div className="bg-surface border border-stroke rounded-2xl overflow-hidden">
-            {isLoading ? (
-              <div className="px-4 py-10 text-center font-display uppercase text-xs tracking-wider text-fog animate-pulse">
-                Caricamento...
-              </div>
-            ) : jobs.length === 0 ? (
-              <div className="px-4 py-10 text-center font-body text-sm text-fog">
-                Nessun job in questa vista.
+            <div className="flex items-center gap-2 bg-surface border border-stroke rounded-full px-4 py-2">
+              <Search className="w-4 h-4 text-fog" />
+              <input
+                value={q}
+                onChange={(event) => setQ(event.target.value)}
+                placeholder="Cerca file, stile, obiettivo..."
+                className="bg-transparent outline-none text-ink placeholder:text-fog w-full text-sm"
+              />
+            </div>
+
+            <div className="bg-surface border border-stroke rounded-2xl overflow-hidden">
+              {isLoading ? (
+                <div className="px-4 py-10 text-center font-display uppercase text-xs tracking-wider text-fog animate-pulse">
+                  Caricamento...
+                </div>
+              ) : jobs.length === 0 ? (
+                <div className="px-4 py-10 text-center font-body text-sm text-fog">
+                  Nessun job in questa vista.
+                </div>
+              ) : (
+                <div className="divide-y divide-stroke/70">
+                  {jobs.map((job) => {
+                    const meta = STATUS[job.status] || STATUS.queued;
+                    const confidence =
+                      job.vision_analysis?.confidence ??
+                      job.plan_type_confidence;
+                    return (
+                      <button
+                        key={job.id}
+                        onClick={() => setSelectedId(job.id)}
+                        className={`w-full text-left px-4 py-4 transition-colors ${
+                          selectedId === job.id
+                            ? "bg-brand/10"
+                            : "hover:bg-surface-2/60"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-display uppercase text-xs text-ink truncate">
+                              {job.project_goal || "Progetto AI Architect"}
+                            </div>
+                            <div className="font-body text-[11px] text-fog truncate mt-1">
+                              {job.original_filename}
+                            </div>
+                            {job.project_variant_selected && (
+                              <div className="font-body text-[11px] text-brand truncate mt-1">
+                                Variante {job.project_variant_selected}
+                              </div>
+                            )}
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-1 font-display text-[9px] uppercase ${meta.cls}`}
+                          >
+                            {meta.label}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2 font-body text-[11px] text-fog">
+                          <span>{job.style_selected}</span>
+                          <span>Qualita {qualityLabel(confidence)}</span>
+                          <span>{relativeDate(job.updated_at)}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="flex-1 min-w-0">
+            {!selectedJob ? (
+              <div className="rounded-2xl border border-stroke bg-surface px-6 py-12 text-center text-fog">
+                Seleziona un job AI Architect.
               </div>
             ) : (
-              <div className="divide-y divide-stroke/70">
-                {jobs.map((job) => {
-                  const meta = STATUS[job.status] || STATUS.queued;
-                  const confidence =
-                    job.vision_analysis?.confidence ?? job.plan_type_confidence;
-                  return (
-                    <button
-                      key={job.id}
-                      onClick={() => setSelectedId(job.id)}
-                      className={`w-full text-left px-4 py-4 transition-colors ${
-                        selectedId === job.id
-                          ? "bg-brand/10"
-                          : "hover:bg-surface-2/60"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="font-display uppercase text-xs text-ink truncate">
-                            {job.project_goal || "Progetto AI Architect"}
-                          </div>
-                      <div className="font-body text-[11px] text-fog truncate mt-1">
-                        {job.original_filename}
-                      </div>
-                      {job.project_variant_selected && (
-                        <div className="font-body text-[11px] text-brand truncate mt-1">
-                          Variante {job.project_variant_selected}
-                        </div>
-                      )}
-                        </div>
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-stroke bg-surface p-5">
+                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
                         <span
-                          className={`shrink-0 rounded-full px-2 py-1 font-display text-[9px] uppercase ${meta.cls}`}
+                          className={`rounded-full px-3 py-1 font-display text-[10px] uppercase ${status.cls}`}
                         >
-                          {meta.label}
+                          {status.label}
                         </span>
+                        {selectedJob.review_status && (
+                          <span className="rounded-full bg-bg border border-stroke px-3 py-1 font-display text-[10px] uppercase text-fog">
+                            Review {selectedJob.review_status}
+                          </span>
+                        )}
                       </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2 font-body text-[11px] text-fog">
-                        <span>{job.style_selected}</span>
-                        <span>Qualita {qualityLabel(confidence)}</span>
-                        <span>{relativeDate(job.updated_at)}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="flex-1 min-w-0">
-          {!selectedJob ? (
-            <div className="rounded-2xl border border-stroke bg-surface px-6 py-12 text-center text-fog">
-              Seleziona un job AI Architect.
-            </div>
-          ) : (
-            <div className="space-y-5">
-              <div className="rounded-2xl border border-stroke bg-surface p-5">
-                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span
-                        className={`rounded-full px-3 py-1 font-display text-[10px] uppercase ${status.cls}`}
-                      >
-                        {status.label}
-                      </span>
-                      {selectedJob.review_status && (
-                        <span className="rounded-full bg-bg border border-stroke px-3 py-1 font-display text-[10px] uppercase text-fog">
-                          Review {selectedJob.review_status}
-                        </span>
+                      <h2 className="font-display font-bold uppercase text-2xl text-ink">
+                        {selectedJob.project_goal}
+                      </h2>
+                      <p className="font-body text-sm text-fog mt-1">
+                        {selectedJob.original_filename}
+                      </p>
+                      {(selectedAutomationVariant.label ||
+                        selectedJob.project_variant_selected) && (
+                        <p className="font-body text-xs text-brand mt-2">
+                          Variante scelta:{" "}
+                          {selectedAutomationVariant.label ||
+                            selectedJob.project_variant_selected}
+                        </p>
+                      )}
+                      {selectedJob.linked_lead && (
+                        <button
+                          onClick={() =>
+                            navigate(
+                              `/dashboard/lead/${selectedJob.linked_lead.id}`,
+                            )
+                          }
+                          className="mt-2 font-display uppercase text-[10px] text-brand inline-flex items-center gap-1 hover:text-ink"
+                        >
+                          Lead collegato: {selectedJob.linked_lead.nome}
+                          {typeof selectedJob.linked_lead.score === "number"
+                            ? ` (${selectedJob.linked_lead.score}/100)`
+                            : ""}{" "}
+                          <ExternalLink className="w-3 h-3" />
+                        </button>
                       )}
                     </div>
-                    <h2 className="font-display font-bold uppercase text-2xl text-ink">
-                      {selectedJob.project_goal}
-                    </h2>
-                    <p className="font-body text-sm text-fog mt-1">
-                      {selectedJob.original_filename}
-                    </p>
-                    {(selectedAutomationVariant.label ||
-                      selectedJob.project_variant_selected) && (
-                      <p className="font-body text-xs text-brand mt-2">
-                        Variante scelta:{" "}
-                        {selectedAutomationVariant.label ||
-                          selectedJob.project_variant_selected}
-                      </p>
-                    )}
-                    {selectedJob.linked_lead && (
+                    <div className="flex flex-wrap gap-2">
+                      {report?.image_url && (
+                        <a
+                          href={assetUrl(report.image_url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2"
+                        >
+                          <Download className="w-4 h-4" /> Report
+                        </a>
+                      )}
+                      {selectedJob.status === "needs_review" &&
+                        conceptApprovable && (
+                          <button
+                            onClick={() => approve.mutate(selectedJob.id)}
+                            disabled={approve.isPending}
+                            className="bg-brand text-white rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                          >
+                            {approve.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="w-4 h-4" />
+                            )}
+                            Approva render
+                          </button>
+                        )}
+                      {selectedJob.status === "needs_confirmation" && (
+                        <>
+                          <button
+                            onClick={() =>
+                              confirmPlan.mutate({
+                                jobId: selectedJob.id,
+                                planType: "existing_state",
+                              })
+                            }
+                            disabled={confirmPlan.isPending}
+                            className="bg-brand text-white rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                          >
+                            <CheckCircle2 className="w-4 h-4" /> Stato di fatto
+                          </button>
+                          <button
+                            onClick={() =>
+                              confirmPlan.mutate({
+                                jobId: selectedJob.id,
+                                planType: "defined_project",
+                              })
+                            }
+                            disabled={confirmPlan.isPending}
+                            className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                          >
+                            <CheckCircle2 className="w-4 h-4" /> Progetto
+                            definito
+                          </button>
+                        </>
+                      )}
+                      {(selectedJob.status === "completed" ||
+                        selectedJob.status === "needs_review") && (
+                        <>
+                          <button
+                            onClick={() =>
+                              regenerate.mutate({
+                                jobId: selectedJob.id,
+                                outputTypes: ["topdown_3d_plan"],
+                              })
+                            }
+                            disabled={regenerate.isPending}
+                            className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                          >
+                            {regenerate.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Eye className="w-4 h-4" />
+                            )}
+                            Rigenera 3D
+                          </button>
+                          <button
+                            onClick={() =>
+                              regenerate.mutate({
+                                jobId: selectedJob.id,
+                                outputTypes: ["room_render"],
+                              })
+                            }
+                            disabled={regenerate.isPending}
+                            className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
+                          >
+                            <ImageIcon className="w-4 h-4" /> Rigenera render
+                          </button>
+                        </>
+                      )}
                       <button
-                        onClick={() =>
-                          navigate(`/dashboard/lead/${selectedJob.linked_lead.id}`)
-                        }
-                        className="mt-2 font-display uppercase text-[10px] text-brand inline-flex items-center gap-1 hover:text-ink"
+                        onClick={() => reanalyze.mutate(selectedJob.id)}
+                        disabled={reanalyze.isPending}
+                        className="bg-surface-2 border border-stroke text-fog hover:text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
                       >
-                        Lead collegato: {selectedJob.linked_lead.nome}
-                        {typeof selectedJob.linked_lead.score === "number"
-                          ? ` (${selectedJob.linked_lead.score}/100)`
-                          : ""}{" "}
-                        <ExternalLink className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {report?.image_url && (
-                      <a
-                        href={assetUrl(report.image_url)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2"
-                      >
-                        <Download className="w-4 h-4" /> Report
-                      </a>
-                    )}
-                    {selectedJob.status === "needs_review" &&
-                      conceptApprovable && (
-                      <button
-                        onClick={() => approve.mutate(selectedJob.id)}
-                        disabled={approve.isPending}
-                        className="bg-brand text-white rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
-                      >
-                        {approve.isPending ? (
+                        {reanalyze.isPending ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (
-                          <ShieldCheck className="w-4 h-4" />
+                          <Brain className="w-4 h-4" />
                         )}
-                        Approva render
+                        Ri-analizza
                       </button>
-                    )}
-                    {selectedJob.status === "needs_confirmation" && (
-                      <>
-                        <button
-                          onClick={() =>
-                            confirmPlan.mutate({ jobId: selectedJob.id, planType: "existing_state" })
-                          }
-                          disabled={confirmPlan.isPending}
-                          className="bg-brand text-white rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
-                        >
-                          <CheckCircle2 className="w-4 h-4" /> Stato di fatto
-                        </button>
-                        <button
-                          onClick={() =>
-                            confirmPlan.mutate({ jobId: selectedJob.id, planType: "defined_project" })
-                          }
-                          disabled={confirmPlan.isPending}
-                          className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
-                        >
-                          <CheckCircle2 className="w-4 h-4" /> Progetto definito
-                        </button>
-                      </>
-                    )}
-                    {(selectedJob.status === "completed" ||
-                      selectedJob.status === "needs_review") && (
-                      <>
-                        <button
-                          onClick={() =>
-                            regenerate.mutate({ jobId: selectedJob.id, outputTypes: ["topdown_3d_plan"] })
-                          }
-                          disabled={regenerate.isPending}
-                          className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
-                        >
-                          {regenerate.isPending ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Eye className="w-4 h-4" />
-                          )}
-                          Rigenera 3D
-                        </button>
-                        <button
-                          onClick={() =>
-                            regenerate.mutate({ jobId: selectedJob.id, outputTypes: ["room_render"] })
-                          }
-                          disabled={regenerate.isPending}
-                          className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
-                        >
-                          <ImageIcon className="w-4 h-4" /> Rigenera render
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={() => reanalyze.mutate(selectedJob.id)}
-                      disabled={reanalyze.isPending}
-                      className="bg-surface-2 border border-stroke text-fog hover:text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 disabled:opacity-60"
-                    >
-                      {reanalyze.isPending ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Brain className="w-4 h-4" />
-                      )}
-                      Ri-analizza
-                    </button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-5">
-                <div className="rounded-2xl border border-stroke bg-surface p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <FileText className="w-5 h-5 text-brand" />
-                    <h3 className="font-display font-semibold uppercase text-sm text-ink">
-                      Concept 2D
-                    </h3>
-                  </div>
-                  {uploadedPlanUrl &&
-                    concept?.image_url !== uploadedPlanUrl && (
-                      <div className="mb-4">
-                        <p className="font-display uppercase text-[10px] tracking-wider text-fog mb-2">
-                          Planimetria allegata
-                        </p>
+                <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-5">
+                  <div className="rounded-2xl border border-stroke bg-surface p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <FileText className="w-5 h-5 text-brand" />
+                      <h3 className="font-display font-semibold uppercase text-sm text-ink">
+                        Concept 2D
+                      </h3>
+                    </div>
+                    {uploadedPlanUrl &&
+                      concept?.image_url !== uploadedPlanUrl && (
+                        <div className="mb-4">
+                          <p className="font-display uppercase text-[10px] tracking-wider text-fog mb-2">
+                            Planimetria allegata
+                          </p>
+                          <AssetImage
+                            url={uploadedPlanUrl}
+                            alt="planimetria allegata"
+                            className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-[300px]"
+                          />
+                        </div>
+                      )}
+                    {concept?.image_url ? (
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <p className="font-display uppercase text-[10px] tracking-wider text-fog">
+                            {conceptApprovable
+                              ? "2D da approvare"
+                              : "2D non approvabile"}
+                          </p>
+                          <a
+                            href={assetUrl(concept.image_url)}
+                            download
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-display uppercase text-[10px] text-brand hover:text-ink inline-flex items-center gap-1"
+                          >
+                            <Download className="w-3 h-3" /> Scarica
+                          </a>
+                        </div>
                         <AssetImage
-                          url={uploadedPlanUrl}
-                          alt="planimetria allegata"
-                          className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-[300px]"
+                          url={concept.image_url}
+                          alt="concept 2D"
+                          className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-[460px]"
                         />
+                        <div className="mt-3 rounded-xl border border-warning/40 bg-warning/10 p-3">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                            <p className="font-body text-xs leading-relaxed text-fog">
+                              {layout2dWarning}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="aspect-video rounded-xl border border-stroke bg-bg grid place-items-center text-fog text-sm">
+                        Concept 2D non disponibile.
                       </div>
                     )}
-                  {concept?.image_url ? (
-                    <div>
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <p className="font-display uppercase text-[10px] tracking-wider text-fog">
-                          {conceptApprovable
-                            ? "2D da approvare"
-                            : "2D non approvabile"}
+                    {concept?.text_content && (
+                      <p className="font-body text-xs text-fog mt-3">
+                        {concept.text_content}
+                      </p>
+                    )}
+                    {concept && !conceptApprovable && (
+                      <div className="mt-3 rounded-xl border border-danger/35 bg-danger/10 p-3">
+                        <p className="font-display uppercase text-[10px] tracking-wider text-danger">
+                          Blocco sicurezza
                         </p>
+                        <p className="font-body text-xs text-fog mt-1 leading-relaxed">
+                          Output non approvabile per render: planimetria
+                          sintetica, reference semplice o geometria non
+                          verificata. Richiedere planimetria migliore o
+                          revisione tecnica.
+                        </p>
+                      </div>
+                    )}
+                    {selectedJob.status === "needs_review" && (
+                      <div className="mt-4 rounded-xl border border-stroke bg-bg p-4">
+                        {layoutRegenerationAvailable ? (
+                          <>
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                              <label
+                                htmlFor="dashboard-concept-feedback"
+                                className="font-display uppercase text-[10px] tracking-wider text-ink"
+                              >
+                                Correzione concept 2D
+                              </label>
+                              <span className="font-display uppercase text-[9px] tracking-wider text-warning">
+                                1 rigenerazione disponibile
+                              </span>
+                            </div>
+                            <textarea
+                              id="dashboard-concept-feedback"
+                              value={conceptFeedback}
+                              onChange={(event) =>
+                                setConceptFeedback(event.target.value)
+                              }
+                              rows={3}
+                              placeholder="Esempio: la cabina armadio deve avere accesso dalla camera da letto, non dal bagno; non chiudere il passaggio camera-cabina."
+                              className="mt-2 w-full resize-none rounded-xl border border-stroke bg-surface px-4 py-3 font-body text-sm text-ink outline-none transition-colors placeholder:text-fog focus:border-brand"
+                            />
+                            <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const correctionNotes =
+                                    conceptFeedback.trim();
+                                  if (!correctionNotes) {
+                                    toast.error(
+                                      "Inserisci una correzione prima di rigenerare il 2D.",
+                                    );
+                                    return;
+                                  }
+                                  regenerate.mutate({
+                                    jobId: selectedJob.id,
+                                    outputTypes: ["concept_2d"],
+                                    correctionNotes,
+                                  });
+                                }}
+                                disabled={
+                                  !conceptFeedback.trim() ||
+                                  regenerate.isPending
+                                }
+                                className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
+                              >
+                                <RotateCw
+                                  className={`w-4 h-4 ${regenerate.isPending ? "animate-spin" : ""}`}
+                                />
+                                Correggi e rigenera 2D
+                              </button>
+                              {selectedJob.layout_correction_notes && (
+                                <p className="font-body text-xs text-fog leading-relaxed">
+                                  Ultima correzione:{" "}
+                                  {selectedJob.layout_correction_notes}
+                                </p>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="font-display uppercase text-[10px] tracking-wider text-ink">
+                              Rigenerazione 2D gia utilizzata
+                            </p>
+                            <p className="font-body text-xs text-fog leading-relaxed mt-2">
+                              Ogni utente puo rigenerare la planimetria una sola
+                              volta. Ulteriori modifiche vanno gestite dallo
+                              staff in fase di sopralluogo.
+                            </p>
+                            {selectedJob.layout_correction_notes && (
+                              <p className="font-body text-xs text-fog leading-relaxed mt-2">
+                                Ultima correzione:{" "}
+                                {selectedJob.layout_correction_notes}
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                    {(selectedAutomationVariant.label ||
+                      pipelineGate.status) && (
+                      <div className="mt-4 rounded-xl border border-stroke bg-bg p-3">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <div className="font-display uppercase text-[9px] text-fog">
+                              Variante
+                            </div>
+                            <div className="font-display uppercase text-xs text-ink mt-1">
+                              {selectedAutomationVariant.label ||
+                                selectedJob.project_variant_selected ||
+                                "-"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-display uppercase text-[9px] text-fog">
+                              Semaforo
+                            </div>
+                            <div className="font-display uppercase text-xs text-ink mt-1">
+                              {pipelineGate.status || "-"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-display uppercase text-[9px] text-fog">
+                              Varianti
+                            </div>
+                            <div className="font-display uppercase text-xs text-ink mt-1">
+                              {floorPlanAutomation.variant_generation
+                                ?.generated_variant_count || 1}
+                            </div>
+                          </div>
+                        </div>
+                        {pipelineGate.reason && (
+                          <p className="font-body text-xs text-fog mt-2 leading-relaxed">
+                            {pipelineGate.reason}
+                          </p>
+                        )}
+                        {(technicalFloorPlan.schema ||
+                          optimizedFloorPlan.schema) && (
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <div className="rounded-lg border border-stroke bg-surface p-2">
+                              <div className="font-display uppercase text-[9px] text-fog">
+                                JSON tecnico
+                              </div>
+                              <div className="font-display uppercase text-xs text-ink mt-1">
+                                {technicalFloorPlan.source || "-"}
+                              </div>
+                              <div className="font-body text-[11px] text-fog mt-1">
+                                Ambienti:{" "}
+                                {(technicalFloorPlan.rooms || []).length || 0}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-stroke bg-surface p-2">
+                              <div className="font-display uppercase text-[9px] text-fog">
+                                JSON ottimizzato
+                              </div>
+                              <div className="font-display uppercase text-xs text-ink mt-1">
+                                {optimizedFloorPlan.metadata?.selected_variant
+                                  ?.label || "-"}
+                              </div>
+                              <div className="font-body text-[11px] text-fog mt-1">
+                                Prompt visuale vincolato
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {(optimizationStrategy.length > 0 ||
+                      floorplanBrief.approval_checklist?.length > 0) && (
+                      <div className="mt-4 grid gap-3">
+                        {optimizationStrategy.slice(0, 3).map((item, index) => (
+                          <div
+                            key={`${item.title}-${index}`}
+                            className="rounded-xl border border-stroke bg-bg p-3"
+                          >
+                            <div className="font-display uppercase text-xs text-ink">
+                              {item.title}
+                            </div>
+                            <p className="font-body text-xs text-fog mt-1 leading-relaxed">
+                              {item.rationale}
+                            </p>
+                          </div>
+                        ))}
+                        {floorplanBrief.approval_checklist?.length > 0 && (
+                          <div className="rounded-xl border border-warning/40 bg-warning/10 p-3">
+                            <div className="font-display uppercase text-xs text-warning mb-2">
+                              Checklist staff
+                            </div>
+                            <div className="grid gap-1">
+                              {floorplanBrief.approval_checklist
+                                .slice(0, 5)
+                                .map((item) => (
+                                  <p
+                                    key={item}
+                                    className="font-body text-xs text-fog"
+                                  >
+                                    {item}
+                                  </p>
+                                ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-stroke bg-surface p-5 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Brain className="w-5 h-5 text-brand" />
+                      <h3 className="font-display font-semibold uppercase text-sm text-ink">
+                        Analisi architettonica
+                      </h3>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-xl border border-stroke bg-bg px-4 py-3">
+                        <div className="font-display uppercase text-[10px] text-fog">
+                          Qualita lettura
+                        </div>
+                        <div className="font-display font-bold text-sm text-ink uppercase">
+                          {qualityLabel(analysisJson.confidence)}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-stroke bg-bg px-4 py-3">
+                        <div className="font-display uppercase text-[10px] text-fog">
+                          Tipo
+                        </div>
+                        <div className="font-display font-bold text-sm text-ink uppercase">
+                          {analysisJson.plan_type_detected || "-"}
+                        </div>
+                      </div>
+                    </div>
+                    {analysisJson.dynamic_disclaimer && (
+                      <div className="rounded-xl border border-warning/40 bg-warning/10 p-4">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                          <p className="font-body text-xs leading-relaxed text-fog">
+                            {analysisJson.dynamic_disclaimer}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <p className="font-display uppercase text-xs text-ink mb-2">
+                        Ambienti rilevati
+                      </p>
+                      <div className="space-y-2">
+                        {(analysisJson.detected_rooms || [])
+                          .slice(0, 5)
+                          .map((room, index) => (
+                            <div
+                              key={`${room.name}-${index}`}
+                              className="rounded-xl border border-stroke bg-bg p-3"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-display uppercase text-xs text-ink">
+                                  {room.name}
+                                </span>
+                                <span className="font-body text-xs text-brand">
+                                  {qualityLabel(room.confidence)}
+                                </span>
+                              </div>
+                              <p className="font-body text-xs text-fog mt-1">
+                                {room.evidence}
+                              </p>
+                            </div>
+                          ))}
+                        {(analysisJson.detected_rooms || []).length === 0 && (
+                          <p className="font-body text-sm text-fog">
+                            Nessun ambiente rilevato con qualita sufficiente.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {technicalFindings.length > 0 && (
+                      <div>
+                        <p className="font-display uppercase text-xs text-ink mb-2">
+                          Verifiche tecniche
+                        </p>
+                        <div className="space-y-2">
+                          {technicalFindings
+                            .slice(0, 5)
+                            .map((finding, index) => (
+                              <div
+                                key={`${finding.title}-${index}`}
+                                className="rounded-xl border border-stroke bg-bg p-3"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-display uppercase text-xs text-ink">
+                                    {finding.title}
+                                  </span>
+                                  <span className="rounded-full bg-brand/10 px-2 py-1 font-display text-[9px] uppercase text-brand">
+                                    {finding.severity}
+                                  </span>
+                                </div>
+                                <p className="font-body text-xs text-fog mt-1 leading-relaxed">
+                                  {finding.recommendation}
+                                </p>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                  <div className="rounded-2xl border border-stroke bg-surface p-5">
+                    <div className="flex items-center justify-between gap-2 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Eye className="w-5 h-5 text-brand" />
+                        <h3 className="font-display font-semibold uppercase text-sm text-ink">
+                          Top-down
+                        </h3>
+                      </div>
+                      {topdown?.image_url && (
                         <a
-                          href={assetUrl(concept.image_url)}
+                          href={assetUrl(topdown.image_url)}
                           download
                           target="_blank"
                           rel="noreferrer"
@@ -587,480 +992,157 @@ export default function AIArchitectReview() {
                         >
                           <Download className="w-3 h-3" /> Scarica
                         </a>
-                      </div>
+                      )}
+                    </div>
+                    {topdown?.image_url ? (
                       <AssetImage
-                        url={concept.image_url}
-                        alt="concept 2D"
-                        className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-[460px]"
+                        url={topdown.image_url}
+                        alt="vista top-down"
+                        className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-80"
                       />
-                      <div className="mt-3 rounded-xl border border-warning/40 bg-warning/10 p-3">
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-                          <p className="font-body text-xs leading-relaxed text-fog">
-                            {layout2dWarning}
-                          </p>
-                        </div>
+                    ) : (
+                      <div className="aspect-video rounded-xl border border-stroke bg-bg grid place-items-center text-fog text-sm">
+                        Generato dopo approvazione.
                       </div>
-                    </div>
-                  ) : (
-                    <div className="aspect-video rounded-xl border border-stroke bg-bg grid place-items-center text-fog text-sm">
-                      Concept 2D non disponibile.
-                    </div>
-                  )}
-                  {concept?.text_content && (
-                    <p className="font-body text-xs text-fog mt-3">
-                      {concept.text_content}
-                    </p>
-                  )}
-                  {concept && !conceptApprovable && (
-                    <div className="mt-3 rounded-xl border border-danger/35 bg-danger/10 p-3">
-                      <p className="font-display uppercase text-[10px] tracking-wider text-danger">
-                        Blocco sicurezza
-                      </p>
-                      <p className="font-body text-xs text-fog mt-1 leading-relaxed">
-                        Output non approvabile per render: planimetria
-                        sintetica, reference semplice o geometria non
-                        verificata. Richiedere planimetria migliore o revisione
-                        tecnica.
-                      </p>
-                    </div>
-                  )}
-                  {selectedJob.status === "needs_review" && (
-                    <div className="mt-4 rounded-xl border border-stroke bg-bg p-4">
-                      {layoutRegenerationAvailable ? (
-                        <>
-                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                            <label
-                              htmlFor="dashboard-concept-feedback"
-                              className="font-display uppercase text-[10px] tracking-wider text-ink"
-                            >
-                              Correzione concept 2D
-                            </label>
-                            <span className="font-display uppercase text-[9px] tracking-wider text-warning">
-                              1 rigenerazione disponibile
-                            </span>
-                          </div>
-                          <textarea
-                            id="dashboard-concept-feedback"
-                            value={conceptFeedback}
-                            onChange={(event) => setConceptFeedback(event.target.value)}
-                            rows={3}
-                            placeholder="Esempio: la cabina armadio deve avere accesso dalla camera da letto, non dal bagno; non chiudere il passaggio camera-cabina."
-                            className="mt-2 w-full resize-none rounded-xl border border-stroke bg-surface px-4 py-3 font-body text-sm text-ink outline-none transition-colors placeholder:text-fog focus:border-brand"
-                          />
-                          <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const correctionNotes = conceptFeedback.trim();
-                                if (!correctionNotes) {
-                                  toast.error("Inserisci una correzione prima di rigenerare il 2D.");
-                                  return;
-                                }
-                                regenerate.mutate({
-                                  jobId: selectedJob.id,
-                                  outputTypes: ["concept_2d"],
-                                  correctionNotes,
-                                });
-                              }}
-                              disabled={!conceptFeedback.trim() || regenerate.isPending}
-                              className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
-                            >
-                              <RotateCw
-                                className={`w-4 h-4 ${regenerate.isPending ? "animate-spin" : ""}`}
-                              />
-                              Correggi e rigenera 2D
-                            </button>
-                            {selectedJob.layout_correction_notes && (
-                              <p className="font-body text-xs text-fog leading-relaxed">
-                                Ultima correzione: {selectedJob.layout_correction_notes}
-                              </p>
-                            )}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <p className="font-display uppercase text-[10px] tracking-wider text-ink">
-                            Rigenerazione 2D gia utilizzata
-                          </p>
-                          <p className="font-body text-xs text-fog leading-relaxed mt-2">
-                            Ogni utente puo rigenerare la planimetria una sola volta. Ulteriori modifiche vanno gestite dallo staff in fase di sopralluogo.
-                          </p>
-                          {selectedJob.layout_correction_notes && (
-                            <p className="font-body text-xs text-fog leading-relaxed mt-2">
-                              Ultima correzione: {selectedJob.layout_correction_notes}
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
-                  {(selectedAutomationVariant.label || pipelineGate.status) && (
-                    <div className="mt-4 rounded-xl border border-stroke bg-bg p-3">
-                      <div className="grid grid-cols-3 gap-2">
-                        <div>
-                          <div className="font-display uppercase text-[9px] text-fog">
-                            Variante
-                          </div>
-                          <div className="font-display uppercase text-xs text-ink mt-1">
-                            {selectedAutomationVariant.label ||
-                              selectedJob.project_variant_selected ||
-                              "-"}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="font-display uppercase text-[9px] text-fog">
-                            Semaforo
-                          </div>
-                          <div className="font-display uppercase text-xs text-ink mt-1">
-                            {pipelineGate.status || "-"}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="font-display uppercase text-[9px] text-fog">
-                            Varianti
-                          </div>
-                          <div className="font-display uppercase text-xs text-ink mt-1">
-                            {floorPlanAutomation.variant_generation
-                              ?.generated_variant_count || 1}
-                          </div>
-                        </div>
-                      </div>
-                      {pipelineGate.reason && (
-                        <p className="font-body text-xs text-fog mt-2 leading-relaxed">
-                          {pipelineGate.reason}
-                        </p>
-                      )}
-                      {(technicalFloorPlan.schema || optimizedFloorPlan.schema) && (
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          <div className="rounded-lg border border-stroke bg-surface p-2">
-                            <div className="font-display uppercase text-[9px] text-fog">
-                              JSON tecnico
-                            </div>
-                            <div className="font-display uppercase text-xs text-ink mt-1">
-                              {technicalFloorPlan.source || "-"}
-                            </div>
-                            <div className="font-body text-[11px] text-fog mt-1">
-                              Ambienti:{" "}
-                              {(technicalFloorPlan.rooms || []).length || 0}
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-stroke bg-surface p-2">
-                            <div className="font-display uppercase text-[9px] text-fog">
-                              JSON ottimizzato
-                            </div>
-                            <div className="font-display uppercase text-xs text-ink mt-1">
-                              {optimizedFloorPlan.metadata?.selected_variant
-                                ?.label || "-"}
-                            </div>
-                            <div className="font-body text-[11px] text-fog mt-1">
-                              Prompt visuale vincolato
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(optimizationStrategy.length > 0 ||
-                    floorplanBrief.approval_checklist?.length > 0) && (
-                    <div className="mt-4 grid gap-3">
-                      {optimizationStrategy.slice(0, 3).map((item, index) => (
-                        <div
-                          key={`${item.title}-${index}`}
-                          className="rounded-xl border border-stroke bg-bg p-3"
-                        >
-                          <div className="font-display uppercase text-xs text-ink">
-                            {item.title}
-                          </div>
-                          <p className="font-body text-xs text-fog mt-1 leading-relaxed">
-                            {item.rationale}
-                          </p>
-                        </div>
-                      ))}
-                      {floorplanBrief.approval_checklist?.length > 0 && (
-                        <div className="rounded-xl border border-warning/40 bg-warning/10 p-3">
-                          <div className="font-display uppercase text-xs text-warning mb-2">
-                            Checklist staff
-                          </div>
-                          <div className="grid gap-1">
-                            {floorplanBrief.approval_checklist
-                              .slice(0, 5)
-                              .map((item) => (
-                                <p
-                                  key={item}
-                                  className="font-body text-xs text-fog"
-                                >
-                                  {item}
-                                </p>
-                              ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-stroke bg-surface p-5 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Brain className="w-5 h-5 text-brand" />
-                    <h3 className="font-display font-semibold uppercase text-sm text-ink">
-                      Analisi architettonica
-                    </h3>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-xl border border-stroke bg-bg px-4 py-3">
-                      <div className="font-display uppercase text-[10px] text-fog">
-                        Qualita lettura
-                      </div>
-                      <div className="font-display font-bold text-sm text-ink uppercase">
-                        {qualityLabel(analysisJson.confidence)}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-stroke bg-bg px-4 py-3">
-                      <div className="font-display uppercase text-[10px] text-fog">
-                        Tipo
-                      </div>
-                      <div className="font-display font-bold text-sm text-ink uppercase">
-                        {analysisJson.plan_type_detected || "-"}
-                      </div>
-                    </div>
-                  </div>
-                  {analysisJson.dynamic_disclaimer && (
-                    <div className="rounded-xl border border-warning/40 bg-warning/10 p-4">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-                        <p className="font-body text-xs leading-relaxed text-fog">
-                          {analysisJson.dynamic_disclaimer}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  <div>
-                    <p className="font-display uppercase text-xs text-ink mb-2">
-                      Ambienti rilevati
-                    </p>
-                    <div className="space-y-2">
-                      {(analysisJson.detected_rooms || [])
-                        .slice(0, 5)
-                        .map((room, index) => (
-                          <div
-                            key={`${room.name}-${index}`}
-                            className="rounded-xl border border-stroke bg-bg p-3"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-display uppercase text-xs text-ink">
-                                {room.name}
-                              </span>
-                              <span className="font-body text-xs text-brand">
-                                {qualityLabel(room.confidence)}
-                              </span>
-                            </div>
-                            <p className="font-body text-xs text-fog mt-1">
-                              {room.evidence}
-                            </p>
-                          </div>
-                        ))}
-                      {(analysisJson.detected_rooms || []).length === 0 && (
-                        <p className="font-body text-sm text-fog">
-                          Nessun ambiente rilevato con qualita sufficiente.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  {technicalFindings.length > 0 && (
-                    <div>
-                      <p className="font-display uppercase text-xs text-ink mb-2">
-                        Verifiche tecniche
-                      </p>
-                      <div className="space-y-2">
-                        {technicalFindings.slice(0, 5).map((finding, index) => (
-                          <div
-                            key={`${finding.title}-${index}`}
-                            className="rounded-xl border border-stroke bg-bg p-3"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-display uppercase text-xs text-ink">
-                                {finding.title}
-                              </span>
-                              <span className="rounded-full bg-brand/10 px-2 py-1 font-display text-[9px] uppercase text-brand">
-                                {finding.severity}
-                              </span>
-                            </div>
-                            <p className="font-body text-xs text-fog mt-1 leading-relaxed">
-                              {finding.recommendation}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                <div className="rounded-2xl border border-stroke bg-surface p-5">
-                  <div className="flex items-center justify-between gap-2 mb-4">
-                    <div className="flex items-center gap-2">
-                      <Eye className="w-5 h-5 text-brand" />
-                      <h3 className="font-display font-semibold uppercase text-sm text-ink">
-                        Top-down
-                      </h3>
-                    </div>
-                    {topdown?.image_url && (
-                      <a
-                        href={assetUrl(topdown.image_url)}
-                        download
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-display uppercase text-[10px] text-brand hover:text-ink inline-flex items-center gap-1"
-                      >
-                        <Download className="w-3 h-3" /> Scarica
-                      </a>
                     )}
                   </div>
-                  {topdown?.image_url ? (
-                    <AssetImage
-                      url={topdown.image_url}
-                      alt="vista top-down"
-                      className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-80"
-                    />
-                  ) : (
-                    <div className="aspect-video rounded-xl border border-stroke bg-bg grid place-items-center text-fog text-sm">
-                      Generato dopo approvazione.
-                    </div>
-                  )}
-                </div>
 
-                <div className="rounded-2xl border border-stroke bg-surface p-5">
-                  <div className="flex items-center justify-between gap-2 mb-4">
-                    <div className="flex items-center gap-2">
-                      <ImageIcon className="w-5 h-5 text-brand" />
-                      <h3 className="font-display font-semibold uppercase text-sm text-ink">
-                        Render ambienti
-                      </h3>
+                  <div className="rounded-2xl border border-stroke bg-surface p-5">
+                    <div className="flex items-center justify-between gap-2 mb-4">
+                      <div className="flex items-center gap-2">
+                        <ImageIcon className="w-5 h-5 text-brand" />
+                        <h3 className="font-display font-semibold uppercase text-sm text-ink">
+                          Render ambienti
+                        </h3>
+                      </div>
+                      {renders.length > 0 && (
+                        <span className="font-display uppercase text-[10px] text-fog">
+                          {renders.length} render
+                        </span>
+                      )}
                     </div>
-                    {renders.length > 0 && (
-                      <span className="font-display uppercase text-[10px] text-fog">
-                        {renders.length} render
-                      </span>
-                    )}
-                  </div>
-                  {renders.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {renders.map((render) => (
-                        <div
-                          key={render.id}
-                          className="rounded-xl border border-stroke bg-bg overflow-hidden group relative"
-                        >
-                          <a
-                            href={assetUrl(render.image_url)}
-                            download
-                            target="_blank"
-                            rel="noreferrer"
-                            className="absolute top-2 right-2 z-10 bg-bg/90 border border-stroke rounded-full p-1.5 text-brand hover:text-ink opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="Scarica render"
+                    {renders.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {renders.map((render) => (
+                          <div
+                            key={render.id}
+                            className="rounded-xl border border-stroke bg-bg overflow-hidden group relative"
                           >
-                            <Download className="w-3.5 h-3.5" />
-                          </a>
-                          <a href={assetUrl(render.image_url)} target="_blank" rel="noreferrer">
-                            <AssetImage
-                              url={render.image_url}
-                              alt={render.room_name || "render"}
-                              className="w-full aspect-video object-cover"
-                            />
-                          </a>
-                          <div className="px-3 py-2 flex items-center justify-between gap-2">
-                            <span className="font-display uppercase text-[10px] text-brand truncate">
-                              {render.room_name}
-                            </span>
                             <a
                               href={assetUrl(render.image_url)}
                               download
                               target="_blank"
                               rel="noreferrer"
-                              className="shrink-0 font-display uppercase text-[9px] text-fog hover:text-ink inline-flex items-center gap-1"
+                              className="absolute top-2 right-2 z-10 bg-bg/90 border border-stroke rounded-full p-1.5 text-brand hover:text-ink opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Scarica render"
                             >
-                              <Download className="w-3 h-3" /> Scarica
+                              <Download className="w-3.5 h-3.5" />
                             </a>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="aspect-video rounded-xl border border-stroke bg-bg grid place-items-center text-fog text-sm">
-                      Nessun render generato.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {estimate?.pacchetti && (
-                <div className="rounded-2xl border border-stroke bg-surface p-5">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-5 h-5 text-brand" />
-                      <h3 className="font-display font-semibold uppercase text-sm text-ink">
-                        Computo predittivo
-                      </h3>
-                    </div>
-                    <span
-                      className={`rounded-full px-3 py-1 font-display text-[9px] uppercase ${
-                        estReliable
-                          ? "bg-success/15 text-success"
-                          : "bg-warning/15 text-warning"
-                      }`}
-                    >
-                      {estReliable
-                        ? "Stima da planimetria quotata"
-                        : "Stima AI da verificare in sopralluogo"}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    {["essenziale", "premium", "luxury"].map((key) => {
-                      const p = estPacchetti[key] || {};
-                      return (
-                        <div
-                          key={key}
-                          className="rounded-xl border border-stroke bg-bg p-3"
-                        >
-                          <div className="font-display uppercase text-[10px] text-fog capitalize">
-                            {key}
-                          </div>
-                          <div className="font-display font-bold text-sm text-brand mt-1">
-                            {euro(p.range_basso)}
-                          </div>
-                          <div className="font-body text-[10px] text-fog">
-                            {euro(p.range_alto)}
-                          </div>
-                          {p.costo_mq && (
-                            <div className="font-body text-[10px] text-fog mt-1">
-                              ~{euro(p.costo_mq)}/mq
+                            <a
+                              href={assetUrl(render.image_url)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <AssetImage
+                                url={render.image_url}
+                                alt={render.room_name || "render"}
+                                className="w-full aspect-video object-cover"
+                              />
+                            </a>
+                            <div className="px-3 py-2 flex items-center justify-between gap-2">
+                              <span className="font-display uppercase text-[10px] text-brand truncate">
+                                {render.room_name}
+                              </span>
+                              <a
+                                href={assetUrl(render.image_url)}
+                                download
+                                target="_blank"
+                                rel="noreferrer"
+                                className="shrink-0 font-display uppercase text-[9px] text-fog hover:text-ink inline-flex items-center gap-1"
+                              >
+                                <Download className="w-3 h-3" /> Scarica
+                              </a>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="aspect-video rounded-xl border border-stroke bg-bg grid place-items-center text-fog text-sm">
+                        Nessun render generato.
+                      </div>
+                    )}
                   </div>
-                  {typeof selectedJob?.estimate_confidence === "number" && (
-                    <p className="font-body text-[11px] text-fog mt-3">
-                      Affidabilita lettura:{" "}
-                      {Math.round(selectedJob.estimate_confidence * 100)}% · origine
-                      stima da AI Architect, da confermare con misure e
-                      distribuzione in sopralluogo.
-                    </p>
-                  )}
                 </div>
-              )}
 
-              {loadingJob && (
-                <div className="fixed bottom-5 right-5 rounded-full bg-surface border border-stroke px-4 py-2 text-fog text-xs inline-flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Aggiornamento job
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-      </div>
+                {estimate?.pacchetti && (
+                  <div className="rounded-2xl border border-stroke bg-surface p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-brand" />
+                        <h3 className="font-display font-semibold uppercase text-sm text-ink">
+                          Computo predittivo
+                        </h3>
+                      </div>
+                      <span
+                        className={`rounded-full px-3 py-1 font-display text-[9px] uppercase ${
+                          estReliable
+                            ? "bg-success/15 text-success"
+                            : "bg-warning/15 text-warning"
+                        }`}
+                      >
+                        {estReliable
+                          ? "Stima da planimetria quotata"
+                          : "Stima AI da verificare in sopralluogo"}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      {["essenziale", "premium", "luxury"].map((key) => {
+                        const p = estPacchetti[key] || {};
+                        return (
+                          <div
+                            key={key}
+                            className="rounded-xl border border-stroke bg-bg p-3"
+                          >
+                            <div className="font-display uppercase text-[10px] text-fog capitalize">
+                              {key}
+                            </div>
+                            <div className="font-display font-bold text-sm text-brand mt-1">
+                              {euro(p.range_basso)}
+                            </div>
+                            <div className="font-body text-[10px] text-fog">
+                              {euro(p.range_alto)}
+                            </div>
+                            {p.costo_mq && (
+                              <div className="font-body text-[10px] text-fog mt-1">
+                                ~{euro(p.costo_mq)}/mq
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {typeof selectedJob?.estimate_confidence === "number" && (
+                      <p className="font-body text-[11px] text-fog mt-3">
+                        Affidabilita lettura:{" "}
+                        {Math.round(selectedJob.estimate_confidence * 100)}% ·
+                        origine stima da AI Architect, da confermare con misure
+                        e distribuzione in sopralluogo.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {loadingJob && (
+                  <div className="fixed bottom-5 right-5 rounded-full bg-surface border border-stroke px-4 py-2 text-fog text-xs inline-flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Aggiornamento
+                    job
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 }
