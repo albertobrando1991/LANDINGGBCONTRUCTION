@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import LoadingScreen from "@/landing/LoadingScreen";
 import Navbar from "@/landing/Navbar";
-import FastHero from "@/landing/FastHero";
+import ImmersiveHero from "@/landing/ImmersiveHero";
 import SocialProof from "@/landing/SocialProof";
 import Packages from "@/landing/Packages";
 import Configurator from "@/landing/Configurator";
@@ -94,7 +94,7 @@ export default function Landing() {
     <div className="bg-bg text-ink min-h-screen">
       {loading && <LoadingScreen onDone={() => setLoading(false)} />}
       <Navbar />
-      <FastHero />
+      <ImmersiveHero />
       <SocialProof />
       <Packages />
 
