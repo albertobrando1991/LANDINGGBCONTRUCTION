@@ -749,14 +749,37 @@ export default function ImmersiveHero() {
 
   useEffect(() => {
     if (prefersReducedMotion) return undefined;
+    // Pointer parallax non serve su touch: mousemove non scatta comunque.
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(pointer: coarse)").matches
+    ) {
+      return undefined;
+    }
 
-    const onMove = (event) => {
-      mouseRef.current.x = (event.clientX / window.innerWidth - 0.5) * 2;
-      mouseRef.current.y = (event.clientY / window.innerHeight - 0.5) * 2;
+    let raf = null;
+    // Quando la hero esce dal viewport il loop deve fermarsi: altrimenti
+    // continua a scrivere CSS vars su tutta la pagina e blocca i click piu in basso.
+    let heroVisible = true;
+
+    const applyVars = (x, y) => {
+      if (canvasLayerRef.current) {
+        canvasLayerRef.current.style.setProperty("--hero-px", `${x * -14}px`);
+        canvasLayerRef.current.style.setProperty("--hero-py", `${y * -10}px`);
+      }
+      if (depthLayerRef.current) {
+        depthLayerRef.current.style.setProperty("--depth-mouse-x", `${x * 18}px`);
+        depthLayerRef.current.style.setProperty("--depth-mouse-y", `${y * 12}px`);
+      }
+      if (finalParallaxRef.current) {
+        finalParallaxRef.current.style.setProperty("--hero-text-px", `${x * 10}px`);
+        finalParallaxRef.current.style.setProperty("--hero-text-py", `${y * 7}px`);
+      }
     };
 
-    window.addEventListener("mousemove", onMove);
-    let raf;
+    const settled = () =>
+      Math.abs(mouseRef.current.x - currentMouseRef.current.x) < 0.001 &&
+      Math.abs(mouseRef.current.y - currentMouseRef.current.y) < 0.001;
 
     const loop = () => {
       currentMouseRef.current.x +=
@@ -764,41 +787,45 @@ export default function ImmersiveHero() {
       currentMouseRef.current.y +=
         (mouseRef.current.y - currentMouseRef.current.y) * 0.055;
 
-      const x = currentMouseRef.current.x;
-      const y = currentMouseRef.current.y;
+      applyVars(currentMouseRef.current.x, currentMouseRef.current.y);
 
-      if (canvasLayerRef.current) {
-        canvasLayerRef.current.style.setProperty("--hero-px", `${x * -14}px`);
-        canvasLayerRef.current.style.setProperty("--hero-py", `${y * -10}px`);
+      // Stop quando i valori sono fermi o la hero non e visibile.
+      if (!heroVisible || settled()) {
+        raf = null;
+        return;
       }
-      if (depthLayerRef.current) {
-        depthLayerRef.current.style.setProperty(
-          "--depth-mouse-x",
-          `${x * 18}px`,
-        );
-        depthLayerRef.current.style.setProperty(
-          "--depth-mouse-y",
-          `${y * 12}px`,
-        );
-      }
-      if (finalParallaxRef.current) {
-        finalParallaxRef.current.style.setProperty(
-          "--hero-text-px",
-          `${x * 10}px`,
-        );
-        finalParallaxRef.current.style.setProperty(
-          "--hero-text-py",
-          `${y * 7}px`,
-        );
-      }
-
       raf = requestAnimationFrame(loop);
     };
 
-    raf = requestAnimationFrame(loop);
+    const startLoop = () => {
+      if (!raf && heroVisible) raf = requestAnimationFrame(loop);
+    };
+
+    const onMove = (event) => {
+      if (!heroVisible) return;
+      mouseRef.current.x = (event.clientX / window.innerWidth - 0.5) * 2;
+      mouseRef.current.y = (event.clientY / window.innerHeight - 0.5) * 2;
+      startLoop();
+    };
+
+    let observer;
+    const pin = pinRef.current;
+    if (pin && typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver(
+        ([entry]) => {
+          heroVisible = entry.isIntersecting;
+          if (heroVisible) startLoop();
+        },
+        { threshold: 0 },
+      );
+      observer.observe(pin);
+    }
+
+    window.addEventListener("mousemove", onMove, { passive: true });
     return () => {
       window.removeEventListener("mousemove", onMove);
-      cancelAnimationFrame(raf);
+      if (observer) observer.disconnect();
+      if (raf) cancelAnimationFrame(raf);
     };
   }, [prefersReducedMotion]);
 
