@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { memo, useRef, useState } from "react";
 import LoadingScreen from "@/landing/LoadingScreen";
 import Navbar from "@/landing/Navbar";
 import ImmersiveHero from "@/landing/ImmersiveHero";
@@ -14,6 +14,15 @@ import SecondChance from "@/landing/SecondChance";
 import Team from "@/landing/Team";
 import Footer from "@/landing/Footer";
 import { scheduleSmoothScrollToElement } from "@/lib/scroll";
+
+const StaticNavbar = memo(Navbar);
+const StaticImmersiveHero = memo(ImmersiveHero);
+const StaticSocialProof = memo(SocialProof);
+const StaticPackages = memo(Packages);
+const StaticSecondChance = memo(SecondChance);
+const StaticTeam = memo(Team);
+const StaticFooter = memo(Footer);
+const StaticBookingModal = memo(BookingModal);
 
 export default function Landing() {
   const [loading, setLoading] = useState(true);
@@ -93,10 +102,10 @@ export default function Landing() {
   return (
     <div className="bg-bg text-ink min-h-screen">
       {loading && <LoadingScreen onDone={() => setLoading(false)} />}
-      <Navbar />
-      <ImmersiveHero />
-      <SocialProof />
-      <Packages />
+      <StaticNavbar />
+      <StaticImmersiveHero />
+      <StaticSocialProof />
+      <StaticPackages />
 
       <div ref={flowRef}>
         {phase === "config" && <Configurator onComplete={handleConfigDone} />}
@@ -128,10 +137,10 @@ export default function Landing() {
         )}
       </div>
 
-      <SecondChance />
-      <Team />
-      <Footer />
-      <BookingModal />
+      <StaticSecondChance />
+      <StaticTeam />
+      <StaticFooter />
+      <StaticBookingModal />
     </div>
   );
 }
