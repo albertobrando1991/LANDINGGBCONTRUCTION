@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 from fastapi import HTTPException
+from pymongo.errors import DuplicateKeyError
 
 
 ACCOUNT_ID = os.getenv("AI_CREDITS_ACCOUNT_ID", "gb_construction")
@@ -425,6 +426,35 @@ async def charge_credits(
 
     await require_available(db, credits, account_id=account_id)
 
+    doc = {
+        "account_id": account_id,
+        "transaction_type": "debit",
+        "action_key": action_key,
+        "action_label": action.get("label") or action_key,
+        "idempotency_key": idempotency_key,
+        "credits": -credits,
+        "value_eur": _to_eur(credits),
+        "estimated_provider_cost_eur": action.get("estimated_provider_cost_eur"),
+        "job_id": job_id,
+        "lead_id": lead_id,
+        "user_id": (user or {}).get("id"),
+        "user_email": (user or {}).get("email"),
+        "metadata": metadata or {},
+        "bucket_consumptions": [],
+        "created_at": now,
+    }
+
+    # Claim idempotente PRIMA di toccare i bucket: l'indice unico su
+    # idempotency_key fa da lock. Due richieste concorrenti con la stessa key
+    # non possono entrambe decrementare i saldi.
+    try:
+        await db.ai_credit_ledger.insert_one(doc)
+    except DuplicateKeyError:
+        existing = await db.ai_credit_ledger.find_one({"idempotency_key": idempotency_key})
+        if existing:
+            return existing
+        raise
+
     buckets = await _active_buckets(db, account_id)
     remaining_to_consume = credits
     consumptions: List[Dict[str, Any]] = []
@@ -455,26 +485,28 @@ async def charge_credits(
         )
 
     if remaining_to_consume > 0:
+        # Race sul saldo: rimborsa i bucket gia toccati e rilascia il claim
+        # cosi un retry puo ripartire pulito.
+        for consumption in consumptions:
+            oid = _object_id(consumption["bucket_id"])
+            if oid:
+                await db.ai_credit_buckets.update_one(
+                    {"_id": oid},
+                    {
+                        "$inc": {
+                            "remaining_credits": consumption["credits"],
+                            "used_credits": -consumption["credits"],
+                        }
+                    },
+                )
+        await db.ai_credit_ledger.delete_one({"idempotency_key": idempotency_key})
         raise HTTPException(status_code=409, detail="Saldo crediti modificato durante l'addebito. Riprova.")
 
-    doc = {
-        "account_id": account_id,
-        "transaction_type": "debit",
-        "action_key": action_key,
-        "action_label": action.get("label") or action_key,
-        "idempotency_key": idempotency_key,
-        "credits": -credits,
-        "value_eur": _to_eur(credits),
-        "estimated_provider_cost_eur": action.get("estimated_provider_cost_eur"),
-        "job_id": job_id,
-        "lead_id": lead_id,
-        "user_id": (user or {}).get("id"),
-        "user_email": (user or {}).get("email"),
-        "metadata": metadata or {},
-        "bucket_consumptions": consumptions,
-        "created_at": now,
-    }
-    await db.ai_credit_ledger.insert_one(doc)
+    doc["bucket_consumptions"] = consumptions
+    await db.ai_credit_ledger.update_one(
+        {"idempotency_key": idempotency_key},
+        {"$set": {"bucket_consumptions": consumptions}},
+    )
     await db.ai_usage_events.insert_one(
         {
             **doc,
