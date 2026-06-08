@@ -97,6 +97,9 @@ const PROCESS_STEPS = [
   { key: "advice", label: "Consigli finali", Icon: Sparkles },
 ];
 
+const DEFAULT_LAYOUT_2D_WARNING =
+  "La planimetria 2D e un concept preliminare generato da un agente AI specializzato. Nonostante la precisione del sistema, possono esserci errori su misure, aperture, muri, arredi o rapporti tra ambienti. In fase di sopralluogo puoi chiedere allo staff GB Construction di verificare e, se necessario, modificare la planimetria collegata al progetto.";
+
 const initialForm = {
   file: null,
   planType: "auto",
@@ -149,6 +152,7 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
   const [approving, setApproving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [conceptFeedback, setConceptFeedback] = useState("");
 
   const outputs = job?.outputs || [];
   const analysis = latest(outputs, "analysis");
@@ -187,6 +191,12 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
   const concept2d = redistributed2d || clean2d;
   const conceptPayload = concept2d?.json_content || {};
   const conceptApprovable = conceptPayload.approvable_for_render === true;
+  const layoutRegenerationLimit = Number(job?.layout_regeneration_limit ?? 1);
+  const layoutRegenerationCount = Number(job?.layout_regeneration_count ?? 0);
+  const layoutRegenerationAvailable =
+    job?.layout_regeneration_available ??
+    layoutRegenerationCount < layoutRegenerationLimit;
+  const layout2dWarning = job?.layout_2d_warning || DEFAULT_LAYOUT_2D_WARNING;
   const redistributionBlocked =
     job?.status === "needs_confirmation" &&
     /redistribuzione 2d bloccata|sagome 2d sintetiche|planimetria migliore|revisione tecnica/i.test(
@@ -259,6 +269,7 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
         headers: { "Content-Type": "multipart/form-data" },
       });
       setJob(data);
+      setConceptFeedback("");
       setStep(3);
       toast.success("Analisi AI Architect avviata");
     } catch (err) {
@@ -341,6 +352,38 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
       setJob(data);
       setStep(3);
       toast.success("Rigenerazione stile avviata");
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const regenerateConcept2d = async () => {
+    if (!job) return;
+    if (!layoutRegenerationAvailable) {
+      toast.error(
+        "La rigenerazione 2D e disponibile una sola volta. Per altre modifiche chiedi allo staff durante il sopralluogo.",
+      );
+      return;
+    }
+    const correctionNotes = conceptFeedback.trim();
+    if (!correctionNotes) {
+      toast.error("Inserisci una correzione prima di rigenerare il 2D.");
+      return;
+    }
+    setRegenerating(true);
+    try {
+      const { data } = await client.post(
+        `/ai-architect/jobs/${job.id}/regenerate`,
+        {
+          correction_notes: correctionNotes,
+          output_types: ["concept_2d"],
+        },
+      );
+      setJob(data);
+      setStep(3);
+      toast.success("Correzione inviata. Concept 2D in rigenerazione.");
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
     } finally {
@@ -842,6 +885,14 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                                 alt="Concept 2D da approvare"
                                 className="w-full max-h-72 rounded-xl border border-stroke object-contain bg-bg"
                               />
+                              <div className="mt-3 rounded-xl border border-warning/40 bg-warning/10 p-4">
+                                <div className="flex items-start gap-3">
+                                  <AlertTriangle className="w-5 h-5 text-warning shrink-0" />
+                                  <p className="font-body text-xs leading-relaxed text-fog">
+                                    {layout2dWarning}
+                                  </p>
+                                </div>
+                              </div>
                             </div>
                           )}
                           {!conceptApprovable && (
@@ -900,6 +951,61 @@ export default function AIArchitect({ baseConfig, leadId, onComplete, onSkip }) 
                                       ))}
                                   </div>
                                 </div>
+                              )}
+                            </div>
+                          )}
+                          {layoutRegenerationAvailable ? (
+                            <div className="mt-4 rounded-xl border border-stroke bg-bg p-4">
+                              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                                <label
+                                  htmlFor="concept-feedback"
+                                  className="font-display font-semibold uppercase text-[10px] tracking-wider text-ink"
+                                >
+                                  Correzione concept 2D
+                                </label>
+                                <span className="font-display uppercase text-[9px] tracking-wider text-warning">
+                                  1 rigenerazione disponibile
+                                </span>
+                              </div>
+                              <textarea
+                                id="concept-feedback"
+                                value={conceptFeedback}
+                                onChange={(e) => setConceptFeedback(e.target.value)}
+                                rows={3}
+                                placeholder="Esempio: la cabina armadio deve avere accesso dalla camera da letto, non dal bagno; non chiudere il passaggio camera-cabina."
+                                className="mt-2 w-full resize-none rounded-xl border border-stroke bg-surface px-4 py-3 font-body text-sm text-ink outline-none transition-colors placeholder:text-fog focus:border-brand"
+                              />
+                              <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={regenerateConcept2d}
+                                  disabled={!conceptFeedback.trim() || regenerating}
+                                  className="bg-surface border border-stroke text-ink rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-50"
+                                >
+                                  <RotateCw
+                                    className={`w-4 h-4 ${regenerating ? "animate-spin" : ""}`}
+                                  />
+                                  Correggi e rigenera 2D
+                                </button>
+                                {job?.layout_correction_notes && (
+                                  <p className="font-body text-xs text-fog leading-relaxed">
+                                    Ultima correzione: {job.layout_correction_notes}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-4 rounded-xl border border-stroke bg-bg p-4">
+                              <p className="font-display font-semibold uppercase text-[10px] tracking-wider text-ink">
+                                Rigenerazione 2D gia utilizzata
+                              </p>
+                              <p className="font-body text-xs leading-relaxed text-fog mt-2">
+                                Ogni utente puo rigenerare la planimetria una sola volta. Per ulteriori modifiche, chiedi allo staff GB Construction durante il sopralluogo.
+                              </p>
+                              {job?.layout_correction_notes && (
+                                <p className="font-body text-xs text-fog leading-relaxed mt-2">
+                                  Ultima correzione: {job.layout_correction_notes}
+                                </p>
                               )}
                             </div>
                           )}

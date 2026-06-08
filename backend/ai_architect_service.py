@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Literal, Optional
 import requests
 from bson import ObjectId
 from fastapi import HTTPException, UploadFile
+from pymongo import ReturnDocument
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from engines.floorplan_automation import (
@@ -160,6 +161,18 @@ STEPS = [
     ("renders", "Generazione render"),
     ("advice", "Consigli finali"),
 ]
+CONCEPT_2D_REGENERATION_TYPES = {"concept_2d", "clean_2d_plan", "redistributed_2d_plan"}
+LAYOUT_REGENERATION_LIMIT = 1
+LAYOUT_2D_WARNING = (
+    "La planimetria 2D e un concept preliminare generato da un agente AI specializzato. "
+    "Nonostante la precisione del sistema, possono esserci errori su misure, aperture, muri, "
+    "arredi o rapporti tra ambienti. In fase di sopralluogo puoi chiedere allo staff GB "
+    "Construction di verificare e, se necessario, modificare la planimetria collegata al progetto."
+)
+LAYOUT_REGENERATION_LIMIT_MESSAGE = (
+    "La rigenerazione della planimetria 2D e disponibile una sola volta per questo utente. "
+    "Per ulteriori modifiche, chiedi allo staff GB Construction durante il sopralluogo."
+)
 
 
 ANALYSIS_PROMPT = (
@@ -394,6 +407,47 @@ def _normalize_text(value: Optional[str]) -> Optional[str]:
     return value or None
 
 
+def _layout_correction_notes(job: Dict[str, Any]) -> Optional[str]:
+    notes = _normalize_text(str(job.get("layout_correction_notes") or ""))
+    if not notes:
+        return None
+    return notes[:1200]
+
+
+def _layout_correction_prompt(job: Dict[str, Any]) -> str:
+    notes = _layout_correction_notes(job)
+    if not notes:
+        return ""
+    return (
+        " STAFF_LAYOUT_CORRECTIONS: treat these reviewer notes as hard constraints for this regeneration. "
+        "Fix the 2D concept accordingly before any render is allowed. "
+        f"Reviewer notes: {notes}. "
+    )
+
+
+def _layout_regeneration_count(job: Dict[str, Any]) -> int:
+    try:
+        return max(0, int(job.get("layout_regeneration_count") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _layout_regeneration_available(job: Dict[str, Any]) -> bool:
+    return _layout_regeneration_count(job) < LAYOUT_REGENERATION_LIMIT
+
+
+def _layout_regeneration_payload(job: Dict[str, Any]) -> Dict[str, Any]:
+    count = _layout_regeneration_count(job)
+    remaining = max(0, LAYOUT_REGENERATION_LIMIT - count)
+    return {
+        "layout_regeneration_limit": LAYOUT_REGENERATION_LIMIT,
+        "layout_regeneration_count": count,
+        "layout_regeneration_remaining": remaining,
+        "layout_regeneration_available": remaining > 0,
+        "layout_2d_warning": LAYOUT_2D_WARNING,
+    }
+
+
 def _clean_client_text(value: str) -> str:
     text = str(value or "").strip()
     text = re.sub(r"(?m)^\s*#{1,6}\s*", "", text)
@@ -623,6 +677,11 @@ async def create_job(
         "review_notes": None,
         "review_approved_at": None,
         "review_approved_by": None,
+        "layout_regeneration_limit": LAYOUT_REGENERATION_LIMIT,
+        "layout_regeneration_count": 0,
+        "layout_regeneration_remaining": LAYOUT_REGENERATION_LIMIT,
+        "layout_regeneration_available": True,
+        "layout_2d_warning": LAYOUT_2D_WARNING,
         "metrics": {},
         "image_generation": {
             "provider": _selected_image_provider(),
@@ -685,14 +744,66 @@ async def get_job_payload(db, job_id: str) -> Dict[str, Any]:
             "score": lead_doc.get("score"),
             "citta": lead_doc.get("citta"),
         }
-    return {
+    payload = {
         **serialize_doc(job),
+        **_layout_regeneration_payload(job),
         "steps": [{"key": key, "label": label} for key, label in STEPS],
         "outputs": [serialize_doc(o) for o in outputs],
         "errors": [serialize_doc(e) for e in errors],
         "quality_gates": [serialize_doc(q) for q in quality_logs],
         "linked_lead": linked_lead,
     }
+    return payload
+
+
+async def reserve_concept_2d_regeneration(db, job_id: str) -> Dict[str, Any]:
+    oid = ObjectId(job_id)
+    job = await db.ai_architect_jobs.find_one({"_id": oid})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job AI Architect non trovato")
+    if not _layout_regeneration_available(job):
+        raise HTTPException(status_code=409, detail=LAYOUT_REGENERATION_LIMIT_MESSAGE)
+
+    scope_filter = {}
+    if job.get("user_id"):
+        scope_filter = {"user_id": job.get("user_id")}
+    elif job.get("lead_id"):
+        scope_filter = {"lead_id": job.get("lead_id")}
+    if scope_filter:
+        already_used = await db.ai_architect_jobs.find_one(
+            {
+                **scope_filter,
+                "_id": {"$ne": oid},
+                "layout_regeneration_count": {"$gte": LAYOUT_REGENERATION_LIMIT},
+            }
+        )
+        if already_used:
+            raise HTTPException(status_code=409, detail=LAYOUT_REGENERATION_LIMIT_MESSAGE)
+
+    updated = await db.ai_architect_jobs.find_one_and_update(
+        {
+            "_id": oid,
+            "$or": [
+                {"layout_regeneration_count": {"$exists": False}},
+                {"layout_regeneration_count": {"$lt": LAYOUT_REGENERATION_LIMIT}},
+            ],
+        },
+        {
+            "$inc": {"layout_regeneration_count": 1},
+            "$set": {
+                "layout_regeneration_limit": LAYOUT_REGENERATION_LIMIT,
+                "layout_regeneration_remaining": 0,
+                "layout_regeneration_available": False,
+                "layout_regeneration_last_requested_at": now_iso(),
+                "layout_2d_warning": LAYOUT_2D_WARNING,
+                "updated_at": now_iso(),
+            },
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated:
+        raise HTTPException(status_code=409, detail=LAYOUT_REGENERATION_LIMIT_MESSAGE)
+    return updated
 
 
 async def ensure_processed_reference(db, job_id: str) -> Optional[str]:
@@ -2169,6 +2280,7 @@ def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
     disclaimer = (job.get("vision_analysis") or {}).get("dynamic_disclaimer") or ""
     plan_details = _plan_details_for_prompt(job, mode)
     render_addendum = render_prompt_addendum(job.get("professional_floorplan")) if AI_REQUIRE_RENDER_FIDELITY else ""
+    correction_prompt = _layout_correction_prompt(job)
     variant = VARIANT_CATALOG[normalize_project_variant(job.get("project_variant_selected"))]
     fidelity_rule = (
         "The uploaded plan is already a defined project: preserve it exactly. Do not redesign, redistribute, "
@@ -2187,7 +2299,8 @@ def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
         "do NOT place a bathroom, toilet, sink, shower or bathtub inside a wardrobe, walk-in closet (cabina armadio), "
         "bedroom, living room or kitchen; sanitary fixtures only inside bathrooms; kitchen fixtures only inside the kitchen; "
         "beds only inside bedrooms; place every furniture item strictly inside the room it belongs to; "
-        "do not swap, merge, mirror or rotate rooms; keep adjacencies and door connections identical to the 2D plan. "
+        "do not swap, merge, mirror or rotate rooms; keep adjacencies and door connections identical to the 2D plan; "
+        "never move a cabina armadio access from camera da letto to bagno unless that bathroom-side door is explicitly drawn. "
     )
     return (
         "Draw a premium photorealistic architectural top-down 3D floor plan, dollhouse style, "
@@ -2198,6 +2311,7 @@ def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
         "Source hierarchy: APPROVED 2D plan image (highest priority) -> technical_floor_plan_json -> optimized_floor_plan_json -> visual output. "
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
         f"stairs, balconies, extra levels or volumes not allowed by the JSON: {plan_details}. "
+        f"{correction_prompt}"
         f"{render_addendum} "
         f"Client-selected variant: {variant['label']} ({variant['strategy']}); do not generate another variant. "
         f"Interior style: {job.get('style_selected') or 'Su misura GB Construction'}. "
@@ -2214,6 +2328,7 @@ def _room_prompt(job: Dict[str, Any], room_name: str) -> str:
     plan_details = _plan_details_for_prompt(job, "redistributed" if _should_redistribute(job) else "defined")
     defined_mode = _is_defined_project_mode(job)
     render_addendum = render_prompt_addendum(job.get("professional_floorplan")) if AI_REQUIRE_RENDER_FIDELITY else ""
+    correction_prompt = _layout_correction_prompt(job)
     variant = VARIANT_CATALOG[normalize_project_variant(job.get("project_variant_selected"))]
     fidelity_rule = (
         "The uploaded plan is a defined project and is layout-locked: keep the exact room position, walls, "
@@ -2230,6 +2345,7 @@ def _room_prompt(job: Dict[str, Any], room_name: str) -> str:
         "Source hierarchy: uploaded floor plan -> technical_floor_plan_json -> optimized_floor_plan_json -> render. "
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
         f"stairs, balconies, extra levels, extra bathrooms or volumes not allowed by the JSON: {plan_details}. "
+        f"{correction_prompt}"
         f"{render_addendum} "
         f"Client-selected variant: {variant['label']} ({variant['strategy']}); do not generate another variant. "
         f"Interior style: {job.get('style_selected') or 'Su misura GB Construction'}. "
@@ -2699,6 +2815,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
     technical_json = job.get("technical_floor_plan_json") or build_technical_floor_plan_json(job)
     optimized_json = job.get("optimized_floor_plan_json") or build_optimized_floor_plan_json(job, technical_json)
     floorplan_2d = professional.get("floorplan_2d") or {}
+    correction_notes = _layout_correction_notes(job)
     professional_payload = {
         "summary": professional.get("summary"),
         "technical_findings": professional.get("technical_findings") or [],
@@ -2743,6 +2860,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
             "constraints_respected": floorplan_2d.get("constraints_respected") or ["perimetro invariato", "finestre mantenute", "accessi principali mantenuti"],
             "rooms": detected_rooms,
             "technical_note": floorplan_2d.get("disclaimer") or "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
+            "staff_correction_notes": correction_notes,
             "professional_floorplan": professional_payload,
             "floor_plan_automation": automation_payload,
             "json_pipeline": json_pipeline_payload,
@@ -2754,6 +2872,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
             "constraints_respected": ["file allegato mantenuto come riferimento vincolante"],
             "rooms": detected_rooms,
             "technical_note": "Nessun layout reinterpretato: serve verifica prima di procedere con render o redistribuzione.",
+            "staff_correction_notes": correction_notes,
             "professional_floorplan": professional_payload,
             "floor_plan_automation": automation_payload,
             "json_pipeline": json_pipeline_payload,
@@ -2768,6 +2887,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
         ],
         "rooms": detected_rooms,
         "technical_note": floorplan_2d.get("disclaimer") or "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
+        "staff_correction_notes": correction_notes,
         "professional_floorplan": professional_payload,
         "floor_plan_automation": automation_payload,
         "json_pipeline": json_pipeline_payload,
@@ -2783,6 +2903,7 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
     professional_render_contract = professional.get("render_contract") or {}
     professional_floorplan = professional.get("floorplan_2d") or {}
     defined_mode = mode == "defined" or _is_defined_project_mode(job)
+    correction_notes = _layout_correction_notes(job)
     rooms = []
     for room in _analysis_rooms(job, min_confidence=0.2):
         box = room.get("bounding_box") or {}
@@ -2810,6 +2931,7 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
             "perimetro esterno esattamente come nel file allegato",
             "tutte le pareti interne visibili e le loro posizioni relative",
             "tutte le porte, finestre, varchi, balconi, scale e cavedi visibili",
+            "accessi reali tra camera da letto, cabina armadio, bagno e disimpegni come visibili nella planimetria",
             "numero, posizione e relazione degli ambienti gia disegnati",
             "bagni, cucina e zone impiantistiche nella posizione visibile o dichiarata",
         ]
@@ -2818,6 +2940,8 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
             "qualsiasi stanza non visibile o non dichiarata nella planimetria allegata",
             "nuove porte, finestre, balconi, scale, bagni o secondi livelli",
             "spostamento creativo di muri, aperture, bagni, cucina o accessi",
+            "chiusura di passaggi visibili tra camera da letto e cabina armadio",
+            "accessi bagno-cabina armadio inventati o spostati se non presenti nel file allegato",
             "reinterpretazioni di forma/perimetro per ragioni estetiche",
             "testi, quote, loghi, watermark",
         ]
@@ -2827,12 +2951,15 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
             "perimetro esterno della planimetria",
             "posizione relativa degli ambienti rilevati",
             "relazioni tra zona giorno, cucina, disimpegno, camere e bagno",
+            "accessi reali tra camera da letto, cabina armadio, bagno e disimpegni come visibili nella planimetria",
             "aperture e passaggi indicati o desumibili",
             "assenza di nuovi vani non rilevati",
         ]
         must_not_add = [
             "stanze nuove non presenti nel JSON",
             "bagni, scale, balconi, finestre o porte non rilevati",
+            "chiusura di passaggi visibili tra camera da letto e cabina armadio",
+            "accessi bagno-cabina armadio inventati o spostati se non presenti nel file allegato",
             "secondi livelli o ampliamenti volumetrici",
             "testi, quote, loghi, watermark",
         ]
@@ -2856,6 +2983,17 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
             ],
             "negative_prompt": professional_render_contract.get("negative_prompt"),
             "fidelity_notes": professional_render_contract.get("fidelity_notes") or [],
+        },
+        "access_rules": {
+            "must_preserve": [
+                "porte, varchi e passaggi visibili nel file sorgente",
+                "accesso camera da letto-cabina armadio quando indicato dalla planimetria",
+            ],
+            "must_not_invent": [
+                "porta bagno-cabina armadio non disegnata nella planimetria",
+                "muro chiuso su un varco camera-cabina armadio visibile",
+            ],
+            "staff_correction_notes": correction_notes,
         },
         "professional_floorplan": {
             "summary": professional.get("summary"),
@@ -3652,6 +3790,7 @@ def _redistributed_2d_prompt(job: Dict[str, Any]) -> str:
     rooms = ", ".join(room.get("name", "") for room in _analysis_rooms(job, min_confidence=0.45)) or "ambienti rilevati dalla planimetria"
     plan_details = _plan_details_for_prompt(job, "redistributed")
     professional_addendum = professional_2d_prompt_addendum(job.get("professional_floorplan")) if AI_REQUIRE_PROFESSIONAL_2D else ""
+    correction_prompt = _layout_correction_prompt(job)
     variant = VARIANT_CATALOG[normalize_project_variant(job.get("project_variant_selected"))]
     return (
         "Create a precise professional 2D architectural renovation layout from the uploaded floor plan reference and optimized_floor_plan_json. "
@@ -3666,6 +3805,11 @@ def _redistributed_2d_prompt(job: Dict[str, Any]) -> str:
         "STRICT_REJECTION_RULES: no balconies/terraces unless clearly visible in the uploaded plan; no kitchen cabinets, "
         "appliances or counters inside bathrooms or service bathrooms; do not label any wall as load-bearing or structural "
         "unless the source explicitly proves it; uncertain walls must be labelled only as verification required. "
+        "DOOR_AND_ACCESS_RULES: preserve visible door/opening connections exactly; do not close a visible passage; "
+        "do not invent a new bathroom-to-walk-in-closet/cabina-armadio access unless the source explicitly shows that door. "
+        "If a cabina armadio is adjacent to a camera da letto, keep the bedroom-side access when it is shown in the source; "
+        "never replace it with an invented bathroom-side access. "
+        f"{correction_prompt}"
         f"{professional_addendum} "
         "No logo, no watermark, no decorative fantasy elements."
     )
@@ -3675,6 +3819,7 @@ def _clean_defined_2d_prompt(job: Dict[str, Any]) -> str:
     rooms = ", ".join(room.get("name", "") for room in _analysis_rooms(job, min_confidence=0.45)) or "ambienti rilevati dalla planimetria"
     plan_details = _plan_details_for_prompt(job, "defined")
     professional_addendum = professional_2d_prompt_addendum(job.get("professional_floorplan")) if AI_REQUIRE_PROFESSIONAL_2D else ""
+    correction_prompt = _layout_correction_prompt(job)
     variant = VARIANT_CATALOG[normalize_project_variant(job.get("project_variant_selected"))]
     return (
         "Create a clean professional 2D architectural drafting version of the uploaded floor plan and technical_floor_plan_json. "
@@ -3686,6 +3831,11 @@ def _clean_defined_2d_prompt(job: Dict[str, Any]) -> str:
         "STRICT_REJECTION_RULES: no balconies/terraces unless clearly visible in the uploaded plan; no kitchen cabinets, "
         "appliances or counters inside bathrooms or service bathrooms; do not label any wall as load-bearing or structural "
         "unless the source explicitly proves it; uncertain walls must be labelled only as verification required. "
+        "DOOR_AND_ACCESS_RULES: preserve visible door/opening connections exactly; do not close a visible passage; "
+        "do not invent a new bathroom-to-walk-in-closet/cabina-armadio access unless the source explicitly shows that door. "
+        "If a cabina armadio is adjacent to a camera da letto, keep the bedroom-side access when it is shown in the source; "
+        "never replace it with an invented bathroom-side access. "
+        f"{correction_prompt}"
         f"{professional_addendum} "
         "Improve readability with sober lineweights, clean labels, compact legend and verification notes. "
         "Do not add, remove, enlarge, reduce or move any architectural element. No logo, no watermark, no decorative fantasy elements."
@@ -4480,18 +4630,105 @@ async def confirm_job(db, job_id: str, plan_type_selected: str):
     await _continue_generation(db, job_id)
 
 
+async def _regenerate_concept_2d(
+    db,
+    job_id: str,
+    job: Dict[str, Any],
+    *,
+    correction_notes: Optional[str] = None,
+) -> None:
+    notes = _normalize_text(correction_notes)
+    update_fields = {
+        "status": "processing",
+        "current_step": "proposal_2d",
+        "progress_percentage": _progress_for("proposal_2d"),
+        "requires_confirmation": False,
+        "review_required": True,
+        "review_status": "revision_requested",
+        "review_approved_at": None,
+        "review_approved_by": None,
+        "layout_quality_hold": False,
+        "render_quality_hold": False,
+        "error_message": None,
+    }
+    if notes:
+        update_fields["layout_correction_notes"] = notes
+        job["layout_correction_notes"] = notes
+    await _set_job(db, job_id, **update_fields)
+
+    await db.ai_architect_outputs.delete_many(
+        {
+            "job_id": job_id,
+            "output_type": {
+                "$in": [
+                    "plan_details",
+                    "clean_2d_plan",
+                    "redistributed_2d_plan",
+                    "topdown_3d_plan",
+                    "room_render",
+                    "advice",
+                    "pdf_report",
+                ]
+            },
+        }
+    )
+
+    await ensure_processed_reference(db, job_id)
+    job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+    if not job:
+        return
+    _ensure_professional_analysis(job)
+    if AI_FLOORPLAN_PROFESSIONAL_ANALYSIS and not job.get("professional_floorplan"):
+        await _persist_professional_package(db, job_id, job)
+        job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+        if not job:
+            return
+    if not job.get("floor_plan_automation"):
+        await _persist_automation_contract(db, job_id, job)
+        job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+        if not job:
+            return
+    if not job.get("technical_floor_plan_json") or not job.get("optimized_floor_plan_json"):
+        await _persist_floorplan_json_pipeline(db, job_id, job)
+        job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+        if not job:
+            return
+
+    mode = "redistributed" if _should_redistribute(job) else "defined"
+    layout_ready = await _generate_layout_outputs(db, job_id, job, mode)
+    if not layout_ready:
+        return
+
+    await _set_job(
+        db,
+        job_id,
+        status="needs_review",
+        current_step="review",
+        progress_percentage=_progress_for("review"),
+        review_required=True,
+        review_status="pending",
+        requires_confirmation=False,
+        error_message=None,
+    )
+
+
 async def regenerate_outputs(
     db,
     job_id: str,
     *,
     style_selected: Optional[str] = None,
     output_types: Optional[List[str]] = None,
+    correction_notes: Optional[str] = None,
 ):
     job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
     if not job:
         raise HTTPException(status_code=404, detail="Job AI Architect non trovato")
 
     requested = set(output_types or ["topdown_3d_plan", "room_render", "advice", "pdf_report"])
+    if requested & CONCEPT_2D_REGENERATION_TYPES:
+        await _regenerate_concept_2d(db, job_id, job, correction_notes=correction_notes)
+        return
+
     delete_types = list(requested)
     await db.ai_architect_outputs.delete_many({"job_id": job_id, "output_type": {"$in": delete_types}})
     if style_selected:

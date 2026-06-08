@@ -11,6 +11,7 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  RotateCw,
   Search,
   ShieldCheck,
 } from "lucide-react";
@@ -37,6 +38,9 @@ const STATUS = {
   completed: { label: "Completato", cls: "bg-success/15 text-success" },
   failed: { label: "Da controllare", cls: "bg-danger/15 text-danger" },
 };
+
+const DEFAULT_LAYOUT_2D_WARNING =
+  "La planimetria 2D e un concept preliminare generato da un agente AI specializzato. Nonostante la precisione del sistema, possono esserci errori su misure, aperture, muri, arredi o rapporti tra ambienti. In fase di sopralluogo puoi chiedere allo staff GB Construction di verificare e, se necessario, modificare la planimetria collegata al progetto.";
 
 function assetUrl(url) {
   if (!url) return "";
@@ -111,6 +115,7 @@ export default function AIArchitectReview() {
   const [tab, setTab] = useState(deepLinkJob ? "tutti" : "needs_review");
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState(deepLinkJob || null);
+  const [conceptFeedback, setConceptFeedback] = useState("");
   const qc = useQueryClient();
 
   const { data: jobs = [], isLoading } = useQuery({
@@ -142,6 +147,10 @@ export default function AIArchitectReview() {
     refetchInterval: (query) =>
       ["processing", "queued"].includes(query.state.data?.status) ? 3000 : false,
   });
+
+  useEffect(() => {
+    setConceptFeedback(selectedJob?.layout_correction_notes || "");
+  }, [selectedJob?.id, selectedJob?.layout_correction_notes]);
 
   const invalidateJob = async (jobId) => {
     await qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] });
@@ -176,12 +185,18 @@ export default function AIArchitectReview() {
   });
 
   const regenerate = useMutation({
-    mutationFn: ({ jobId, outputTypes }) =>
+    mutationFn: ({ jobId, outputTypes, correctionNotes }) =>
       client.post(`/ai-architect/jobs/${jobId}/regenerate`, {
         output_types: outputTypes,
+        correction_notes: correctionNotes,
       }),
-    onSuccess: async (_, { jobId }) => {
-      toast.success("Rigenerazione avviata.");
+    onSuccess: async (_, { jobId, outputTypes }) => {
+      const isConcept = outputTypes?.includes("concept_2d");
+      toast.success(
+        isConcept
+          ? "Correzione inviata. Concept 2D in rigenerazione."
+          : "Rigenerazione avviata.",
+      );
       await invalidateJob(jobId);
     },
     onError: (err) =>
@@ -235,6 +250,17 @@ export default function AIArchitectReview() {
   const selectedAutomationVariant =
     floorPlanAutomation.variant_generation?.selected_variant || {};
   const pipelineGate = floorPlanAutomation.pipeline_gate || {};
+  const layoutRegenerationLimit = Number(
+    selectedJob?.layout_regeneration_limit ?? 1,
+  );
+  const layoutRegenerationCount = Number(
+    selectedJob?.layout_regeneration_count ?? 0,
+  );
+  const layoutRegenerationAvailable =
+    selectedJob?.layout_regeneration_available ??
+    layoutRegenerationCount < layoutRegenerationLimit;
+  const layout2dWarning =
+    selectedJob?.layout_2d_warning || DEFAULT_LAYOUT_2D_WARNING;
   const status = STATUS[selectedJob?.status] || STATUS.queued;
   const estimate = selectedJob?.estimate;
   const estPacchetti = estimate?.pacchetti || {};
@@ -567,6 +593,14 @@ export default function AIArchitectReview() {
                         alt="concept 2D"
                         className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-[460px]"
                       />
+                      <div className="mt-3 rounded-xl border border-warning/40 bg-warning/10 p-3">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                          <p className="font-body text-xs leading-relaxed text-fog">
+                            {layout2dWarning}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="aspect-video rounded-xl border border-stroke bg-bg grid place-items-center text-fog text-sm">
@@ -589,6 +623,76 @@ export default function AIArchitectReview() {
                         verificata. Richiedere planimetria migliore o revisione
                         tecnica.
                       </p>
+                    </div>
+                  )}
+                  {selectedJob.status === "needs_review" && (
+                    <div className="mt-4 rounded-xl border border-stroke bg-bg p-4">
+                      {layoutRegenerationAvailable ? (
+                        <>
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                            <label
+                              htmlFor="dashboard-concept-feedback"
+                              className="font-display uppercase text-[10px] tracking-wider text-ink"
+                            >
+                              Correzione concept 2D
+                            </label>
+                            <span className="font-display uppercase text-[9px] tracking-wider text-warning">
+                              1 rigenerazione disponibile
+                            </span>
+                          </div>
+                          <textarea
+                            id="dashboard-concept-feedback"
+                            value={conceptFeedback}
+                            onChange={(event) => setConceptFeedback(event.target.value)}
+                            rows={3}
+                            placeholder="Esempio: la cabina armadio deve avere accesso dalla camera da letto, non dal bagno; non chiudere il passaggio camera-cabina."
+                            className="mt-2 w-full resize-none rounded-xl border border-stroke bg-surface px-4 py-3 font-body text-sm text-ink outline-none transition-colors placeholder:text-fog focus:border-brand"
+                          />
+                          <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const correctionNotes = conceptFeedback.trim();
+                                if (!correctionNotes) {
+                                  toast.error("Inserisci una correzione prima di rigenerare il 2D.");
+                                  return;
+                                }
+                                regenerate.mutate({
+                                  jobId: selectedJob.id,
+                                  outputTypes: ["concept_2d"],
+                                  correctionNotes,
+                                });
+                              }}
+                              disabled={!conceptFeedback.trim() || regenerate.isPending}
+                              className="bg-surface-2 border border-stroke text-ink rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
+                            >
+                              <RotateCw
+                                className={`w-4 h-4 ${regenerate.isPending ? "animate-spin" : ""}`}
+                              />
+                              Correggi e rigenera 2D
+                            </button>
+                            {selectedJob.layout_correction_notes && (
+                              <p className="font-body text-xs text-fog leading-relaxed">
+                                Ultima correzione: {selectedJob.layout_correction_notes}
+                              </p>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-display uppercase text-[10px] tracking-wider text-ink">
+                            Rigenerazione 2D gia utilizzata
+                          </p>
+                          <p className="font-body text-xs text-fog leading-relaxed mt-2">
+                            Ogni utente puo rigenerare la planimetria una sola volta. Ulteriori modifiche vanno gestite dallo staff in fase di sopralluogo.
+                          </p>
+                          {selectedJob.layout_correction_notes && (
+                            <p className="font-body text-xs text-fog leading-relaxed mt-2">
+                              Ultima correzione: {selectedJob.layout_correction_notes}
+                            </p>
+                          )}
+                        </>
+                      )}
                     </div>
                   )}
                   {(selectedAutomationVariant.label || pipelineGate.status) && (

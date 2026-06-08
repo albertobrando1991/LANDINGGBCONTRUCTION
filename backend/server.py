@@ -221,6 +221,7 @@ class AiArchitectApprove(BaseModel):
 class AiArchitectRegenerate(BaseModel):
     output_types: Optional[List[str]] = None
     style_selected: Optional[str] = None
+    correction_notes: Optional[str] = None
 
 
 class AiProjectQuoteCreate(BaseModel):
@@ -766,12 +767,18 @@ async def approve_ai_architect_job(job_id: str, body: AiArchitectApprove, backgr
 
 @api.post("/ai-architect/jobs/{job_id}/regenerate")
 async def regenerate_ai_architect_job(job_id: str, body: AiArchitectRegenerate, background_tasks: BackgroundTasks):
+    requested = set(body.output_types or [])
+    is_concept_regeneration = bool(
+        requested & {"concept_2d", "clean_2d_plan", "redistributed_2d_plan"}
+    )
+    if is_concept_regeneration:
+        await ai_architect_service.reserve_concept_2d_regeneration(db, job_id)
     await db.ai_architect_jobs.update_one(
         {"_id": ObjectId(job_id)},
         {"$set": {
             "status": "processing",
-            "current_step": "renders",
-            "progress_percentage": 70,
+            "current_step": "proposal_2d" if is_concept_regeneration else "renders",
+            "progress_percentage": 34 if is_concept_regeneration else 70,
             "adapter": f"analysis:{ai_architect_service.CLAUDE_VISION_MODEL}|text:{ai_architect_service.CLAUDE_TEXT_MODEL}|image:{ai_architect_service._selected_image_provider()}",
             "image_generation": {
                 "provider": ai_architect_service._selected_image_provider(),
@@ -789,6 +796,7 @@ async def regenerate_ai_architect_job(job_id: str, body: AiArchitectRegenerate, 
         job_id,
         style_selected=body.style_selected,
         output_types=body.output_types,
+        correction_notes=body.correction_notes,
     )
     return await ai_architect_service.get_job_payload(db, job_id)
 

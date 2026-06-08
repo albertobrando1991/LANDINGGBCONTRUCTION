@@ -1,7 +1,12 @@
+import asyncio
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import pytest
+from bson import ObjectId
+from fastapi import HTTPException
 
 import ai_architect_service as svc
 
@@ -274,3 +279,99 @@ def test_defined_project_reference_can_be_approvable_when_layout_locked():
     }
 
     assert svc._output_approvable_for_render(clean_reference, job) is True
+
+
+def test_layout_correction_notes_are_hard_prompt_constraints():
+    correction = "La cabina armadio deve avere accesso dalla camera da letto, non dal bagno."
+    job = {
+        "plan_type_selected": "existing_state",
+        "plan_type_detected": "existing_state",
+        "project_variant_selected": "premium_suite",
+        "layout_correction_notes": correction,
+        "vision_analysis": {
+            "plan_type_detected": "existing_state",
+            "confidence": 0.82,
+            "detected_rooms": [
+                {
+                    "name": "Camera da letto",
+                    "approx_position": "lato destro",
+                    "confidence": 0.82,
+                    "evidence": "Camera con accesso verso cabina armadio.",
+                    "verification_required": True,
+                },
+                {
+                    "name": "Cabina armadio",
+                    "approx_position": "adiacente alla camera",
+                    "confidence": 0.78,
+                    "evidence": "Vano collegato alla camera.",
+                    "verification_required": True,
+                },
+                {
+                    "name": "Bagno",
+                    "approx_position": "adiacente alla cabina",
+                    "confidence": 0.8,
+                    "evidence": "Sanitari visibili nel vano bagno.",
+                    "verification_required": True,
+                },
+            ],
+        },
+    }
+
+    details = svc._plan_details_json(job, "redistributed")
+    prompt = svc._redistributed_2d_prompt({**job, "plan_details": details})
+    topdown_prompt = svc._topdown_prompt({**job, "plan_details": details}, "redistributed")
+
+    assert details["access_rules"]["staff_correction_notes"] == correction
+    assert "accessi bagno-cabina armadio inventati" in " ".join(details["render_contract"]["must_not_add"])
+    assert "STAFF_LAYOUT_CORRECTIONS" in prompt
+    assert correction in prompt
+    assert "never replace it with an invented bathroom-side access" in prompt
+    assert "never move a cabina armadio access" in topdown_prompt
+
+
+def test_layout_regeneration_payload_defaults_to_one_available():
+    payload = svc._layout_regeneration_payload({})
+
+    assert payload["layout_regeneration_limit"] == 1
+    assert payload["layout_regeneration_count"] == 0
+    assert payload["layout_regeneration_remaining"] == 1
+    assert payload["layout_regeneration_available"] is True
+    assert "possono esserci errori" in payload["layout_2d_warning"]
+
+
+class _FakeJobsCollection:
+    def __init__(self, doc):
+        self.doc = doc
+
+    async def find_one(self, flt):
+        if flt.get("_id") == self.doc["_id"]:
+            return dict(self.doc)
+        return None
+
+    async def find_one_and_update(self, flt, update, return_document=None):
+        if flt.get("_id") != self.doc["_id"]:
+            return None
+        if int(self.doc.get("layout_regeneration_count") or 0) >= svc.LAYOUT_REGENERATION_LIMIT:
+            return None
+        for key, value in update.get("$inc", {}).items():
+            self.doc[key] = int(self.doc.get(key) or 0) + value
+        self.doc.update(update.get("$set", {}))
+        return dict(self.doc)
+
+
+class _FakeRegenerationDB:
+    def __init__(self, doc):
+        self.ai_architect_jobs = _FakeJobsCollection(doc)
+
+
+def test_reserve_concept_2d_regeneration_is_single_use():
+    job_id = ObjectId()
+    db = _FakeRegenerationDB({"_id": job_id})
+
+    reserved = asyncio.run(svc.reserve_concept_2d_regeneration(db, str(job_id)))
+
+    assert reserved["layout_regeneration_count"] == 1
+    assert reserved["layout_regeneration_available"] is False
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(svc.reserve_concept_2d_regeneration(db, str(job_id)))
+    assert exc.value.status_code == 409
