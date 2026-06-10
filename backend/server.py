@@ -239,6 +239,19 @@ class AiArchitectRegenerate(BaseModel):
     correction_notes: Optional[str] = None
 
 
+class AiArchitectRefineRegion(BaseModel):
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+class AiArchitectRefine(BaseModel):
+    instruction: str
+    region: Optional[AiArchitectRefineRegion] = None
+    reviewer: Optional[str] = "Dashboard staff"
+
+
 class AiProjectQuoteCreate(BaseModel):
     nome: str
     email: EmailStr
@@ -914,6 +927,63 @@ async def regenerate_ai_architect_job(job_id: str, request: Request, body: AiArc
         output_types=body.output_types,
         correction_notes=body.correction_notes,
         charge_id=uuid.uuid4().hex,
+    )
+    return await ai_architect_service.get_job_payload(db, job_id)
+
+
+@api.post("/ai-architect/jobs/{job_id}/outputs/{output_id}/refine")
+async def refine_ai_architect_output(
+    job_id: str,
+    output_id: str,
+    request: Request,
+    body: AiArchitectRefine,
+    background_tasks: BackgroundTasks,
+):
+    if not ai_architect_service.AI_REFINE_ENABLED:
+        raise HTTPException(status_code=403, detail="Ritocco interattivo non abilitato")
+    instruction = (body.instruction or "").strip()
+    if len(instruction) < 4:
+        raise HTTPException(status_code=422, detail="Descrivi la correzione da applicare all'immagine")
+    job_oid = object_id_or_400(job_id, "Job AI Architect")
+    output_oid = object_id_or_400(output_id, "Immagine")
+    user = await optional_current_user(request)
+    job = await db.ai_architect_jobs.find_one({"_id": job_oid})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job AI Architect non trovato")
+    output = await db.ai_architect_outputs.find_one({"_id": output_oid, "job_id": job_id})
+    if not output:
+        raise HTTPException(status_code=404, detail="Immagine da correggere non trovata")
+    output_type = output.get("output_type")
+    if output_type not in ai_architect_service.AI_REFINABLE_OUTPUT_TYPES:
+        raise HTTPException(status_code=422, detail="Questo output non e ritoccabile")
+    action_key = ai_architect_service.AI_REFINABLE_OUTPUT_TYPES[output_type]
+    await ai_credit_service.require_available_for_generation(
+        db,
+        ai_credit_service.action_credits(action_key),
+        user=user,
+        job=job,
+        public_message=user is None,
+    )
+    previous_status = job.get("status") or "completed"
+    await db.ai_architect_jobs.update_one(
+        {"_id": job_oid},
+        {"$set": {
+            "status": "processing",
+            "current_step": "refine",
+            "refine_in_progress": True,
+            "updated_at": now_iso(),
+        }},
+    )
+    background_tasks.add_task(
+        ai_architect_service.refine_output,
+        db,
+        job_id,
+        output_id,
+        instruction=instruction,
+        region=body.region.dict() if body.region else None,
+        reviewer=body.reviewer,
+        charge_id=uuid.uuid4().hex,
+        previous_status=previous_status,
     )
     return await ai_architect_service.get_job_payload(db, job_id)
 

@@ -213,6 +213,13 @@ def render_stage_credits(job: Dict[str, Any]) -> int:
     return int(RATE_CARD[render_stage_action_key(job)]["credits"])
 
 
+def action_credits(action_key: str) -> int:
+    action = RATE_CARD.get(action_key)
+    if not action:
+        raise ValueError(f"Azione crediti AI sconosciuta: {action_key}")
+    return int(action["credits"])
+
+
 def regeneration_credits(job: Dict[str, Any], output_types: Optional[List[str]]) -> int:
     requested = set(output_types or ["topdown_3d_plan", "room_render", "advice", "pdf_report"])
     if requested & {"concept_2d", "clean_2d_plan", "redistributed_2d_plan"}:

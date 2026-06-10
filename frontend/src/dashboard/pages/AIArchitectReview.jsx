@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -6,6 +6,7 @@ import {
   Brain,
   CheckCircle2,
   Coins,
+  Crop,
   Download,
   ExternalLink,
   Eye,
@@ -15,6 +16,8 @@ import {
   RotateCw,
   Search,
   ShieldCheck,
+  Wand2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import client, { BACKEND_URL, formatApiErrorDetail } from "@/lib/api";
@@ -108,6 +111,215 @@ function AssetImage({ url, alt, className }) {
 function latest(outputs, type) {
   const items = (outputs || []).filter((item) => item.output_type === type);
   return items[items.length - 1];
+}
+
+// Ritocco interattivo stile ChatGPT: lo staff descrive a parole la correzione su una
+// singola immagine generata e, opzionalmente, seleziona l'area da correggere trascinando
+// un rettangolo sull'immagine. L'invio rigenera quella sola immagine in una nuova versione.
+function ImageRefiner({ output, compact = false, busy, onSubmit }) {
+  const [open, setOpen] = useState(false);
+  const [instruction, setInstruction] = useState("");
+  const [selecting, setSelecting] = useState(false);
+  const [region, setRegion] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const overlayRef = useRef(null);
+  const dragStart = useRef(null);
+
+  if (!output?.image_url || !output?.id || isPdfUrl(output.image_url)) return null;
+
+  const reset = () => {
+    setInstruction("");
+    setRegion(null);
+    setDraft(null);
+    setSelecting(false);
+    setOpen(false);
+  };
+
+  const submit = () => {
+    const text = instruction.trim();
+    if (text.length < 4) {
+      toast.error("Descrivi la correzione da applicare all'immagine.");
+      return;
+    }
+    onSubmit(
+      { outputId: output.id, instruction: text, region: region || undefined },
+      reset,
+    );
+  };
+
+  const localPoint = (event) => {
+    const rect = overlayRef.current.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top, rect };
+  };
+
+  const onPointerDown = (event) => {
+    if (!selecting) return;
+    event.preventDefault();
+    const point = localPoint(event);
+    dragStart.current = point;
+    setDraft({ left: point.x, top: point.y, width: 0, height: 0 });
+  };
+
+  const onPointerMove = (event) => {
+    if (!selecting || !dragStart.current) return;
+    const start = dragStart.current;
+    const point = localPoint(event);
+    setDraft({
+      left: Math.min(start.x, point.x),
+      top: Math.min(start.y, point.y),
+      width: Math.abs(point.x - start.x),
+      height: Math.abs(point.y - start.y),
+    });
+  };
+
+  const onPointerUp = (event) => {
+    if (!selecting || !dragStart.current) return;
+    const start = dragStart.current;
+    const point = localPoint(event);
+    const rect = start.rect;
+    const left = Math.min(start.x, point.x);
+    const top = Math.min(start.y, point.y);
+    const width = Math.abs(point.x - start.x);
+    const height = Math.abs(point.y - start.y);
+    dragStart.current = null;
+    if (width < 10 || height < 10) {
+      setDraft(null);
+      setRegion(null);
+      setSelecting(false);
+      return;
+    }
+    setRegion({
+      x: Math.max(0, Math.min(1, left / rect.width)),
+      y: Math.max(0, Math.min(1, top / rect.height)),
+      width: Math.min(1, width / rect.width),
+      height: Math.min(1, height / rect.height),
+    });
+    setDraft({ left, top, width, height });
+    setSelecting(false);
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-3 w-full bg-surface-2 border border-stroke text-ink hover:border-brand rounded-full px-4 py-2 font-display uppercase text-[11px] inline-flex items-center justify-center gap-2 transition-colors"
+      >
+        <Wand2 className="w-3.5 h-3.5 text-brand" /> Modifica con AI
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-brand/40 bg-bg p-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="font-display uppercase text-[10px] tracking-wider text-brand inline-flex items-center gap-1">
+          <Wand2 className="w-3.5 h-3.5" /> Correzione AI immagine
+        </span>
+        <button
+          type="button"
+          onClick={reset}
+          className="text-fog hover:text-ink"
+          title="Chiudi"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div
+        className="relative overflow-hidden rounded-lg border border-stroke bg-surface select-none"
+        style={{ cursor: selecting ? "crosshair" : "default" }}
+      >
+        <AssetImage
+          url={output.image_url}
+          alt="immagine da correggere"
+          className={`w-full object-contain ${compact ? "max-h-48" : "max-h-72"}`}
+        />
+        {(selecting || draft) && (
+          <div
+            ref={overlayRef}
+            onMouseDown={onPointerDown}
+            onMouseMove={onPointerMove}
+            onMouseUp={onPointerUp}
+            onMouseLeave={onPointerUp}
+            className="absolute inset-0"
+          >
+            {draft && (
+              <div
+                className="absolute border-2 border-brand bg-brand/20 pointer-events-none"
+                style={{
+                  left: draft.left,
+                  top: draft.top,
+                  width: draft.width,
+                  height: draft.height,
+                }}
+              />
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setSelecting((value) => !value);
+            if (!selecting) {
+              setRegion(null);
+              setDraft(null);
+            }
+          }}
+          className={`rounded-full px-3 py-1.5 font-display uppercase text-[10px] inline-flex items-center gap-1 border transition-colors ${
+            selecting
+              ? "bg-brand text-white border-brand"
+              : "bg-surface border-stroke text-fog hover:text-ink"
+          }`}
+        >
+          <Crop className="w-3 h-3" />
+          {selecting ? "Trascina sull'area" : region ? "Area selezionata" : "Seleziona area"}
+        </button>
+        {region && !selecting && (
+          <button
+            type="button"
+            onClick={() => {
+              setRegion(null);
+              setDraft(null);
+            }}
+            className="font-display uppercase text-[10px] text-fog hover:text-danger"
+          >
+            Rimuovi area
+          </button>
+        )}
+        <span className="font-body text-[10px] text-fog">
+          {region
+            ? "La correzione sara applicata solo nell'area selezionata."
+            : "Senza area: la correzione vale sull'intera immagine."}
+        </span>
+      </div>
+
+      <textarea
+        value={instruction}
+        onChange={(event) => setInstruction(event.target.value)}
+        rows={compact ? 2 : 3}
+        placeholder="Esempio: rendi la cucina piu luminosa; sposta l'isola al centro; togli la finestra dal bagno; cambia il parquet in gres effetto pietra."
+        className="mt-2 w-full resize-none rounded-xl border border-stroke bg-surface px-3 py-2 font-body text-sm text-ink outline-none transition-colors placeholder:text-fog focus:border-brand"
+      />
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={busy || instruction.trim().length < 4}
+        className="mt-2 w-full bg-brand text-white rounded-full px-4 py-2 font-display uppercase text-[11px] inline-flex items-center justify-center gap-2 disabled:opacity-60"
+      >
+        {busy ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : (
+          <Wand2 className="w-3.5 h-3.5" />
+        )}
+        Applica correzione e rigenera
+      </button>
+    </div>
+  );
 }
 
 function qualityLabel(value) {
@@ -232,6 +444,23 @@ export default function AIArchitectReview() {
     onError: (err) =>
       toast.error(formatApiErrorDetail(err.response?.data?.detail)),
   });
+
+  const refine = useMutation({
+    mutationFn: ({ outputId, instruction, region }) =>
+      client.post(
+        `/ai-architect/jobs/${selectedId}/outputs/${outputId}/refine`,
+        { instruction, region, reviewer: "Dashboard staff" },
+      ),
+    onSuccess: async () => {
+      toast.success("Correzione inviata. Nuova versione in elaborazione.");
+      await invalidateJob(selectedId);
+    },
+    onError: (err) =>
+      toast.error(formatApiErrorDetail(err.response?.data?.detail)),
+  });
+
+  const submitRefine = (payload, onDone) =>
+    refine.mutate(payload, { onSuccess: onDone });
 
   const outputs = selectedJob?.outputs || [];
   const analysis = latest(outputs, "analysis");
@@ -777,6 +1006,11 @@ export default function AIArchitectReview() {
                             </p>
                           </div>
                         </div>
+                        <ImageRefiner
+                          output={concept}
+                          busy={refine.isPending}
+                          onSubmit={submitRefine}
+                        />
                       </div>
                     ) : (
                       <div className="aspect-video rounded-xl border border-stroke bg-bg grid place-items-center text-fog text-sm">
@@ -1111,11 +1345,18 @@ export default function AIArchitectReview() {
                       )}
                     </div>
                     {topdown?.image_url ? (
-                      <AssetImage
-                        url={topdown.image_url}
-                        alt="vista top-down"
-                        className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-80"
-                      />
+                      <>
+                        <AssetImage
+                          url={topdown.image_url}
+                          alt="vista top-down"
+                          className="w-full rounded-xl border border-stroke bg-bg object-contain max-h-80"
+                        />
+                        <ImageRefiner
+                          output={topdown}
+                          busy={refine.isPending}
+                          onSubmit={submitRefine}
+                        />
+                      </>
                     ) : (
                       <div className="aspect-video rounded-xl border border-stroke bg-bg grid place-items-center text-fog text-sm">
                         Generato dopo approvazione.
@@ -1165,19 +1406,38 @@ export default function AIArchitectReview() {
                                 className="w-full aspect-video object-cover"
                               />
                             </a>
-                            <div className="px-3 py-2 flex items-center justify-between gap-2">
-                              <span className="font-display uppercase text-[10px] text-brand truncate">
-                                {render.room_name}
-                              </span>
-                              <a
-                                href={assetUrl(render.image_url)}
-                                download
-                                target="_blank"
-                                rel="noreferrer"
-                                className="shrink-0 font-display uppercase text-[9px] text-fog hover:text-ink inline-flex items-center gap-1"
-                              >
-                                <Download className="w-3 h-3" /> Scarica
-                              </a>
+                            <div className="px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-display uppercase text-[10px] text-brand truncate inline-flex items-center gap-1">
+                                  {render.room_name}
+                                  {render.json_content?.refinement?.revision && (
+                                    <span className="rounded-full bg-brand/15 px-1.5 py-0.5 text-[8px] text-brand">
+                                      v{render.json_content.refinement.revision + 1}
+                                    </span>
+                                  )}
+                                </span>
+                                <a
+                                  href={assetUrl(render.image_url)}
+                                  download
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="shrink-0 font-display uppercase text-[9px] text-fog hover:text-ink inline-flex items-center gap-1"
+                                >
+                                  <Download className="w-3 h-3" /> Scarica
+                                </a>
+                              </div>
+                              {render.json_content?.refinement?.instruction && (
+                                <p className="font-body text-[10px] text-fog mt-1 leading-snug line-clamp-2">
+                                  Ultima correzione:{" "}
+                                  {render.json_content.refinement.instruction}
+                                </p>
+                              )}
+                              <ImageRefiner
+                                output={render}
+                                compact
+                                busy={refine.isPending}
+                                onSubmit={submitRefine}
+                              />
                             </div>
                           </div>
                         ))}

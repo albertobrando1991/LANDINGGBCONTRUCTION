@@ -155,6 +155,17 @@ AI_RENDER_FIDELITY_MAX_RETRIES = max(0, int(os.getenv("AI_RENDER_FIDELITY_MAX_RE
 # Budget caratteri del PLAN_DETAILS_JSON inserito nei prompt immagine: la compattazione e JSON-aware
 # (rimuove i blocchi piu pesanti per primi) e non tronca mai a meta documento.
 AI_PROMPT_PLAN_DETAILS_BUDGET = max(2000, int(os.getenv("AI_PROMPT_PLAN_DETAILS_BUDGET", "9000")))
+# Ritocco interattivo (stile ChatGPT): lo staff descrive a parole la correzione su una singola immagine
+# generata (concept 2D, top-down, render ambiente) e opzionalmente seleziona l'area da correggere.
+# Produce una nuova versione dell'immagine partendo da quella esistente, mantenendo la fedelta al layout.
+AI_REFINE_ENABLED = os.getenv("AI_REFINE_ENABLED", "true").lower() not in {"0", "false", "no"}
+# Tipi di output ritoccabili e mappa verso l'azione crediti di rigenerazione equivalente.
+AI_REFINABLE_OUTPUT_TYPES = {
+    "clean_2d_plan": "ai_architect_regen_2d",
+    "redistributed_2d_plan": "ai_architect_regen_2d",
+    "topdown_3d_plan": "ai_architect_regen_topdown",
+    "room_render": "ai_architect_regen_room_render",
+}
 # Abilitati di default: con un provider immagini configurato producono una vera redistribuzione/pulizia
 # ridisegnata (vincolata alla planimetria caricata). Senza provider o con lettura debole si ricade sulla
 # tavola professionale deterministica onesta. Disattiva (=false) per il comportamento legacy.
@@ -2030,7 +2041,14 @@ def _openai_images_available() -> bool:
     return OPENAI_IMAGES_ENABLED and bool(_openai_api_key())
 
 
-def _openai_edit_image_sync(job_id: str, name: str, prompt: str, size: str, reference_image_urls: List[str]) -> str:
+def _openai_edit_image_sync(
+    job_id: str,
+    name: str,
+    prompt: str,
+    size: str,
+    reference_image_urls: List[str],
+    mask_path: Optional[Path] = None,
+) -> str:
     api_key = _openai_api_key()
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY/APIKEY_OPENAI non configurata")
@@ -2046,6 +2064,12 @@ def _openai_edit_image_sync(job_id: str, name: str, prompt: str, size: str, refe
             fh = path.open("rb")
             handles.append(fh)
             files.append(("image[]", (path.name, fh, _guess_mime(path, path.suffix.lower().lstrip(".")))))
+        # Edit localizzato: la mask (PNG con area trasparente = zona da rigenerare) vincola la modifica
+        # alla sola regione selezionata dallo staff; il resto dell'immagine resta invariato.
+        if mask_path is not None and mask_path.exists():
+            mask_handle = mask_path.open("rb")
+            handles.append(mask_handle)
+            files.append(("mask", (mask_path.name, mask_handle, "image/png")))
         data = {
             "model": OPENAI_IMAGE_MODEL,
             "prompt": prompt,
@@ -2509,6 +2533,155 @@ async def _log_non_blocking_error(db, job_id: str, step: str, exc: Exception):
             "error_message": f"Recupero automatico safe-delivery: {exc}",
             "created_at": now_iso(),
         }
+    )
+
+
+def _normalize_region(region: Optional[Dict[str, Any]]) -> Optional[Dict[str, float]]:
+    """Valida e clampa una regione normalizzata {x,y,width,height} in [0,1].
+
+    Restituisce None se assente o degenere (area troppo piccola per un edit utile).
+    """
+    if not isinstance(region, dict):
+        return None
+    try:
+        x = max(0.0, min(1.0, float(region.get("x"))))
+        y = max(0.0, min(1.0, float(region.get("y"))))
+        w = max(0.0, min(1.0, float(region.get("width"))))
+        h = max(0.0, min(1.0, float(region.get("height"))))
+    except (TypeError, ValueError):
+        return None
+    w = min(w, 1.0 - x)
+    h = min(h, 1.0 - y)
+    if w < 0.04 or h < 0.04:
+        return None
+    return {"x": x, "y": y, "width": w, "height": h}
+
+
+def _build_edit_mask_png(base_image_path: Path, region: Dict[str, float], job_id: str, name: str) -> Optional[Path]:
+    """Crea una mask PNG (RGBA, stesse dimensioni del base) per l'edit localizzato OpenAI.
+
+    Area selezionata = trasparente (alpha 0, zona da rigenerare), resto = opaco (alpha 255, invariato).
+    Un piccolo feather attorno al box aiuta a fondere la correzione col contorno.
+    """
+    if PILImage is None:
+        return None
+    try:
+        with PILImage.open(base_image_path) as image:
+            width, height = image.size
+        feather = 0.015
+        x = max(0.0, region["x"] - feather)
+        y = max(0.0, region["y"] - feather)
+        right = min(1.0, region["x"] + region["width"] + feather)
+        bottom = min(1.0, region["y"] + region["height"] + feather)
+        left_px = int(x * width)
+        top_px = int(y * height)
+        right_px = int(right * width)
+        bottom_px = int(bottom * height)
+        if right_px - left_px < 16 or bottom_px - top_px < 16:
+            return None
+        mask = PILImage.new("RGBA", (width, height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(mask)
+        draw.rectangle([left_px, top_px, right_px, bottom_px], fill=(0, 0, 0, 0))
+        output_path = OUTPUT_DIR / f"{job_id}-{name}-mask.png"
+        mask.save(output_path, "PNG")
+        return output_path
+    except Exception:
+        return None
+
+
+def _refine_subject_view(output: Dict[str, Any]) -> tuple[str, str]:
+    output_type = output.get("output_type")
+    if output_type == "room_render":
+        return (output.get("room_name") or "ambiente", "interno eye-level")
+    if output_type == "topdown_3d_plan":
+        return ("vista top-down dell'intero appartamento", "top-down 3D")
+    return ("planimetria 2D dell'intero appartamento", "planimetria 2D")
+
+
+def _refine_prompt(
+    job: Dict[str, Any],
+    output: Dict[str, Any],
+    instruction: str,
+    region: Optional[Dict[str, float]],
+) -> str:
+    output_type = output.get("output_type")
+    subject, _view = _refine_subject_view(output)
+    mode = "redistributed" if _should_redistribute(job) else "defined"
+    instruction = _normalize_text(instruction) or ""
+    region_clause = ""
+    if region:
+        cx = round((region["x"] + region["width"] / 2) * 100)
+        cy = round((region["y"] + region["height"] / 2) * 100)
+        region_clause = (
+            "Apply the correction ONLY inside the selected area of the image "
+            f"(centered around {cx}% from left and {cy}% from top); "
+            "leave every other part of the image pixel-identical. "
+        )
+    if output_type == "room_render":
+        geometry_brief = _room_geometry_brief(job, output.get("room_name") or "")
+        contract = (
+            f"Keep full fidelity to the approved 2D floor plan and to this ROOM_GEOMETRY_CONTRACT: {geometry_brief}. "
+            "Do not change the room footprint, walls, doors, windows, proportions or function. "
+        )
+    else:
+        plan_details = _plan_details_for_prompt(job, mode)
+        contract = (
+            "Keep full fidelity to the approved layout. Do not move, add or remove walls, rooms, doors, windows, "
+            f"bathrooms, kitchens or accesses beyond what this PLAN_DETAILS_JSON allows: {plan_details}. "
+        )
+    return (
+        f"The provided image is the current GB Construction {subject} to refine. "
+        "Edit it applying exactly this staff correction, written in Italian: "
+        f"\"{instruction}\". "
+        f"{region_clause}{contract}"
+        "Preserve the existing style, lighting, materials, camera angle and overall composition; "
+        "change strictly and only what the correction requires. "
+        "Photorealistic, high-end construction-company presentation quality. "
+        "No text, no dimensions, no logo, no watermark."
+    )
+
+
+async def _refine_generate(
+    db,
+    job_id: str,
+    *,
+    name: str,
+    prompt: str,
+    size: str,
+    base_url: str,
+    references: List[str],
+    mask_path: Optional[Path],
+    plan_reference_url: Optional[str],
+    subject: str,
+    view: str,
+    geometry_brief: Optional[str],
+) -> tuple[str, Optional[Dict[str, Any]]]:
+    """Genera la versione ritoccata. Con mask usa l'edit localizzato OpenAI (il base e la prima reference);
+    senza mask passa per il fidelity gate standard. In entrambi i casi allega una review di fedelta."""
+    edit_references = [base_url] + [url for url in references if url and url != base_url]
+    if mask_path is not None and _openai_images_available():
+        try:
+            url = await asyncio.to_thread(
+                _openai_edit_image_sync, job_id, name, prompt, size, edit_references, mask_path
+            )
+            review = None
+            if AI_RENDER_FIDELITY_GATE and plan_reference_url and _reference_image_path(plan_reference_url):
+                review = await _render_fidelity_review(subject, view, url, plan_reference_url, geometry_brief)
+            return url, review
+        except Exception as exc:
+            await _log_non_blocking_error(db, job_id, f"refine_masked:{subject}", exc)
+            # Fallback: edit globale con gate di fedelta.
+    return await _generate_render_with_fidelity_gate(
+        db,
+        job_id,
+        name=name,
+        prompt=prompt,
+        size=size,
+        references=edit_references,
+        plan_reference_url=plan_reference_url,
+        subject=subject,
+        view=view,
+        geometry_brief=geometry_brief,
     )
 
 
@@ -5187,6 +5360,137 @@ async def _regenerate_concept_2d(
         requires_confirmation=False,
         error_message=None,
     )
+
+
+def _approved_plan_reference_url(job: Dict[str, Any], outputs: List[Dict[str, Any]]) -> Optional[str]:
+    """Planimetria che fa da source of truth per la verifica di fedelta del ritocco.
+
+    In redistribuzione e il 2D rigenerato approvato; in progetto definito e la planimetria caricata.
+    """
+    concept = _latest_output(outputs, "redistributed_2d_plan") or _latest_output(outputs, "clean_2d_plan")
+    for url in ((concept or {}).get("image_url"), _layout_reference_url(job)):
+        if _reference_image_path(url):
+            return url
+    return None
+
+
+async def refine_output(
+    db,
+    job_id: str,
+    output_id: str,
+    *,
+    instruction: str,
+    region: Optional[Dict[str, Any]] = None,
+    reviewer: Optional[str] = None,
+    charge_id: Optional[str] = None,
+    previous_status: Optional[str] = None,
+) -> None:
+    """Ritocco interattivo di una singola immagine generata (stile ChatGPT).
+
+    Parte dall'immagine esistente, applica la correzione testuale (e opzionalmente l'area
+    selezionata via mask), salva una NUOVA versione versionata dell'output e addebita i crediti.
+    """
+    instruction = _normalize_text(instruction) or ""
+    restore_status = previous_status or "completed"
+    try:
+        job = await db.ai_architect_jobs.find_one({"_id": ObjectId(job_id)})
+        if not job:
+            return
+        try:
+            output = await db.ai_architect_outputs.find_one({"_id": ObjectId(output_id), "job_id": job_id})
+        except Exception:
+            output = None
+        if not output:
+            await _log_non_blocking_error(db, job_id, "refine:output_not_found", RuntimeError(output_id))
+            return
+        output_type = output.get("output_type")
+        if output_type not in AI_REFINABLE_OUTPUT_TYPES:
+            await _log_non_blocking_error(db, job_id, "refine:type_not_refinable", RuntimeError(str(output_type)))
+            return
+        base_url = output.get("image_url")
+        if not _reference_image_path(base_url):
+            await _log_non_blocking_error(db, job_id, "refine:base_not_image", RuntimeError(str(base_url)))
+            return
+
+        normalized_region = _normalize_region(region)
+        outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
+        plan_reference_url = _approved_plan_reference_url(job, outputs)
+        subject, view = _refine_subject_view(output)
+        geometry_brief = (
+            _room_geometry_brief(job, output.get("room_name") or "")
+            if output_type == "room_render"
+            else None
+        )
+        revision = int(output.get("refinement_revision") or 0) + 1
+        size = OPENAI_IMAGE_SIZE_RENDER if output_type == "room_render" else OPENAI_IMAGE_SIZE_PLAN
+        name = f"refine-{output_type}-{_safe_name(output.get('room_name') or output_type)}-r{revision}-{uuid.uuid4().hex[:6]}"
+
+        prompt = _refine_prompt(job, output, instruction, normalized_region)
+        mask_path = (
+            _build_edit_mask_png(_reference_image_path(base_url), normalized_region, job_id, name)
+            if normalized_region
+            else None
+        )
+
+        extra_references = [url for url in [plan_reference_url] if url and url != base_url]
+        url, fidelity_review = await _refine_generate(
+            db,
+            job_id,
+            name=name,
+            prompt=prompt,
+            size=size,
+            base_url=base_url,
+            references=extra_references,
+            mask_path=mask_path,
+            plan_reference_url=plan_reference_url,
+            subject=subject,
+            view=view,
+            geometry_brief=geometry_brief,
+        )
+
+        await _add_output(
+            db,
+            job_id,
+            output_type,
+            room_name=output.get("room_name"),
+            image_url=url,
+            text_content=output.get("text_content"),
+            json_content={
+                "refinement": {
+                    "instruction": instruction,
+                    "region": normalized_region,
+                    "localized": bool(mask_path),
+                    "parent_output_id": output_id,
+                    "revision": revision,
+                    "reviewer": _normalize_text(reviewer) or "Dashboard staff",
+                    "created_at": now_iso(),
+                },
+                "fidelity_review": fidelity_review,
+            },
+        )
+
+        action_key = AI_REFINABLE_OUTPUT_TYPES[output_type]
+        try:
+            await ai_credit_service.charge_credits(
+                db,
+                action_key=action_key,
+                idempotency_key=f"ai_architect:{job_id}:refine:{output_id}:{charge_id or uuid.uuid4().hex}",
+                job_id=job_id,
+                lead_id=str(job.get("lead_id") or "") or None,
+                job=job,
+                metadata={
+                    "usage_context": job.get("usage_context") or "staff",
+                    "refine_output_type": output_type,
+                    "refine_localized": bool(mask_path),
+                    "refine_instruction": instruction[:280],
+                },
+            )
+        except Exception as exc:
+            await _log_non_blocking_error(db, job_id, "refine:charge", exc)
+    except Exception as exc:
+        await _log_non_blocking_error(db, job_id, "refine:failed", exc)
+    finally:
+        await _set_job(db, job_id, status=restore_status, refine_in_progress=False)
 
 
 async def regenerate_outputs(
