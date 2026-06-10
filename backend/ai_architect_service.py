@@ -147,6 +147,14 @@ OPENAI_IMAGES_ENABLED = os.getenv("AI_ARCHITECT_USE_OPENAI_IMAGES", "true").lowe
 AI_FLOORPLAN_PROFESSIONAL_ANALYSIS = os.getenv("AI_FLOORPLAN_PROFESSIONAL_ANALYSIS", "true").lower() not in {"0", "false", "no"}
 AI_REQUIRE_PROFESSIONAL_2D = os.getenv("AI_REQUIRE_PROFESSIONAL_2D", "true").lower() not in {"0", "false", "no"}
 AI_REQUIRE_RENDER_FIDELITY = os.getenv("AI_REQUIRE_RENDER_FIDELITY", "true").lower() not in {"0", "false", "no"}
+# Verifica vision post-render: confronta ogni render generato con la planimetria 2D approvata e,
+# se la fedelta e sotto soglia, rigenera con note correttive (max AI_RENDER_FIDELITY_MAX_RETRIES tentativi).
+AI_RENDER_FIDELITY_GATE = os.getenv("AI_RENDER_FIDELITY_GATE", "true").lower() not in {"0", "false", "no"}
+AI_RENDER_FIDELITY_MIN_SCORE = float(os.getenv("AI_RENDER_FIDELITY_MIN_SCORE", "0.70"))
+AI_RENDER_FIDELITY_MAX_RETRIES = max(0, int(os.getenv("AI_RENDER_FIDELITY_MAX_RETRIES", "1")))
+# Budget caratteri del PLAN_DETAILS_JSON inserito nei prompt immagine: la compattazione e JSON-aware
+# (rimuove i blocchi piu pesanti per primi) e non tronca mai a meta documento.
+AI_PROMPT_PLAN_DETAILS_BUDGET = max(2000, int(os.getenv("AI_PROMPT_PLAN_DETAILS_BUDGET", "9000")))
 # Abilitati di default: con un provider immagini configurato producono una vera redistribuzione/pulizia
 # ridisegnata (vincolata alla planimetria caricata). Senza provider o con lettura debole si ricade sulla
 # tavola professionale deterministica onesta. Disattiva (=false) per il comportamento legacy.
@@ -2252,6 +2260,15 @@ def _fal_generate_image_sync(job_id: str, name: str, prompt: str, size: str, ref
         body = _fal_queue_result_sync(request_body)
         return _fal_result_to_public_url(job_id, name, body)
     else:
+        if reference_image_urls:
+            # Fidelity richiesta: questo schema FAL e text-only e ignorerebbe la planimetria di
+            # riferimento. Meglio fallire qui e lasciare che _generate_ai_image ricada su un
+            # provider che supporta le reference (OpenAI images/edits) invece di produrre un
+            # render scollegato dal layout approvato.
+            raise RuntimeError(
+                f"FAL model {FAL_IMAGE_MODEL} non supporta reference images: "
+                "render vincolato alla planimetria non garantibile con questo schema"
+            )
         request_body = {
             "prompt": prompt,
             "num_images": 1,
@@ -2296,6 +2313,192 @@ async def _generate_ai_image(job_id: str, name: str, prompt: str, size: str, ref
             except Exception as exc:
                 errors.append(f"openai: {exc}")
     raise RuntimeError("Nessun provider immagini configurato o riuscito: " + " | ".join(errors))
+
+
+RENDER_FIDELITY_SCHEMA_HINT = (
+    '{"fidelity_score": 0.0, "room_function_match": true, "openings_coherent": true, '
+    '"layout_violations": ["..."], "corrective_notes": "..."}'
+)
+
+
+def _render_fidelity_review_prompt(subject: str, view: str, geometry_brief: Optional[str]) -> str:
+    brief_text = f" ROOM_GEOMETRY_CONTRACT: {geometry_brief}." if geometry_brief else ""
+    return (
+        "Sei un revisore architettonico severo. La PRIMA immagine e la planimetria 2D approvata "
+        f"(unica source of truth). La SECONDA immagine e un render {view} generato per: {subject}. "
+        "Valuta SOLO la fedelta geometrica del render alla planimetria approvata: funzione dell'ambiente corretta, "
+        "forma e proporzioni compatibili, numero e posizione di porte e finestre coerenti, ambienti adiacenti "
+        "visibili attraverso le aperture coerenti con le adiacenze reali della planimetria, nessun elemento "
+        "inventato (bagni, cucine, scale, balconi o stanze non presenti). Ignora stile, materiali, arredo "
+        "decorativo e qualita fotografica: conta solo la geometria."
+        f"{brief_text} "
+        "fidelity_score: 1.0 = perfettamente fedele, 0.0 = layout inventato. "
+        "Rispondi SOLO con JSON valido in questo formato, senza testo extra: " + RENDER_FIDELITY_SCHEMA_HINT
+    )
+
+
+def _anthropic_image_block(url: Optional[str]) -> Optional[Dict[str, Any]]:
+    path = _reference_image_path(url)
+    if not path:
+        return None
+    mime_type = _guess_mime(path, path.suffix.lower().lstrip("."))
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": mime_type,
+            "data": base64.b64encode(path.read_bytes()).decode("ascii"),
+        },
+    }
+
+
+def _render_fidelity_review_sync(
+    subject: str,
+    view: str,
+    render_url: str,
+    plan_reference_url: str,
+    geometry_brief: Optional[str],
+) -> Dict[str, Any]:
+    prompt = _render_fidelity_review_prompt(subject, view, geometry_brief)
+    errors: List[str] = []
+    if _anthropic_api_key():
+        plan_block = _anthropic_image_block(plan_reference_url)
+        render_block = _anthropic_image_block(render_url)
+        if plan_block and render_block:
+            try:
+                response = requests.post(
+                    f"{ANTHROPIC_BASE_URL}/v1/messages",
+                    headers={
+                        "x-api-key": _anthropic_api_key(),
+                        "anthropic-version": ANTHROPIC_VERSION,
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": CLAUDE_VISION_MODEL,
+                        "max_tokens": 900,
+                        "temperature": 0,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [plan_block, render_block, {"type": "text", "text": prompt}],
+                            }
+                        ],
+                    },
+                    timeout=90,
+                )
+                response.raise_for_status()
+                body = response.json()
+                text = "\n".join(
+                    part.get("text", "") for part in body.get("content") or [] if isinstance(part, dict)
+                )
+                parsed = _extract_json_from_model(text)
+                parsed["review_provider"] = "anthropic"
+                return parsed
+            except Exception as exc:
+                errors.append(f"anthropic: {exc}")
+    if _openai_api_key():
+        plan_data_url = _reference_image_data_url(plan_reference_url)
+        render_data_url = _reference_image_data_url(render_url)
+        if plan_data_url and render_data_url:
+            try:
+                response = requests.post(
+                    f"{OPENAI_BASE_URL}/responses",
+                    headers={
+                        "Authorization": f"Bearer {_openai_api_key()}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": OPENAI_VISION_MODEL,
+                        "temperature": 0,
+                        "max_output_tokens": 900,
+                        "input": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "input_image", "image_url": plan_data_url, "detail": "high"},
+                                    {"type": "input_image", "image_url": render_data_url, "detail": "high"},
+                                    {"type": "input_text", "text": prompt},
+                                ],
+                            }
+                        ],
+                    },
+                    timeout=90,
+                )
+                response.raise_for_status()
+                parsed = _extract_json_from_model(_openai_response_text(response.json()))
+                parsed["review_provider"] = "openai"
+                return parsed
+            except Exception as exc:
+                errors.append(f"openai: {exc}")
+    raise RuntimeError("Render fidelity review non disponibile: " + " | ".join(errors or ["nessun provider vision configurato"]))
+
+
+async def _render_fidelity_review(
+    subject: str,
+    view: str,
+    render_url: str,
+    plan_reference_url: str,
+    geometry_brief: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    try:
+        return await asyncio.to_thread(
+            _render_fidelity_review_sync, subject, view, render_url, plan_reference_url, geometry_brief
+        )
+    except Exception:
+        # Fail-open: la review e un controllo aggiuntivo, non deve bloccare la pipeline.
+        return None
+
+
+async def _generate_render_with_fidelity_gate(
+    db,
+    job_id: str,
+    *,
+    name: str,
+    prompt: str,
+    size: str,
+    references: List[str],
+    plan_reference_url: Optional[str],
+    subject: str,
+    view: str,
+    geometry_brief: Optional[str] = None,
+) -> tuple[str, Optional[Dict[str, Any]]]:
+    """Genera un render e ne verifica la fedelta alla planimetria approvata.
+
+    Sotto soglia rigenera con note correttive (max AI_RENDER_FIDELITY_MAX_RETRIES) e
+    restituisce il candidato con fidelity_score migliore insieme alla review.
+    """
+    url = await _generate_ai_image(job_id, name, prompt, size, references)
+    if not (AI_RENDER_FIDELITY_GATE and plan_reference_url and _reference_image_path(plan_reference_url)):
+        return url, None
+    review = await _render_fidelity_review(subject, view, url, plan_reference_url, geometry_brief)
+    best_url, best_review = url, review
+    attempt = 0
+    while (
+        review is not None
+        and _safe_float(review.get("fidelity_score"), 1.0) < AI_RENDER_FIDELITY_MIN_SCORE
+        and attempt < AI_RENDER_FIDELITY_MAX_RETRIES
+    ):
+        attempt += 1
+        violations = "; ".join(str(v) for v in (review.get("layout_violations") or [])[:6])[:900]
+        corrective = str(review.get("corrective_notes") or "")[:600]
+        retry_prompt = (
+            prompt
+            + " RENDER_FIDELITY_RETRY: the previous render violated the approved 2D plan. "
+            + (f"Violations found by the architectural reviewer: {violations}. " if violations else "")
+            + (f"Apply exactly these corrections: {corrective}. " if corrective else "")
+            + "Regenerate strictly faithful to the approved plan geometry; change nothing else."
+        )
+        try:
+            url = await _generate_ai_image(job_id, f"{name}-fidelity-retry{attempt}", retry_prompt, size, references)
+        except Exception as exc:
+            await _log_non_blocking_error(db, job_id, f"render_fidelity_retry:{subject}", exc)
+            break
+        review = await _render_fidelity_review(subject, view, url, plan_reference_url, geometry_brief)
+        if review is not None and _safe_float(review.get("fidelity_score"), 0.0) > _safe_float(
+            (best_review or {}).get("fidelity_score"), 0.0
+        ):
+            best_url, best_review = url, review
+    return best_url, best_review
 
 
 async def _log_non_blocking_error(db, job_id: str, step: str, exc: Exception):
@@ -2358,6 +2561,114 @@ def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
     )
 
 
+def _mentions_room(item: Dict[str, Any], room_name: str) -> bool:
+    needle = room_name.strip().lower()
+    if not needle:
+        return False
+    haystack = " ".join(
+        str(item.get(key) or "") for key in ("label", "evidence", "approx_position", "connected_rooms")
+    ).lower()
+    return needle in haystack
+
+
+def _room_geometry_brief(job: Dict[str, Any], room_name: str) -> str:
+    """Contratto geometrico compatto della SOLA stanza da renderizzare.
+
+    Raccoglie da vision analysis + JSON tecnico/ottimizzato: posizione, area, bounding box,
+    aperture (porte/finestre) attribuibili alla stanza e ambienti adiacenti, cosi il modello
+    immagine non deve dedurre la geometria da un JSON globale.
+    """
+    needle = room_name.strip().lower()
+    brief: Dict[str, Any] = {"room_name": room_name}
+    vision_room = next(
+        (room for room in _analysis_rooms(job, min_confidence=0.2) if needle in str(room.get("name", "")).lower()),
+        None,
+    )
+    if vision_room:
+        brief["approx_position"] = vision_room.get("approx_position")
+        brief["estimated_area_sqm"] = vision_room.get("estimated_area_sqm")
+        box = vision_room.get("bounding_box") or {}
+        if all(key in box for key in ("x", "y", "width", "height")):
+            brief["bounding_box_normalized"] = {key: box.get(key) for key in ("x", "y", "width", "height")}
+        brief["evidence"] = vision_room.get("evidence")
+    technical = job.get("technical_floor_plan_json") or {}
+    tech_room = next(
+        (room for room in (technical.get("rooms") or []) if isinstance(room, dict) and needle in str(room.get("name", "")).lower()),
+        None,
+    )
+    if tech_room:
+        brief["surface_net_sqm"] = tech_room.get("surface_net_sqm")
+        brief["main_dimensions_cm"] = tech_room.get("main_dimensions_cm")
+        brief["adjacent_rooms"] = tech_room.get("relationships") or tech_room.get("connections")
+    optimized = job.get("optimized_floor_plan_json") or {}
+    opt_room = next(
+        (
+            room
+            for room in (optimized.get("rooms") or optimized.get("optimized_rooms") or [])
+            if isinstance(room, dict)
+            and (needle in str(room.get("existing_name", "")).lower() or needle in str(room.get("new_function", "")).lower())
+        ),
+        None,
+    )
+    if opt_room:
+        brief["planned_function"] = opt_room.get("new_function")
+        brief["planned_furniture"] = [
+            (item.get("label") or item.get("name") or item.get("id")) if isinstance(item, dict) else str(item)
+            for item in (opt_room.get("furniture") or [])[:8]
+        ]
+        if not brief.get("adjacent_rooms"):
+            brief["adjacent_rooms"] = opt_room.get("connections")
+    elements = (job.get("vision_analysis") or {}).get("detected_elements") or {}
+    doors = [item for item in (elements.get("doors") or []) if isinstance(item, dict) and _mentions_room(item, room_name)]
+    windows = [item for item in (elements.get("windows") or []) if isinstance(item, dict) and _mentions_room(item, room_name)]
+    if doors:
+        brief["doors"] = [{"position": d.get("approx_position"), "evidence": d.get("evidence")} for d in doors[:6]]
+    if windows:
+        brief["windows"] = [{"position": w.get("approx_position"), "evidence": w.get("evidence")} for w in windows[:6]]
+    return json.dumps(brief, ensure_ascii=False, separators=(",", ":"), default=str)[:2500]
+
+
+def _room_plan_crop_reference(job_id: str, job: Dict[str, Any], room_name: str, source_url: Optional[str], index: int) -> Optional[str]:
+    """Ritaglia la zona della stanza dalla planimetria analizzata (bounding box vision, con margine).
+
+    Valido solo quando il layout della sorgente coincide con quello approvato (progetto definito):
+    in modalita redistribuita i bounding box dell'originale non descrivono il nuovo layout.
+    """
+    if PILImage is None:
+        return None
+    path = _reference_image_path(source_url)
+    if not path:
+        return None
+    needle = room_name.strip().lower()
+    room = next(
+        (item for item in _analysis_rooms(job, min_confidence=0.2) if needle in str(item.get("name", "")).lower()),
+        None,
+    )
+    box = (room or {}).get("bounding_box") or {}
+    if not all(key in box for key in ("x", "y", "width", "height")):
+        return None
+    try:
+        with PILImage.open(path) as image:
+            width, height = image.size
+            x = _safe_float(box.get("x"), 0.0)
+            y = _safe_float(box.get("y"), 0.0)
+            w = _safe_float(box.get("width"), 0.0)
+            h = _safe_float(box.get("height"), 0.0)
+            margin = 0.10
+            left = max(0, int((x - margin) * width))
+            top = max(0, int((y - margin) * height))
+            right = min(width, int((x + w + margin) * width))
+            bottom = min(height, int((y + h + margin) * height))
+            if right - left < 64 or bottom - top < 64:
+                return None
+            crop = image.convert("RGB").crop((left, top, right, bottom))
+            output_path = OUTPUT_DIR / f"{job_id}-render-{index}-{_safe_name(room_name)}-plan-crop.png"
+            crop.save(output_path, "PNG")
+            return public_file_url(output_path)
+    except Exception:
+        return None
+
+
 def _room_prompt(job: Dict[str, Any], room_name: str) -> str:
     priorities = ", ".join(job.get("priorities") or []) or "premium perceived value"
     room_match = next((room for room in _analysis_rooms(job, min_confidence=0.2) if room_name.lower() in room.get("name", "").lower()), None)
@@ -2374,12 +2685,17 @@ def _room_prompt(job: Dict[str, Any], room_name: str) -> str:
         if defined_mode
         else ""
     )
+    room_brief = _room_geometry_brief(job, room_name)
     return (
         f"Draw a photorealistic eye-level 3D interior render of the room: {room_name}. "
-        f"{fidelity_rule}Faithfully follow the top-down layout reference concept: respect positions of walls, doors, "
-        "windows, openings, furniture and circulation paths. "
+        f"{fidelity_rule}The FIRST reference image is the APPROVED 2D floor plan and is the single source of truth. "
+        "Locate this exact room inside that plan and reproduce its real geometry: same footprint and proportions, "
+        "same wall positions, same number and position of doors and windows, same openings and circulation paths. "
+        "Camera placed INSIDE this room only. Through open doors or passages show only the adjacent rooms that the "
+        "plan actually connects to this room, in the correct direction; never invent views toward rooms that are not adjacent. "
+        f"ROOM_GEOMETRY_CONTRACT (hard constraints for this room only): {room_brief}. "
         f"Vision evidence for this room: {room_evidence}. "
-        "Source hierarchy: uploaded floor plan -> technical_floor_plan_json -> optimized_floor_plan_json -> render. "
+        "Source hierarchy: approved 2D plan image -> ROOM_GEOMETRY_CONTRACT -> technical_floor_plan_json -> optimized_floor_plan_json -> render. "
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
         f"stairs, balconies, extra levels, extra bathrooms or volumes not allowed by the JSON: {plan_details}. "
         f"{correction_prompt}"
@@ -3084,9 +3400,41 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
     }
 
 
+# Ordine di rimozione quando il JSON supera il budget prompt: prima i blocchi piu pesanti e meno
+# vincolanti per la fedelta geometrica. rooms/render_contract/access_rules non vengono mai rimossi.
+_PLAN_DETAILS_PROMPT_DROP_ORDER = [
+    "floor_plan_automation",
+    "technical_floor_plan_json",
+    "optimized_floor_plan_json",
+    "professional_floorplan",
+    "detected_elements",
+]
+_PLAN_DETAILS_PROMPT_CORE_KEYS = [
+    "schema",
+    "mode",
+    "plan_type",
+    "layout_lock",
+    "render_contract",
+    "access_rules",
+    "rooms",
+    "client_constraints",
+]
+
+
 def _plan_details_for_prompt(job: Dict[str, Any], mode: str) -> str:
     details = job.get("plan_details") or _plan_details_json(job, mode)
-    return json.dumps(details, ensure_ascii=False, separators=(",", ":"))[:10000]
+    compact = dict(details if isinstance(details, dict) else {})
+    encoded = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+    for key in _PLAN_DETAILS_PROMPT_DROP_ORDER:
+        if len(encoded) <= AI_PROMPT_PLAN_DETAILS_BUDGET:
+            return encoded
+        if key in compact:
+            compact = {k: v for k, v in compact.items() if k != key}
+            encoded = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded) <= AI_PROMPT_PLAN_DETAILS_BUDGET:
+        return encoded
+    core = {key: compact[key] for key in _PLAN_DETAILS_PROMPT_CORE_KEYS if key in compact}
+    return json.dumps(core, ensure_ascii=False, separators=(",", ":"))
 
 
 def _advice_text(job: Dict[str, Any], mode: str) -> str:
@@ -4316,52 +4664,73 @@ async def _continue_render_generation(db, job_id: str):
 
     await _mark_step(db, job_id, "topdown_3d")
 
-    async def build_topdown() -> str:
+    async def build_topdown() -> tuple[str, Optional[Dict[str, Any]]]:
         if not force_safe_visuals and _selected_image_provider() != "local" and vision_valid_for_render:
             try:
-                return await _generate_ai_image(
+                return await _generate_render_with_fidelity_gate(
+                    db,
                     job_id,
-                    f"{mode}-topdown-3d-ai",
-                    _topdown_prompt(job, mode),
-                    OPENAI_IMAGE_SIZE_PLAN,
-                    topdown_references,
+                    name=f"{mode}-topdown-3d-ai",
+                    prompt=_topdown_prompt(job, mode),
+                    size=OPENAI_IMAGE_SIZE_PLAN,
+                    references=topdown_references,
+                    plan_reference_url=concept_reference_url,
+                    subject="vista top-down 3D dell'intero appartamento",
+                    view="top-down 3D",
                 )
             except Exception as exc:
                 await _log_non_blocking_error(db, job_id, "topdown_3d_safe_visual", exc)
                 if requires_real_raster:
                     raise
-        return _topdown_svg(job_id, job, mode)
+        return _topdown_svg(job_id, job, mode), None
 
-    async def build_room_render(index: int, room_name: str, references: List[str]) -> tuple[str, str]:
+    async def build_room_render(index: int, room_name: str, references: List[str]) -> tuple[str, str, Optional[Dict[str, Any]]]:
         if not force_safe_visuals and _selected_image_provider() != "local" and vision_valid_for_render:
             try:
-                url = await _generate_ai_image(
+                refs = list(references)
+                if mode != "redistributed":
+                    # Progetto definito: il layout caricato coincide con quello approvato, quindi il
+                    # ritaglio della stanza dalla planimetria e una reference geometrica affidabile.
+                    crop_url = _room_plan_crop_reference(
+                        job_id, job, room_name, job.get("processed_file_url") or job.get("uploaded_file_url"), index
+                    )
+                    if crop_url and _reference_image_path(crop_url):
+                        refs.insert(1, crop_url)
+                url, fidelity_review = await _generate_render_with_fidelity_gate(
+                    db,
                     job_id,
-                    f"render-{index}-{_safe_name(room_name)}-ai",
-                    _room_prompt(job, room_name),
-                    OPENAI_IMAGE_SIZE_RENDER,
-                    references,
+                    name=f"render-{index}-{_safe_name(room_name)}-ai",
+                    prompt=_room_prompt(job, room_name),
+                    size=OPENAI_IMAGE_SIZE_RENDER,
+                    references=refs[:4],
+                    plan_reference_url=concept_reference_url,
+                    subject=room_name,
+                    view="interno fotorealistico eye-level",
+                    geometry_brief=_room_geometry_brief(job, room_name),
                 )
-                return room_name, url
+                return room_name, url, fidelity_review
             except Exception as exc:
                 await _log_non_blocking_error(db, job_id, f"render:{room_name}:safe_visual", exc)
                 if requires_real_raster:
                     raise
-        return room_name, _render_svg(job_id, job, room_name, index)
+        return room_name, _render_svg(job_id, job, room_name, index), None
 
     semaphore = asyncio.Semaphore(AI_IMAGE_CONCURRENCY)
 
-    async def limited_room(index: int, room_name: str, references: List[str]) -> tuple[str, str]:
+    async def limited_room(index: int, room_name: str, references: List[str]) -> tuple[str, str, Optional[Dict[str, Any]]]:
         async with semaphore:
             return await build_room_render(index, room_name, references)
 
     room_names = _room_names_for_generation(job)
+    topdown_fidelity: Optional[Dict[str, Any]] = None
     try:
-        topdown_url = await build_topdown()
+        topdown_url, topdown_fidelity = await build_topdown()
         topdown_score, topdown_details = _asset_quality_score(topdown_url)
         if requires_real_raster and topdown_details.get("is_safe_vector_visual"):
             topdown_score = 0.0
             topdown_details["rejected_reason"] = "safe_vector_visual_not_real_ai_render"
+        if topdown_fidelity is not None:
+            topdown_details["fidelity_review"] = topdown_fidelity
         topdown_passed = topdown_score >= RENDER_GATE_MIN_SCORE
         await _record_quality_gate(
             db,
@@ -4429,10 +4798,12 @@ async def _continue_render_generation(db, job_id: str):
     )
 
     await _mark_step(db, job_id, "renders")
+    # Il 2D approvato e la source of truth: va passato per primo. Il top-down 3D resta come
+    # supporto volumetrico, mai come riferimento principale.
     room_reference_candidates = (
-        [topdown_url, concept_reference_url]
+        [concept_reference_url, topdown_url]
         if mode == "redistributed"
-        else [topdown_url, concept_reference_url, job.get("processed_file_url")]
+        else [concept_reference_url, job.get("processed_file_url"), topdown_url]
     )
     room_references = [url for url in room_reference_candidates if _reference_image_path(url)]
     render_tasks = [
@@ -4457,14 +4828,40 @@ async def _continue_render_generation(db, job_id: str):
 
     render_scores: List[float] = []
     render_details: List[Dict[str, Any]] = []
-    for room_name, url in room_results:
+    fidelity_scores: List[float] = []
+    for room_name, url, fidelity_review in room_results:
         score, details = _asset_quality_score(url)
         if requires_real_raster and details.get("is_safe_vector_visual"):
             score = 0.0
             details["rejected_reason"] = "safe_vector_visual_not_real_ai_render"
         details["room_name"] = room_name
+        if fidelity_review is not None:
+            details["fidelity_review"] = fidelity_review
+            fidelity_scores.append(_safe_float(fidelity_review.get("fidelity_score"), 0.0))
         render_scores.append(score)
         render_details.append(details)
+    if AI_RENDER_FIDELITY_GATE and (fidelity_scores or topdown_fidelity is not None):
+        if topdown_fidelity is not None:
+            fidelity_scores.append(_safe_float(topdown_fidelity.get("fidelity_score"), 0.0))
+        fidelity_gate_score = min(fidelity_scores) if fidelity_scores else 0.0
+        await _record_quality_gate(
+            db,
+            job_id,
+            4,
+            "render_fidelity",
+            passed=fidelity_gate_score >= AI_RENDER_FIDELITY_MIN_SCORE,
+            score=fidelity_gate_score,
+            details={
+                "min_required": AI_RENDER_FIDELITY_MIN_SCORE,
+                "topdown_fidelity": topdown_fidelity,
+                "renders": [
+                    {"room_name": item.get("room_name"), "fidelity_review": item.get("fidelity_review")}
+                    for item in render_details
+                ],
+            },
+            retry_triggered=fidelity_gate_score < AI_RENDER_FIDELITY_MIN_SCORE,
+            resolution="passed" if fidelity_gate_score >= AI_RENDER_FIDELITY_MIN_SCORE else "best_effort_after_corrective_retries",
+        )
     render_gate_score = min(render_scores) if render_scores else 0
     render_gate_passed = render_gate_score >= RENDER_GATE_MIN_SCORE
     await _record_quality_gate(
@@ -4491,18 +4888,19 @@ async def _continue_render_generation(db, job_id: str):
                 render_quality_hold=True,
             )
             return
-        safe_room_results: List[tuple[str, str]] = []
+        safe_room_results: List[tuple[str, str, Optional[Dict[str, Any]]]] = []
         safe_render_details: List[Dict[str, Any]] = []
         safe_scores: List[float] = []
-        for index, (room_name, url) in enumerate(room_results, start=1):
+        for index, (room_name, url, fidelity_review) in enumerate(room_results, start=1):
             score, details = _asset_quality_score(url)
             if score < RENDER_GATE_MIN_SCORE:
                 url = _render_svg(job_id, job, room_name, index + 20)
                 score, details = _asset_quality_score(url)
                 details["safe_visual"] = True
+                fidelity_review = None
             details["room_name"] = room_name
             safe_scores.append(score)
-            safe_room_results.append((room_name, url))
+            safe_room_results.append((room_name, url, fidelity_review))
             safe_render_details.append(details)
         safe_render_score = min(safe_scores) if safe_scores else RENDER_GATE_MIN_SCORE
         await _record_quality_gate(
@@ -4518,7 +4916,7 @@ async def _continue_render_generation(db, job_id: str):
         )
         room_results = safe_room_results
 
-    for room_name, url in room_results:
+    for room_name, url, fidelity_review in room_results:
         await _add_output(
             db,
             job_id,
@@ -4529,6 +4927,7 @@ async def _continue_render_generation(db, job_id: str):
                 room_name=room_name,
                 style_selected=job.get("style_selected") or "Su misura GB Construction",
             ),
+            json_content={"fidelity_review": fidelity_review} if fidelity_review is not None else None,
         )
 
     await _mark_step(db, job_id, "advice")
