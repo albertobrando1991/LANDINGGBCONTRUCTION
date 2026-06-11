@@ -988,6 +988,24 @@ async def refine_ai_architect_output(
     return await ai_architect_service.get_job_payload(db, job_id)
 
 
+@api.get("/ai-architect/refinement-memories")
+async def list_ai_architect_refinement_memories(job_id: Optional[str] = Query(None)):
+    return await ai_architect_service.list_refinement_memories(db, job_id=job_id)
+
+
+class AiArchitectMemoryToggle(BaseModel):
+    enabled: bool
+
+
+@api.patch("/ai-architect/refinement-memories/{memory_id}")
+async def toggle_ai_architect_refinement_memory(memory_id: str, body: AiArchitectMemoryToggle):
+    memory_oid = object_id_or_400(memory_id, "Memoria")
+    updated = await ai_architect_service.set_refinement_memory_enabled(db, str(memory_oid), body.enabled)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Memoria non trovata")
+    return updated
+
+
 @api.get("/ai-architect/jobs/{job_id}/report")
 async def ai_architect_report(job_id: str):
     path = await ai_architect_service.report_path_for_job(db, job_id)

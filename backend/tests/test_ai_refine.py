@@ -46,6 +46,25 @@ class FakeCursor:
         return list(self._docs)
 
 
+def _match_value(actual, expected):
+    if isinstance(expected, dict) and any(k.startswith("$") for k in expected):
+        for op, operand in expected.items():
+            if op == "$ne" and actual == operand:
+                return False
+            if op == "$nin" and actual in operand:
+                return False
+            if op == "$in" and actual not in operand:
+                return False
+            if op == "$exists" and (actual is not None) != bool(operand):
+                return False
+        return True
+    return actual == expected
+
+
+def _match_doc(doc, query):
+    return all(_match_value(doc.get(k), v) for k, v in query.items())
+
+
 class FakeCollection:
     def __init__(self, docs=None):
         self.docs = list(docs or [])
@@ -54,12 +73,12 @@ class FakeCollection:
 
     async def find_one(self, query):
         for doc in self.docs:
-            if all(doc.get(k) == v for k, v in query.items()):
+            if _match_doc(doc, query):
                 return doc
         return None
 
     def find(self, query):
-        matched = [doc for doc in self.docs if all(doc.get(k) == v for k, v in query.items())]
+        matched = [doc for doc in self.docs if _match_doc(doc, query)]
         return FakeCursor(matched)
 
     async def insert_one(self, doc):
@@ -74,10 +93,11 @@ class FakeCollection:
 
 
 class FakeDB:
-    def __init__(self, job, outputs):
+    def __init__(self, job, outputs, memories=None):
         self.ai_architect_jobs = FakeCollection([job])
         self.ai_architect_outputs = FakeCollection(outputs)
         self.ai_architect_errors = FakeCollection()
+        self.ai_architect_refinement_memories = FakeCollection(memories or [])
 
 
 def test_normalize_region_clamps_and_rejects_tiny():
@@ -147,7 +167,22 @@ def test_refine_output_adds_versioned_output_and_charges(monkeypatch):
         charges.append(kwargs)
         return {"ok": True}
 
+    async def fake_classify(*_args, **_kwargs):
+        return svc._normalize_refinement_classification(
+            {
+                "learnable": True,
+                "category": "distribution_error",
+                "subcategory": "kitchen_placement",
+                "severity": "high",
+                "affected_elements": ["kitchen"],
+                "extracted_rule": "Keep the kitchen where the approved plan places it.",
+                "confidence": 0.9,
+            },
+            "x",
+        )
+
     monkeypatch.setattr(svc, "_refine_generate", fake_generate)
+    monkeypatch.setattr(svc, "_classify_refinement_signal", fake_classify)
     monkeypatch.setattr(svc, "_reference_image_path", lambda url: Path("x.png") if url else None)
     monkeypatch.setattr(svc, "_approved_plan_reference_url", lambda *_a, **_k: "/plan.png")
     monkeypatch.setattr(svc, "_build_edit_mask_png", lambda *_a, **_k: None)
@@ -158,7 +193,7 @@ def test_refine_output_adds_versioned_output_and_charges(monkeypatch):
             db,
             JOB_ID,
             str(output_id),
-            instruction="rendi la cucina piu luminosa",
+            instruction="la cucina non deve stare li",
             region=None,
             reviewer="Tester",
             previous_status="completed",
@@ -168,10 +203,18 @@ def test_refine_output_adds_versioned_output_and_charges(monkeypatch):
     new_outputs = [d for d in db.ai_architect_outputs.inserted if d["output_type"] == "room_render"]
     assert len(new_outputs) == 1
     refinement = new_outputs[0]["json_content"]["refinement"]
-    assert refinement["instruction"] == "rendi la cucina piu luminosa"
+    assert refinement["instruction"] == "la cucina non deve stare li"
     assert refinement["revision"] == 1
     assert refinement["parent_output_id"] == str(output_id)
     assert new_outputs[0]["image_url"].endswith("cucina-refined.png")
+
+    # Errore strutturale -> memoria forte persistita con regola riusabile.
+    memories = db.ai_architect_refinement_memories.inserted
+    assert len(memories) == 1
+    assert memories[0]["strength"] == "strong"
+    assert memories[0]["category"] == "distribution_error"
+    assert memories[0]["extracted_rule"]
+    assert memories[0]["output_id_before"] == str(output_id)
 
     assert len(charges) == 1
     assert charges[0]["action_key"] == "ai_architect_regen_room_render"
@@ -219,3 +262,165 @@ def test_action_credits_known_and_unknown():
         assert "sconosciuta" in str(exc)
     else:
         raise AssertionError("expected ValueError for unknown action key")
+
+
+def test_keyword_classify_geometry_vs_aesthetic():
+    # Errore strutturale (apertura) -> learnable + structural.
+    opening = svc._normalize_refinement_classification(
+        svc._refinement_keyword_classify("togli la finestra dal bagno"), "x"
+    )
+    assert opening["category"] == "opening_error"
+    assert opening["structural"] is True
+    assert opening["learnable"] is True
+
+    # Preferenza estetica -> non strutturale.
+    light = svc._normalize_refinement_classification(
+        svc._refinement_keyword_classify("rendi piu luminoso"), "x"
+    )
+    assert light["structural"] is False
+    assert light["category"] == "lighting_preference"
+
+
+def test_normalize_classification_rejects_unknown_category():
+    result = svc._normalize_refinement_classification(
+        {"learnable": True, "category": "totally_unknown", "confidence": 2.0}, "x"
+    )
+    assert result["category"] == "other"
+    assert result["learnable"] is False  # 'other' non e mai learnable
+    assert 0.0 <= result["confidence"] <= 1.0
+
+
+def test_learned_constraints_block_separates_strong_and_weak():
+    memories = [
+        {"strength": "strong", "extracted_rule": "Do not add bathroom windows absent from the plan."},
+        {"strength": "weak", "extracted_rule": "Prefer warm modern lighting."},
+    ]
+    block = svc._learned_constraints_block(memories)
+    assert "LEARNED_CORRECTION_MEMORY" in block
+    assert "hard constraints" in block
+    assert "Do not add bathroom windows" in block
+    assert "LEARNED_STYLE_PREFERENCES" in block
+    assert "warm modern lighting" in block
+    assert svc._learned_constraints_block([]) == ""
+
+
+def test_persist_refinement_memory_strength_by_category(monkeypatch):
+    job = _job()
+    output = {"_id": ObjectId(), "output_type": "room_render", "room_name": "Bagno"}
+    db = FakeDB(job, [])
+
+    strong_class = svc._normalize_refinement_classification(
+        {
+            "learnable": True,
+            "category": "opening_error",
+            "extracted_rule": "No bathroom window unless in PLAN_DETAILS_JSON.",
+            "confidence": 0.8,
+        },
+        "x",
+    )
+    doc = asyncio.run(
+        svc._persist_refinement_memory(
+            db,
+            job,
+            output=output,
+            refined_output_id="after1",
+            instruction="togli la finestra dal bagno",
+            region=None,
+            classification=strong_class,
+            fidelity_review={"fidelity_score": 0.9},
+            reviewer="Tester",
+        )
+    )
+    assert doc["strength"] == "strong"
+    assert doc["accepted_by_staff"] is True
+    # Confidenza = media tra classificazione e fidelity score.
+    assert abs(doc["confidence"] - 0.85) < 1e-6
+
+    weak_class = svc._normalize_refinement_classification(
+        {"learnable": True, "category": "style_preference", "extracted_rule": "Prefer minimal style.", "confidence": 0.9},
+        "x",
+    )
+    weak_doc = asyncio.run(
+        svc._persist_refinement_memory(
+            db,
+            job,
+            output=output,
+            refined_output_id="after2",
+            instruction="stile piu minimal",
+            region=None,
+            classification=weak_class,
+            fidelity_review=None,
+            reviewer="Tester",
+        )
+    )
+    assert weak_doc["strength"] == "weak"
+
+
+def test_retrieve_refinement_memories_ranks_strong_and_filters_weak():
+    job = _job()  # account default, style "moderno luxury", room "cucina"
+    account = ai_credit_service.ACCOUNT_ID
+    memories = [
+        {
+            "account_id": account,
+            "enabled": True,
+            "learnable": True,
+            "strength": "strong",
+            "output_type": "room_render",
+            "room_name": "Bagno",
+            "category": "opening_error",
+            "extracted_rule": "No bathroom window unless present in the plan.",
+            "confidence": 0.8,
+            "created_at": "2026-01-01",
+        },
+        {
+            "account_id": account,
+            "enabled": True,
+            "learnable": True,
+            "strength": "weak",
+            "output_type": "room_render",
+            "room_name": "Cucina",
+            "style": "moderno luxury",
+            "category": "style_preference",
+            "extracted_rule": "Prefer warm modern lighting.",
+            "confidence": 0.5,
+            "created_at": "2026-01-02",
+        },
+        {
+            "account_id": account,
+            "enabled": True,
+            "learnable": True,
+            "strength": "weak",
+            "output_type": "room_render",
+            "room_name": "Taverna",
+            "style": "industriale",
+            "category": "style_preference",
+            "extracted_rule": "Use exposed concrete.",
+            "confidence": 0.5,
+            "created_at": "2026-01-03",
+        },
+        {
+            "account_id": account,
+            "enabled": False,  # disattivata: esclusa
+            "learnable": True,
+            "strength": "strong",
+            "output_type": "room_render",
+            "category": "wall_error",
+            "extracted_rule": "Disabled rule.",
+            "confidence": 0.9,
+            "created_at": "2026-01-04",
+        },
+    ]
+    db = FakeDB(job, [], memories=memories)
+    result = asyncio.run(svc._retrieve_refinement_memories(db, job, output_type="room_render"))
+    rules = [m["extracted_rule"] for m in result]
+
+    # La regola forte (cross-progetto) c'e; la preferenza dello stile/ambiente corrente c'e;
+    # la preferenza di un altro stile/ambiente e la regola disattivata NON ci sono.
+    assert "No bathroom window unless present in the plan." in rules
+    assert "Prefer warm modern lighting." in rules
+    assert "Use exposed concrete." not in rules
+    assert "Disabled rule." not in rules
+    # La regola forte precede le preferenze deboli.
+    assert rules.index("No bathroom window unless present in the plan.") < rules.index(
+        "Prefer warm modern lighting."
+    )

@@ -41,7 +41,7 @@ def technical_extraction_prompt(job: Dict[str, Any]) -> str:
         "3. Non inventare dati non presenti.\n"
         "4. Ogni informazione incerta deve avere confidence score da 0 a 1.\n"
         "5. Distingui dati rilevati dalla planimetria, dati stimati, dati mancanti e dati da verificare in sopralluogo.\n"
-        "6. Riconosci ambienti, muri, aperture, porte, finestre, balconi, arredi, sanitari, cucina, disimpegni e vani tecnici.\n"
+        "6. Riconosci ambienti, muri, aperture, porte, finestre, balconi/logge/terrazzi, ingresso principale, pianerottolo, vano scala, ascensore, unita confinanti, arredi, sanitari, cucina, disimpegni e vani tecnici.\n"
         "7. Per ogni ambiente calcola, se possibile, superficie netta, perimetro, dimensioni principali, rapporti, accessi, finestre, arredi compatibili e criticita.\n"
         "8. Per ogni muro crea un oggetto separato con ID, coordinate, lunghezza, spessore se rilevabile, stato e funzione.\n"
         "9. Per ogni porta/apertura crea un oggetto separato con ID, larghezza, verso apertura se visibile, ambienti collegati e muro di appartenenza.\n"
@@ -62,7 +62,7 @@ def optimization_prompt(job: Dict[str, Any], technical_floor_plan_json: Dict[str
         "una proposta ottimizzata mantenendo coerenza con la geometria della planimetria di partenza.\n\n"
         f"VARIANTE SCELTA DAL CLIENTE: {variant['label']} - {variant['strategy']}. Genera solo questa variante.\n\n"
         "Regole: non inventare dati tecnici non presenti; se manca un dato, inserirlo nei dati mancanti/da verificare; "
-        "mantieni perimetro esterno, balconi, affacci e aperture esterne; non demolire muri potenzialmente portanti; "
+        "mantieni perimetro esterno, sagoma irregolare, rientranze, balconi, affacci, aperture esterne, ingresso, pianerottolo, vano scala/ascensore e rapporti con unita confinanti; non demolire muri potenzialmente portanti; "
         "non spostare bagni e cucina senza verifica scarichi, colonne, pendenze e cavedi; usa centimetri e metri quadrati; "
         "motiva ogni scelta architettonica e commerciale.\n\n"
         "Restituisci un JSON con: sintesi progettuale, analisi stato attuale, criticita, strategia, nuova distribuzione, "
@@ -231,6 +231,11 @@ def build_technical_floor_plan_json(job: Dict[str, Any]) -> Dict[str, Any]:
     doors = _feature_objects(_features(analysis, "doors"), "door", "porta_o_apertura", status_default="esistente")
     windows = _feature_objects(_features(analysis, "windows"), "window", "finestra_o_portafinestra", status_default="esistente")
     balconies = _feature_objects(_features(analysis, "balconies"), "balcony", "balcone", status_default="esistente")
+    entrances = _feature_objects(_features(analysis, "entrances"), "entrance", "ingresso_principale", status_default="esistente")
+    stairs = _feature_objects(_features(analysis, "stairs"), "stair", "vano_scala", status_default="esistente")
+    elevators = _feature_objects(_features(analysis, "elevators"), "elevator", "ascensore", status_default="esistente")
+    landings = _feature_objects(_features(analysis, "landings"), "landing", "pianerottolo", status_default="esistente")
+    neighboring_units = _feature_objects(_features(analysis, "neighboring_units"), "neighbor", "unita_confinante_o_parte_comune", status_default="vincolo")
     kitchens = _feature_objects(_features(analysis, "kitchen_zones"), "kitchen", "cucina", status_default="esistente_da_verificare")
     bathrooms = _feature_objects(_features(analysis, "bathrooms"), "bathroom", "bagno", status_default="esistente_da_verificare")
     missing = [
@@ -239,6 +244,8 @@ def build_technical_floor_plan_json(job: Dict[str, Any]) -> Dict[str, Any]:
         "spessori murari certi",
         "classificazione portanti/tramezzi",
         "posizione colonne di scarico e cavedi",
+        "posizione ingresso, pianerottolo, vano scala e ascensore",
+        "pareti confinanti con altre unita o parti comuni",
         "dimensioni finestre e davanzali",
         "altezza interna",
         "orientamento nord",
@@ -270,6 +277,11 @@ def build_technical_floor_plan_json(job: Dict[str, Any]) -> Dict[str, Any]:
         "doors": doors,
         "windows": windows,
         "balconies": balconies,
+        "entrances": entrances,
+        "stairs": stairs,
+        "elevators": elevators,
+        "landings": landings,
+        "neighboring_units": neighboring_units,
         "furniture_detected": _feature_objects(_features(analysis, "furniture"), "furniture", "arredo_esistente", status_default="esistente_da_verificare"),
         "sanitary": _feature_objects(_features(analysis, "sanitary"), "sanitary", "sanitario", status_default="esistente_da_verificare"),
         "kitchen": kitchens,
@@ -282,6 +294,9 @@ def build_technical_floor_plan_json(job: Dict[str, Any]) -> Dict[str, Any]:
         "technical_constraints": [
             "perimetro esterno bloccato",
             "aperture esterne da mantenere",
+            "balconi/logge/terrazzi esistenti da mantenere come spazi esterni",
+            "ingresso, pianerottolo, vano scala e ascensore da mantenere se visibili",
+            "nessuna nuova apertura su pareti verso altre unita o parti comuni",
             "bagni e cucina vincolati a scarichi/colonne da verificare",
             "muri portanti non classificabili automaticamente",
         ],
@@ -390,7 +405,9 @@ def build_optimized_floor_plan_json(job: Dict[str, Any], technical_floor_plan_js
     visual_prompt = (
         "Generate a professional colored 2D architectural floor plan from optimized_floor_plan_json only. "
         "Preserve the uploaded external perimeter, balconies, terraces, exterior openings and detected wet areas. "
-        "Do not invent rooms, balconies, doors, windows, stairs, structural walls or furniture not allowed by the JSON. "
+        "Preserve entrance, landing, stair/elevator core and shared-boundary relationships exactly when visible. "
+        "Do not invent rooms, balconies, doors, windows, stairs, elevator shafts, structural walls or furniture not allowed by the JSON. "
+        "Never convert balconies/loggias/terraces into simple windows and never add facade openings on shared boundaries. "
         "Use clean black wall lines, subtle room colors, realistic furniture blocks from the parametric library, dimension labels only where available, "
         "legend for existing walls, demolitions, new partitions, MEP checks, and site-verification notes. "
         "If a datum is missing, mark it as to verify instead of drawing it as certain."

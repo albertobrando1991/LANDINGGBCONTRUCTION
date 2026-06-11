@@ -219,6 +219,114 @@ def test_redistributed_2d_prompt_rejects_known_hallucinations():
     assert "do not label any wall as load-bearing" in prompt
 
 
+def test_plan_details_lock_balconies_common_core_and_shared_boundaries():
+    job = {
+        "plan_type_selected": "existing_state",
+        "plan_type_detected": "existing_state",
+        "project_variant_selected": "conservative",
+        "vision_analysis": {
+            "plan_type_detected": "existing_state",
+            "confidence": 0.9,
+            "recommended_action": "redistribute",
+            "detected_rooms": [
+                {
+                    "name": "Camera sinistra",
+                    "approx_position": "basso sinistra",
+                    "confidence": 0.9,
+                    "evidence": "camera con balcone sul prospetto",
+                    "bounding_box": {"x": 0.08, "y": 0.58, "width": 0.25, "height": 0.22},
+                },
+                {
+                    "name": "Soggiorno",
+                    "approx_position": "basso destra",
+                    "confidence": 0.9,
+                    "evidence": "soggiorno con balcone",
+                    "bounding_box": {"x": 0.58, "y": 0.56, "width": 0.24, "height": 0.24},
+                },
+            ],
+            "detected_elements": {
+                "external_walls": [
+                    {"label": "sagoma irregolare", "approx_position": "perimetro appartamento", "confidence": 0.86, "evidence": "rientranze e balconi visibili"}
+                ],
+                "windows": [
+                    {"label": "apertura camera centrale", "approx_position": "prospetto basso centro", "confidence": 0.82, "evidence": "finestra visibile"}
+                ],
+                "balconies": [
+                    {"label": "balcone camera sinistra", "approx_position": "basso sinistra", "confidence": 0.9, "evidence": "balcone etichettato"},
+                    {"label": "balcone soggiorno", "approx_position": "basso destra", "confidence": 0.9, "evidence": "balcone etichettato"},
+                    {"label": "balcone cucina bagno", "approx_position": "lato sinistro verticale", "confidence": 0.86, "evidence": "balcone laterale"},
+                ],
+                "entrances": [
+                    {"label": "ingresso principale", "approx_position": "centro destra", "confidence": 0.88, "evidence": "freccia ingresso dal pianerottolo"}
+                ],
+                "stairs": [
+                    {"label": "vano scala", "approx_position": "alto destra", "confidence": 0.86, "evidence": "rampe scala condominiale"}
+                ],
+                "elevators": [
+                    {"label": "ascensore", "approx_position": "destra ingresso", "confidence": 0.82, "evidence": "vano con croce"}
+                ],
+                "landings": [
+                    {"label": "pianerottolo", "approx_position": "davanti ingresso", "confidence": 0.82, "evidence": "spazio comune con freccia"}
+                ],
+                "neighboring_units": [
+                    {"label": "abitazione int.8", "approx_position": "destra soggiorno", "confidence": 0.86, "evidence": "unita confinante indicata"}
+                ],
+            },
+        },
+    }
+
+    details = svc._plan_details_json(job, "redistributed")
+    prompt = svc._redistributed_2d_prompt({**job, "plan_details": details})
+
+    invariants = details["as_built_invariants"]
+    assert invariants["critical_counts"]["balconies_loggias_terraces"] == 3
+    assert invariants["critical_counts"]["stairs"] == 1
+    assert invariants["critical_counts"]["elevators"] == 1
+    assert "balconies" in details["detected_elements"]
+    assert "neighboring_units" in details["detected_elements"]
+    assert any("trasformare balconi" in item for item in details["render_contract"]["must_not_add"])
+    assert "same three balconies" in prompt
+    assert "stair/elevator/landing" in prompt
+    assert "shared-wall boundaries" in prompt
+
+
+def test_layout_invariant_gate_blocks_generative_when_openings_are_not_locked():
+    weak_job = {
+        "plan_type_selected": "existing_state",
+        "plan_type_detected": "existing_state",
+        "vision_analysis": {
+            "confidence": 0.9,
+            "detected_rooms": [
+                {"name": "Soggiorno", "confidence": 0.9, "bounding_box": {"x": 0.1, "y": 0.1, "width": 0.4, "height": 0.3}},
+                {"name": "Camera", "confidence": 0.9, "bounding_box": {"x": 0.1, "y": 0.5, "width": 0.3, "height": 0.3}},
+            ],
+            "detected_elements": {},
+        },
+    }
+    score, details = svc._layout_invariant_gate(weak_job, "redistributed")
+
+    assert score < svc.LAYOUT_GENERATIVE_MIN_LOCK_SCORE
+    assert details["generative_2d_allowed"] is False
+    assert "aperture esterne/balconi" in " ".join(details["uncertainty_flags"])
+
+    strong_job = {
+        **weak_job,
+        "vision_analysis": {
+            **weak_job["vision_analysis"],
+            "model_provider": "anthropic",
+            "detected_elements": {
+                "external_walls": [{"label": "perimetro", "approx_position": "bordo", "confidence": 0.9, "evidence": "sagoma leggibile"}],
+                "doors": [{"label": "ingresso", "approx_position": "destra", "confidence": 0.86, "evidence": "porta ingresso"}],
+                "windows": [{"label": "finestra", "approx_position": "basso", "confidence": 0.86, "evidence": "apertura esterna"}],
+                "balconies": [{"label": "balcone", "approx_position": "basso destra", "confidence": 0.86, "evidence": "balcone visibile"}],
+            },
+        },
+    }
+    strong_score, strong_details = svc._layout_invariant_gate(strong_job, "redistributed")
+    assert strong_score >= svc.LAYOUT_GENERATIVE_MIN_LOCK_SCORE
+    assert strong_details["generative_2d_allowed"] is True
+
+
 def test_defined_project_contract_locks_uploaded_layout():
     analysis = svc._safe_mode_analysis_json(
         {

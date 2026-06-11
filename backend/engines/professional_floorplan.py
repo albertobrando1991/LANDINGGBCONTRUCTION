@@ -294,7 +294,11 @@ def build_floorplan_2d_brief(job: Dict[str, Any], actions: List[OptimizationActi
         constraints_respected=[
             "Perimetro esterno invariato",
             "Accessi e aperture visibili mantenuti",
+            "Sagoma irregolare, rientranze e rapporti con parti comuni mantenuti",
             "Balconi, terrazzi, logge e volumi esterni non aggiunti se non presenti nel file",
+            "Balconi, terrazzi e logge presenti non trasformati in semplici finestre",
+            "Ingresso, pianerottolo, vano scala e ascensore non spostati o semplificati",
+            "Nessuna nuova apertura su pareti confinanti con altre unita o parti comuni",
             "Bagni, cucina, cavedi e scarichi trattati come vincoli finche non verificati",
             "Arredi e moduli cucina mai inseriti in bagni, bagni di servizio o locali tecnici",
             "Muri portanti o elementi non chiari non demoliti automaticamente",
@@ -312,7 +316,11 @@ def build_floorplan_2d_brief(job: Dict[str, Any], actions: List[OptimizationActi
         approval_checklist=[
             "Perimetro coerente con il file caricato",
             "Finestre e accessi non inventati",
+            "Finestre/portefinestre esterne nella stessa posizione del file originario",
             "Balconi/terrazzi assenti se non rilevati nel file originale",
+            "Balconi/terrazzi presenti conservati come spazi esterni e non ridotti a finestre",
+            "Ingresso e rapporto con scala/ascensore/pianerottolo coerenti con lo stato originario",
+            "Nessuna apertura disegnata su muri verso altre unita immobiliari",
             "Bagni/cucina coerenti con nuclei impiantistici",
             "Nessun arredo cucina dentro bagni o bagni di servizio",
             "Muri portanti indicati solo come verifica richiesta, non come certezza",

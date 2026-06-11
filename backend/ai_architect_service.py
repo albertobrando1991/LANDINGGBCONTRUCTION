@@ -125,6 +125,8 @@ VISION_MIN_ACCEPTABLE_CONFIDENCE = float(os.getenv("AI_VISION_MIN_ACCEPTABLE_CON
 VISION_MIN_ROOMS = max(1, int(os.getenv("AI_VISION_MIN_ROOMS", "2")))
 VISION_GATE_MIN_SCORE = float(os.getenv("AI_VISION_GATE_MIN_SCORE", "0.78"))
 LAYOUT_GATE_MIN_SCORE = float(os.getenv("AI_LAYOUT_GATE_MIN_SCORE", "0.70"))
+LAYOUT_INVARIANT_MIN_CONFIDENCE = float(os.getenv("AI_LAYOUT_INVARIANT_MIN_CONFIDENCE", "0.58"))
+LAYOUT_GENERATIVE_MIN_LOCK_SCORE = float(os.getenv("AI_LAYOUT_GENERATIVE_MIN_LOCK_SCORE", "0.78"))
 RENDER_GATE_MIN_SCORE = float(os.getenv("AI_RENDER_GATE_MIN_SCORE", "0.80"))
 RENDER_CONFIDENCE_THRESHOLD = float(os.getenv("AI_RENDER_CONFIDENCE_THRESHOLD", "0.55"))
 REQUIRE_ADVANCED_VISION = os.getenv("AI_ARCHITECT_REQUIRE_ADVANCED_VISION", "true").lower() not in {"0", "false", "no"}
@@ -166,6 +168,29 @@ AI_REFINABLE_OUTPUT_TYPES = {
     "topdown_3d_plan": "ai_architect_regen_topdown",
     "room_render": "ai_architect_regen_room_render",
 }
+# Automiglioramento: ogni correzione dello staff viene classificata. Gli errori strutturali
+# (geometria, distribuzione stanze, aperture, proporzioni, layout/arredo) diventano memoria FORTE
+# riusabile come vincolo nelle generazioni future; le correzioni estetiche restano memoria DEBOLE
+# (preferenze). Il sistema impara dalle correzioni dello staff, mai dai propri output non verificati.
+AI_REFINEMENT_MEMORY_ENABLED = os.getenv("AI_REFINEMENT_MEMORY_ENABLED", "true").lower() not in {"0", "false", "no"}
+AI_REFINEMENT_MEMORY_MIN_CONFIDENCE = float(os.getenv("AI_REFINEMENT_MEMORY_MIN_CONFIDENCE", "0.55"))
+AI_REFINEMENT_MEMORY_MAX_IN_PROMPT = max(1, int(os.getenv("AI_REFINEMENT_MEMORY_MAX_IN_PROMPT", "8")))
+# Categorie strutturali = memoria forte (vincolo). Le altre = memoria debole (preferenza).
+AI_STRUCTURAL_REFINEMENT_CATEGORIES = {
+    "geometry_error",
+    "distribution_error",
+    "opening_error",
+    "wall_error",
+    "proportion_error",
+    "layout_furniture_error",
+}
+AI_REFINEMENT_CATEGORIES = AI_STRUCTURAL_REFINEMENT_CATEGORIES | {
+    "style_preference",
+    "material_preference",
+    "lighting_preference",
+    "visual_preference",
+    "other",
+}
 # Abilitati di default: con un provider immagini configurato producono una vera redistribuzione/pulizia
 # ridisegnata (vincolata alla planimetria caricata). Senza provider o con lettura debole si ricade sulla
 # tavola professionale deterministica onesta. Disattiva (=false) per il comportamento legacy.
@@ -201,7 +226,8 @@ LAYOUT_REGENERATION_LIMIT_MESSAGE = (
 ANALYSIS_PROMPT = (
     "Analizza la planimetria allegata come un architetto professionista in fase preliminare. "
     "Devi riconoscere perimetro, ambienti, aperture, finestre, porte, cucina, bagni, corridoi, "
-    "disimpegni, zone giorno e zone notte. Determina se la planimetria rappresenta uno stato di "
+    "disimpegni, zone giorno, zone notte, balconi, portefinestre, ingresso principale, pianerottolo, "
+    "vano scala, ascensore e rapporti con unita confinanti. Determina se la planimetria rappresenta uno stato di "
     "fatto, un progetto gia definito o se non e chiaro. Evidenzia punti di forza, criticita, "
     "opportunita di miglioramento e vincoli visibili. Non inventare dati non presenti. Se scala, "
     "misure, muri portanti o impianti non sono chiari, dichiaralo. Restituisci un JSON strutturato."
@@ -277,11 +303,15 @@ def _arch_ai_vision_user_prompt(job: Dict[str, Any]) -> str:
         "presunti, pilastri, canne fumarie/colonne montanti), impianti visibili (sanitari, cucina), criticita "
         "(stanze cieche, corridoi oltre il 15%, bagni senza finestra, ambienti sottodimensionati, rapporti "
         "aeroilluminanti) e punti di forza (doppia esposizione, ambienti generosi, spazi flessibili). "
+        "Estrai con massima attenzione sagoma/perimetro irregolare, rientranze, balconi/logge/terrazzi, "
+        "portefinestre, finestre, porta d'ingresso, pianerottolo, vano scala, ascensore e muri confinanti con "
+        "altre unita: questi elementi sono invarianti e non possono essere reinterpretati nella redistribuzione. "
         "Per ogni stanza/elemento fornisci evidence e confidence 0..1; aggiungi bounding_box normalizzata 0..1 "
         "solo quando localizzabile, altrimenti omettila. Se un dato non e determinabile, omettilo o marca "
         "verification_required=true: mai indovinare. "
         "In piu, compila technical_floor_plan_json con il JSON tecnico dettagliato richiesto: ambienti, muri, "
-        "porte, finestre, balconi, arredi, sanitari, cucina, disimpegni, vani tecnici, demolizioni, nuovi tramezzi, "
+        "porte, finestre, balconi, ingresso, pianerottolo, vano scala, ascensore, arredi, sanitari, cucina, "
+        "disimpegni, vani tecnici, demolizioni, nuovi tramezzi, "
         "vincoli, dati mancanti e verifiche in sopralluogo. Usa centimetri, data_status e confidence score; non "
         "inserire dati tecnici non leggibili come certi. "
         "ROUTING modalita: plan_type_selected=existing_state -> recommended_action=redistribute; "
@@ -335,6 +365,10 @@ class DetectedElements(BaseModel):
     kitchen_zones: List[DetectedFeature] = Field(default_factory=list)
     corridors: List[DetectedFeature] = Field(default_factory=list)
     stairs: List[DetectedFeature] = Field(default_factory=list)
+    elevators: List[DetectedFeature] = Field(default_factory=list)
+    entrances: List[DetectedFeature] = Field(default_factory=list)
+    landings: List[DetectedFeature] = Field(default_factory=list)
+    neighboring_units: List[DetectedFeature] = Field(default_factory=list)
     balconies: List[DetectedFeature] = Field(default_factory=list)
     furniture: List[DetectedFeature] = Field(default_factory=list)
     sanitary: List[DetectedFeature] = Field(default_factory=list)
@@ -911,8 +945,8 @@ async def _add_output(
     image_url: Optional[str] = None,
     text_content: Optional[str] = None,
     json_content: Optional[Dict[str, Any]] = None,
-):
-    await db.ai_architect_outputs.insert_one(
+) -> Optional[str]:
+    result = await db.ai_architect_outputs.insert_one(
         {
             "job_id": job_id,
             "output_type": output_type,
@@ -923,6 +957,8 @@ async def _add_output(
             "created_at": now_iso(),
         }
     )
+    inserted_id = getattr(result, "inserted_id", None)
+    return str(inserted_id) if inserted_id is not None else None
 
 
 async def _record_quality_gate(
@@ -1092,6 +1128,228 @@ def _layout_gate_score(job: Dict[str, Any]) -> tuple[float, Dict[str, Any]]:
     room_score = min(1.0, len(rooms) / max(VISION_MIN_ROOMS, 1))
     score = round((room_score * 0.55) + (box_score * 0.45), 3)
     return score, {"rooms_count": len(rooms), "rooms_with_bounding_box": len(boxes)}
+
+
+_PLAN_LOCK_FEATURE_KEYS = [
+    "external_walls",
+    "internal_walls",
+    "doors",
+    "windows",
+    "balconies",
+    "entrances",
+    "stairs",
+    "elevators",
+    "landings",
+    "bathrooms",
+    "kitchen_zones",
+    "technical_shafts",
+    "structural_constraints_uncertain",
+    "neighboring_units",
+]
+
+_PLAN_LOCK_LABELS = {
+    "external_walls": "perimetro/sagoma",
+    "internal_walls": "tramezzi interni",
+    "doors": "porte/varchi",
+    "windows": "finestre/portefinestre",
+    "balconies": "balconi/logge/terrazzi",
+    "entrances": "ingresso principale",
+    "stairs": "vano scala",
+    "elevators": "ascensore",
+    "landings": "pianerottolo",
+    "bathrooms": "bagni",
+    "kitchen_zones": "cucina/zona impianti",
+    "technical_shafts": "cavedi/colonne",
+    "structural_constraints_uncertain": "vincoli strutturali incerti",
+    "neighboring_units": "unita confinanti/parti comuni",
+}
+
+
+def _analysis_feature_items(job: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
+    analysis = job.get("vision_analysis") or {}
+    elements = analysis.get("detected_elements") or {}
+    raw_items = elements.get(key) or []
+    if not isinstance(raw_items, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    for index, item in enumerate(raw_items, start=1):
+        if isinstance(item, dict):
+            label = _normalize_text(str(item.get("label") or "")) or _PLAN_LOCK_LABELS.get(key, key)
+            approx_position = _normalize_text(str(item.get("approx_position") or "")) or "posizione da verificare"
+            evidence = _normalize_text(str(item.get("evidence") or "")) or label
+            confidence = _safe_float(item.get("confidence"), 0.6 if evidence else 0.0)
+            verification_required = bool(item.get("verification_required", confidence < LAYOUT_INVARIANT_MIN_CONFIDENCE))
+        else:
+            label = _normalize_text(str(item)) or _PLAN_LOCK_LABELS.get(key, key)
+            approx_position = "posizione da verificare"
+            evidence = label
+            confidence = 0.45
+            verification_required = True
+        normalized.append(
+            {
+                "id": f"{key}_{index:02d}",
+                "label": label,
+                "approx_position": approx_position,
+                "evidence": evidence,
+                "confidence": round(max(0.0, min(1.0, confidence)), 3),
+                "verification_required": verification_required,
+            }
+        )
+    return normalized
+
+
+def _feature_contract_line(key: str, items: List[Dict[str, Any]]) -> Optional[str]:
+    if not items:
+        return None
+    label = _PLAN_LOCK_LABELS.get(key, key)
+    sample = "; ".join(
+        f"{item.get('label')} ({item.get('approx_position')})"
+        for item in items[:5]
+        if item.get("label")
+    )
+    suffix = f": {sample}" if sample else ""
+    return f"{len(items)} {label}{suffix}"
+
+
+def _as_built_invariant_contract(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
+    features = {key: _analysis_feature_items(job, key) for key in _PLAN_LOCK_FEATURE_KEYS}
+    balconies = features["balconies"]
+    windows = features["windows"]
+    doors = features["doors"]
+    entrances = features["entrances"]
+    stairs = features["stairs"]
+    elevators = features["elevators"]
+    landings = features["landings"]
+    external_walls = features["external_walls"]
+    neighboring_units = features["neighboring_units"]
+    technical_shafts = features["technical_shafts"]
+    structural_uncertain = features["structural_constraints_uncertain"]
+
+    detected_summary = [
+        line
+        for key in _PLAN_LOCK_FEATURE_KEYS
+        if (line := _feature_contract_line(key, features[key]))
+    ]
+    balcony_rule = (
+        f"preservare esattamente {len(balconies)} balconi/logge/terrazzi rilevati, con rapporto porta-finestra/spazio esterno invariato"
+        if balconies
+        else "non disegnare balconi/logge/terrazzi se non chiaramente visibili nel riferimento caricato"
+    )
+    access_rule = (
+        "preservare il rapporto ingresso-pianerottolo-vano scala-ascensore come nel file sorgente"
+        if entrances or stairs or elevators or landings
+        else "non inventare o spostare ingresso, pianerottolo, vano scala o ascensore"
+    )
+    facade_rule = (
+        "muri verso altre unita/parti comuni non sono facciate libere: vietato aprire finestre o porte su quei lati"
+        if neighboring_units
+        else "non trattare pareti non identificate come esterne come facciate libere"
+    )
+    must_preserve = [
+        "sagoma/perimetro esterno reale, incluse rientranze, sporgenze, setti e rapporti con parti comuni",
+        "posizione e numero di finestre, portefinestre, porte esterne e accessi principali rilevati",
+        balcony_rule,
+        access_rule,
+        "posizione dei bagni, cucina, cavedi e colonne come vincoli impiantistici preliminari",
+        "relazioni tra ambienti, disimpegni e aperture leggibili nello stato originario",
+    ]
+    must_not_change = [
+        "non semplificare una sagoma irregolare in un rettangolo o in un perimetro piu regolare",
+        "non trasformare balconi/logge/terrazzi in semplici finestre o aperture",
+        "non creare finestre, portefinestre, porte o varchi su pareti dove il file originale non mostra aperture",
+        "non eliminare balconi, accessi esterni, scala, ascensore, pianerottolo, cavedi o rapporti con parti comuni",
+        "non spostare l'ingresso principale ne alterare il collegamento con pianerottolo/scala/ascensore",
+        facade_rule,
+    ]
+    uncertainty_flags = []
+    if not external_walls:
+        uncertainty_flags.append("perimetro/sagoma non estratti come feature strutturata")
+    if not (windows or doors or balconies):
+        uncertainty_flags.append("aperture esterne/balconi non estratti come feature strutturata")
+    if technical_shafts or structural_uncertain:
+        uncertainty_flags.append("vincoli impiantistici/strutturali da trattare come bloccati finche non verificati")
+
+    return {
+        "schema": "gb-as-built-invariant-contract-v1",
+        "source_of_truth": "uploaded_original_floor_plan",
+        "mode": mode,
+        "redistribution_scope": (
+            "solo ottimizzazione interna entro involucro, aperture, balconi, ingresso, vano scala/ascensore e confini esistenti"
+            if mode == "redistributed"
+            else "pulizia grafica del layout caricato senza redistribuzione"
+        ),
+        "critical_counts": {
+            "external_wall_groups": len(external_walls),
+            "doors_or_passages": len(doors),
+            "windows_or_french_doors": len(windows),
+            "balconies_loggias_terraces": len(balconies),
+            "entrances": len(entrances),
+            "stairs": len(stairs),
+            "elevators": len(elevators),
+            "landings": len(landings),
+            "neighboring_units_or_common_parts": len(neighboring_units),
+        },
+        "detected_summary": detected_summary[:18],
+        "detected_features": {key: value for key, value in features.items() if value},
+        "must_preserve": must_preserve,
+        "must_not_change": must_not_change,
+        "uncertainty_flags": uncertainty_flags,
+        "if_uncertain": "fallback_to_conservative_reference_plate_or_staff_review; never invent missing facade/opening/balcony data",
+    }
+
+
+def _layout_invariant_gate(job: Dict[str, Any], mode: str) -> tuple[float, Dict[str, Any]]:
+    analysis = job.get("vision_analysis") or {}
+    contract = _as_built_invariant_contract(job, mode)
+    counts = contract.get("critical_counts") or {}
+    confidence = _safe_float(analysis.get("confidence"), 0)
+    provider = str(analysis.get("model_provider") or "").lower()
+    advanced_provider = provider in {"anthropic", "openai", "openrouter"}
+    rooms = _analysis_rooms(job, min_confidence=0.2)
+    rooms_score = min(1.0, len(rooms) / max(VISION_MIN_ROOMS, 1))
+    boundary_score = 1.0 if counts.get("external_wall_groups", 0) > 0 else 0.35
+    openings = (
+        counts.get("doors_or_passages", 0)
+        + counts.get("windows_or_french_doors", 0)
+        + counts.get("balconies_loggias_terraces", 0)
+        + counts.get("entrances", 0)
+    )
+    opening_score = min(1.0, openings / 3)
+    common_core_count = counts.get("stairs", 0) + counts.get("elevators", 0) + counts.get("landings", 0)
+    common_core_score = 1.0 if common_core_count else 0.72
+    score = round(
+        (confidence * 0.28)
+        + (rooms_score * 0.14)
+        + (boundary_score * 0.24)
+        + (opening_score * 0.24)
+        + (common_core_score * 0.10),
+        3,
+    )
+    required_feature_lock = bool(counts.get("external_wall_groups")) and openings > 0
+    generative_allowed = (
+        mode == "defined"
+        or (
+            required_feature_lock
+            and score >= LAYOUT_GENERATIVE_MIN_LOCK_SCORE
+            and not analysis.get("is_fallback")
+            and advanced_provider
+            and confidence >= VISION_MIN_ACCEPTABLE_CONFIDENCE
+        )
+    )
+    return score, {
+        "mode": mode,
+        "score": score,
+        "min_score_for_generative_2d": LAYOUT_GENERATIVE_MIN_LOCK_SCORE,
+        "generative_2d_allowed": generative_allowed,
+        "required_feature_lock": required_feature_lock,
+        "rooms_count": len(rooms),
+        "analysis_confidence": confidence,
+        "model_provider": provider,
+        "advanced_provider_required": True,
+        "advanced_provider": advanced_provider,
+        "critical_counts": counts,
+        "uncertainty_flags": contract.get("uncertainty_flags") or [],
+    }
 
 
 def _asset_quality_score(url: Optional[str]) -> tuple[float, Dict[str, Any]]:
@@ -2634,6 +2892,7 @@ def _refine_prompt(
         "Edit it applying exactly this staff correction, written in Italian: "
         f"\"{instruction}\". "
         f"{region_clause}{contract}"
+        f"{job.get('learned_render_constraints') or ''}"
         "Preserve the existing style, lighting, materials, camera angle and overall composition; "
         "change strictly and only what the correction requires. "
         "Photorealistic, high-end construction-company presentation quality. "
@@ -2685,6 +2944,289 @@ async def _refine_generate(
     )
 
 
+# ---------------------------------------------------------------------------
+# Automiglioramento: memoria delle correzioni dello staff
+# ---------------------------------------------------------------------------
+
+_REFINEMENT_CLASSIFY_SYSTEM = (
+    "You are a senior architect QA classifier for an AI floor-plan and render pipeline. "
+    "A staff member corrected a generated image with a short instruction in Italian. "
+    "Classify whether that correction reveals a RECURRING AI ERROR that should be learned as a "
+    "reusable constraint for future generations, or just an aesthetic preference. "
+    "Structural errors (wrong room geometry, wrong room distribution/placement, hallucinated or missing "
+    "doors/windows/openings, wrong walls, wrong proportions, wrong or missing furniture position) are "
+    "learnable as STRONG rules. Aesthetic/style/material/lighting requests are WEAK preferences. "
+    "Return ONLY a JSON object with keys: learnable (bool), category (one of: geometry_error, "
+    "distribution_error, opening_error, wall_error, proportion_error, layout_furniture_error, "
+    "style_preference, material_preference, lighting_preference, visual_preference, other), subcategory "
+    "(short slug), severity (low|medium|high), affected_elements (array of short english element names), "
+    "extracted_rule (one generalizable english imperative sentence usable as a future generation "
+    "constraint, or empty if not learnable), confidence (0.0-1.0)."
+)
+
+# Euristica di fallback (no LLM o errore): parole chiave italiane -> categoria.
+_REFINEMENT_KEYWORDS = [
+    ("opening_error", ("finestra", "finestre", "porta", "porte", "apertura", "aperture", "varco", "balcone", "portafinestra")),
+    ("wall_error", ("muro", "muri", "parete", "pareti", "tramezzo", "divisorio")),
+    ("distribution_error", ("non deve stare", "spostare", "sposta", "posizione", "distribuzione", "invertire", "scambia", "al posto", "dovrebbe essere", "spostata", "spostato")),
+    ("proportion_error", ("troppo grande", "troppo piccolo", "proporzion", "dimension", "piu grande", "piu piccolo", "ridurre", "allargare", "stretta", "stretto")),
+    ("layout_furniture_error", ("manca", "aggiungi", "togli", "rimuovi", "isola", "arredo", "mobile", "mobili", "letto", "divano", "tavolo", "cucina componibile", "sanitari")),
+    ("lighting_preference", ("luminos", "luce", "buio", "scuro", "illumin")),
+    ("material_preference", ("parquet", "gres", "piastrell", "materiale", "colore", "pavimento", "rivestimento", "marmo", "legno")),
+    ("style_preference", ("stile", "moderno", "minimal", "classico", "caldo", "freddo", "elegante", "rustico", "contemporaneo")),
+]
+
+
+def _refinement_keyword_classify(instruction: str) -> Dict[str, Any]:
+    text = (instruction or "").lower()
+    for category, keywords in _REFINEMENT_KEYWORDS:
+        if any(token in text for token in keywords):
+            structural = category in AI_STRUCTURAL_REFINEMENT_CATEGORIES
+            return {
+                "learnable": True,
+                "category": category,
+                "subcategory": "heuristic",
+                "severity": "medium" if structural else "low",
+                "affected_elements": [],
+                "extracted_rule": instruction.strip()[:240] if structural else "",
+                "confidence": 0.6 if structural else 0.4,
+                "classifier": "heuristic",
+            }
+    return {
+        "learnable": False,
+        "category": "other",
+        "subcategory": "heuristic",
+        "severity": "low",
+        "affected_elements": [],
+        "extracted_rule": "",
+        "confidence": 0.3,
+        "classifier": "heuristic",
+    }
+
+
+def _normalize_refinement_classification(parsed: Dict[str, Any], instruction: str) -> Dict[str, Any]:
+    category = str(parsed.get("category") or "other").strip().lower()
+    if category not in AI_REFINEMENT_CATEGORIES:
+        category = "other"
+    structural = category in AI_STRUCTURAL_REFINEMENT_CATEGORIES
+    rule = _normalize_text(str(parsed.get("extracted_rule") or "")) or ""
+    elements = parsed.get("affected_elements")
+    if not isinstance(elements, list):
+        elements = []
+    severity = str(parsed.get("severity") or "medium").strip().lower()
+    if severity not in {"low", "medium", "high"}:
+        severity = "medium"
+    return {
+        "learnable": bool(parsed.get("learnable")) and category != "other",
+        "category": category,
+        "subcategory": str(parsed.get("subcategory") or "")[:80],
+        "severity": severity,
+        "affected_elements": [str(item)[:48] for item in elements][:8],
+        "extracted_rule": rule[:240],
+        "confidence": max(0.0, min(1.0, _safe_float(parsed.get("confidence"), 0.5))),
+        "structural": structural,
+        "classifier": str(parsed.get("classifier") or "llm"),
+    }
+
+
+def _classify_refinement_signal_sync(instruction: str, output_type: str, geometry_context: str) -> Dict[str, Any]:
+    if not _anthropic_api_key():
+        return _normalize_refinement_classification(_refinement_keyword_classify(instruction), instruction)
+    try:
+        user_prompt = (
+            f"Output type corrected: {output_type}\n"
+            f"Geometry/layout context (may be truncated): {geometry_context[:1500]}\n"
+            f"Staff correction (Italian): \"{instruction}\"\n"
+            "Return the JSON classification now."
+        )
+        raw = _anthropic_text_completion_sync(_REFINEMENT_CLASSIFY_SYSTEM, user_prompt, max_tokens=500)
+        parsed = _extract_json_from_model(raw)
+        if not isinstance(parsed, dict) or "category" not in parsed:
+            raise ValueError("classification senza categoria")
+        parsed["classifier"] = "llm"
+        return _normalize_refinement_classification(parsed, instruction)
+    except Exception:
+        return _normalize_refinement_classification(_refinement_keyword_classify(instruction), instruction)
+
+
+async def _classify_refinement_signal(instruction: str, output_type: str, geometry_context: str) -> Dict[str, Any]:
+    return await asyncio.to_thread(_classify_refinement_signal_sync, instruction, output_type, geometry_context)
+
+
+def _refinement_memory_scope(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Ambito di apprendimento. L'account e condiviso: le regole strutturali apprese su un progetto
+    valgono per i progetti futuri (automiglioramento cross-progetto)."""
+    return {"account_id": str(job.get("account_id") or ai_credit_service.ACCOUNT_ID)}
+
+
+async def _persist_refinement_memory(
+    db,
+    job: Dict[str, Any],
+    *,
+    output: Dict[str, Any],
+    refined_output_id: Optional[str],
+    instruction: str,
+    region: Optional[Dict[str, float]],
+    classification: Dict[str, Any],
+    fidelity_review: Optional[Dict[str, Any]],
+    reviewer: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    if not AI_REFINEMENT_MEMORY_ENABLED:
+        return None
+    job_id = str(job.get("_id"))
+    output_type = output.get("output_type")
+    structural = bool(classification.get("structural"))
+    fidelity_score = _safe_float((fidelity_review or {}).get("fidelity_score"), None) if fidelity_review else None
+    # La correzione e una azione esplicita dello staff: e gia fidata. La review vision, se disponibile,
+    # alza/abbassa la confidenza della regola appresa.
+    confidence = _safe_float(classification.get("confidence"), 0.5)
+    if fidelity_score is not None:
+        confidence = max(0.0, min(1.0, (confidence + fidelity_score) / 2))
+    strength = (
+        "strong"
+        if structural and classification.get("learnable") and confidence >= AI_REFINEMENT_MEMORY_MIN_CONFIDENCE
+        else "weak"
+    )
+    geometry_snapshot = (
+        _room_geometry_brief(job, output.get("room_name") or "")
+        if output_type == "room_render"
+        else None
+    )
+    doc = {
+        **_refinement_memory_scope(job),
+        "job_id": job_id,
+        "project_variant": job.get("project_variant_selected"),
+        "project_type": job.get("plan_type_selected") or job.get("plan_type_detected"),
+        "style": job.get("style_selected"),
+        "output_id_before": str(output.get("_id")),
+        "output_id_after": refined_output_id,
+        "output_type": output_type,
+        "room_name": output.get("room_name"),
+        "instruction": instruction[:400],
+        "category": classification.get("category"),
+        "subcategory": classification.get("subcategory"),
+        "severity": classification.get("severity"),
+        "affected_elements": classification.get("affected_elements") or [],
+        "extracted_rule": classification.get("extracted_rule") or "",
+        "region": region,
+        "plan_details_snapshot": _plan_details_for_prompt(job, "redistributed" if _should_redistribute(job) else "defined")[:4000],
+        "geometry_contract_snapshot": geometry_snapshot,
+        "fidelity_score": fidelity_score,
+        "confidence": confidence,
+        "strength": strength,
+        "learnable": bool(classification.get("learnable")),
+        "classifier": classification.get("classifier"),
+        "accepted_by_staff": True,
+        "enabled": True,
+        "reviewer": _normalize_text(reviewer) or "Dashboard staff",
+        "created_at": now_iso(),
+    }
+    result = await db.ai_architect_refinement_memories.insert_one(doc)
+    inserted_id = getattr(result, "inserted_id", None)
+    if inserted_id is not None:
+        doc["id"] = str(inserted_id)
+    return doc
+
+
+def _rooms_for_learning(job: Dict[str, Any]) -> List[str]:
+    return [str(room.get("name") or "").strip().lower() for room in _analysis_rooms(job, min_confidence=0.2) if room.get("name")]
+
+
+async def _retrieve_refinement_memories(
+    db,
+    job: Dict[str, Any],
+    *,
+    output_type: str,
+    limit: int = AI_REFINEMENT_MEMORY_MAX_IN_PROMPT,
+) -> List[Dict[str, Any]]:
+    if not AI_REFINEMENT_MEMORY_ENABLED:
+        return []
+    query = {
+        **_refinement_memory_scope(job),
+        "enabled": {"$ne": False},
+        "learnable": True,
+        "extracted_rule": {"$nin": ["", None]},
+    }
+    try:
+        candidates = await db.ai_architect_refinement_memories.find(query).sort("created_at", -1).to_list(200)
+    except Exception:
+        return []
+    rooms = set(_rooms_for_learning(job))
+    style = str(job.get("style_selected") or "").strip().lower()
+    plan_family = "2d" if output_type in {"clean_2d_plan", "redistributed_2d_plan"} else "render"
+
+    def _relevance(memory: Dict[str, Any]) -> float:
+        score = float(_safe_float(memory.get("confidence"), 0.5))
+        if memory.get("strength") == "strong":
+            score += 0.5
+        mem_type = memory.get("output_type")
+        mem_family = "2d" if mem_type in {"clean_2d_plan", "redistributed_2d_plan"} else "render"
+        if mem_family == plan_family:
+            score += 0.2
+        mem_room = str(memory.get("room_name") or "").strip().lower()
+        if mem_room and mem_room in rooms:
+            score += 0.3
+        if style and str(memory.get("style") or "").strip().lower() == style and not memory.get("structural", False):
+            score += 0.15
+        return score
+
+    # Le regole strutturali (forti) valgono cross-progetto/cross-stanza; le deboli (preferenze)
+    # solo se combaciano stile o ambiente, per non inquinare progetti diversi.
+    structural = [m for m in candidates if m.get("strength") == "strong"]
+    weak = [
+        m
+        for m in candidates
+        if m.get("strength") != "strong"
+        and (
+            (str(m.get("style") or "").strip().lower() == style and style)
+            or (str(m.get("room_name") or "").strip().lower() in rooms and rooms)
+        )
+    ]
+    ranked = sorted(structural + weak, key=_relevance, reverse=True)
+    # Dedup per regola identica.
+    seen: set[str] = set()
+    unique: List[Dict[str, Any]] = []
+    for memory in ranked:
+        key = str(memory.get("extracted_rule") or "").strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(memory)
+    return unique[:limit]
+
+
+def _learned_constraints_block(memories: List[Dict[str, Any]]) -> str:
+    if not memories:
+        return ""
+    strong = [m for m in memories if m.get("strength") == "strong"]
+    weak = [m for m in memories if m.get("strength") != "strong"]
+    parts: List[str] = []
+    if strong:
+        rules = " ".join(f"- {m.get('extracted_rule')}" for m in strong if m.get("extracted_rule"))
+        parts.append(
+            "LEARNED_CORRECTION_MEMORY (hard constraints learned from past staff corrections on this "
+            f"account; treat as mandatory): {rules} "
+        )
+    if weak:
+        prefs = " ".join(f"- {m.get('extracted_rule')}" for m in weak if m.get("extracted_rule"))
+        if prefs:
+            parts.append(f"LEARNED_STYLE_PREFERENCES (soft preferences, apply if not conflicting): {prefs} ")
+    return "".join(parts)
+
+
+async def _apply_learned_constraints(db, job: Dict[str, Any], output_type: str) -> str:
+    """Recupera le memorie rilevanti e le inserisce nel job in memoria, cosi i prompt builder
+    sincroni (_room_prompt/_topdown_prompt/_refine_prompt) le aggiungono come vincoli."""
+    if not AI_REFINEMENT_MEMORY_ENABLED:
+        return ""
+    try:
+        memories = await _retrieve_refinement_memories(db, job, output_type=output_type)
+    except Exception:
+        memories = []
+    block = _learned_constraints_block(memories)
+    job["learned_render_constraints"] = block
+    return block
+
+
 def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
     defined_mode = mode == "defined" or _is_defined_project_mode(job)
     layout_mode = "nuova distribuzione proposta" if mode == "redistributed" else "distribuzione caricata dal cliente"
@@ -2725,6 +3267,7 @@ def _topdown_prompt(job: Dict[str, Any], mode: str) -> str:
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
         f"stairs, balconies, extra levels or volumes not allowed by the JSON: {plan_details}. "
         f"{correction_prompt}"
+        f"{job.get('learned_render_constraints') or ''}"
         f"{render_addendum} "
         f"Client-selected variant: {variant['label']} ({variant['strategy']}); do not generate another variant. "
         f"Interior style: {job.get('style_selected') or 'Su misura GB Construction'}. "
@@ -2872,6 +3415,7 @@ def _room_prompt(job: Dict[str, Any], room_name: str) -> str:
         "Use this PLAN_DETAILS_JSON as a hard fidelity contract. Do not add rooms, doors, windows, "
         f"stairs, balconies, extra levels, extra bathrooms or volumes not allowed by the JSON: {plan_details}. "
         f"{correction_prompt}"
+        f"{job.get('learned_render_constraints') or ''}"
         f"{render_addendum} "
         f"Client-selected variant: {variant['label']} ({variant['strategy']}); do not generate another variant. "
         f"Interior style: {job.get('style_selected') or 'Su misura GB Construction'}. "
@@ -3342,6 +3886,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
     optimized_json = job.get("optimized_floor_plan_json") or build_optimized_floor_plan_json(job, technical_json)
     floorplan_2d = professional.get("floorplan_2d") or {}
     correction_notes = _layout_correction_notes(job)
+    invariant_contract = _as_built_invariant_contract(job, "redistributed" if mode == "redistributed" else "defined")
     professional_payload = {
         "summary": professional.get("summary"),
         "technical_findings": professional.get("technical_findings") or [],
@@ -3387,6 +3932,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
             "rooms": detected_rooms,
             "technical_note": floorplan_2d.get("disclaimer") or "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
             "staff_correction_notes": correction_notes,
+            "as_built_invariants": invariant_contract,
             "professional_floorplan": professional_payload,
             "floor_plan_automation": automation_payload,
             "json_pipeline": json_pipeline_payload,
@@ -3399,6 +3945,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
             "rooms": detected_rooms,
             "technical_note": "Nessun layout reinterpretato: serve verifica prima di procedere con render o redistribuzione.",
             "staff_correction_notes": correction_notes,
+            "as_built_invariants": invariant_contract,
             "professional_floorplan": professional_payload,
             "floor_plan_automation": automation_payload,
             "json_pipeline": json_pipeline_payload,
@@ -3414,6 +3961,7 @@ def _proposal_json(mode: str, job: Dict[str, Any]) -> Dict[str, Any]:
         "rooms": detected_rooms,
         "technical_note": floorplan_2d.get("disclaimer") or "Concept preliminare generato con AI, da verificare con tecnico abilitato.",
         "staff_correction_notes": correction_notes,
+        "as_built_invariants": invariant_contract,
         "professional_floorplan": professional_payload,
         "floor_plan_automation": automation_payload,
         "json_pipeline": json_pipeline_payload,
@@ -3426,6 +3974,7 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
     automation = job.get("floor_plan_automation") or _automation_contract(job)
     technical_json = job.get("technical_floor_plan_json") or build_technical_floor_plan_json(job)
     optimized_json = job.get("optimized_floor_plan_json") or build_optimized_floor_plan_json(job, technical_json)
+    invariant_contract = _as_built_invariant_contract(job, mode)
     professional_render_contract = professional.get("render_contract") or {}
     professional_floorplan = professional.get("floorplan_2d") or {}
     defined_mode = mode == "defined" or _is_defined_project_mode(job)
@@ -3490,14 +4039,27 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
             "testi, quote, loghi, watermark",
         ]
         layout_lock = "preserve_perimeter_and_detected_constraints"
-    must_preserve = list(dict.fromkeys(must_preserve + (professional_render_contract.get("must_preserve") or [])))
-    must_not_add = list(dict.fromkeys(must_not_add + (professional_render_contract.get("must_not_add") or [])))
+    must_preserve = list(
+        dict.fromkeys(
+            must_preserve
+            + (invariant_contract.get("must_preserve") or [])
+            + (professional_render_contract.get("must_preserve") or [])
+        )
+    )
+    must_not_add = list(
+        dict.fromkeys(
+            must_not_add
+            + (invariant_contract.get("must_not_change") or [])
+            + (professional_render_contract.get("must_not_add") or [])
+        )
+    )
     return {
         "schema": "gb-ai-architect-plan-details-v1",
         "mode": mode,
         "plan_type": analysis.get("plan_type_detected") or job.get("plan_type_detected"),
         "layout_lock": layout_lock,
         "source_reference_url": _layout_reference_url(job),
+        "as_built_invariants": invariant_contract,
         "render_contract": {
             "must_preserve": must_preserve,
             "must_not_add": must_not_add,
@@ -3555,10 +4117,16 @@ def _plan_details_json(job: Dict[str, Any], mode: str) -> Dict[str, Any]:
                 "internal_walls",
                 "doors",
                 "windows",
+                "balconies",
+                "entrances",
                 "bathrooms",
                 "kitchen_zones",
                 "corridors",
                 "stairs",
+                "elevators",
+                "landings",
+                "neighboring_units",
+                "technical_shafts",
                 "structural_constraints_uncertain",
             ]
         },
@@ -3587,6 +4155,7 @@ _PLAN_DETAILS_PROMPT_CORE_KEYS = [
     "mode",
     "plan_type",
     "layout_lock",
+    "as_built_invariants",
     "render_contract",
     "access_rules",
     "rooms",
@@ -4355,12 +4924,17 @@ def _redistributed_2d_prompt(job: Dict[str, Any]) -> str:
         "This is NOT a free creative sketch. Preserve the exact external perimeter, building footprint, window positions, "
         "entrance/access points, structural-looking walls, shafts, bathrooms/kitchen wet zones unless clearly movable, "
         "and all proportions visible in the uploaded plan. Propose only a preliminary redistribution inside those constraints. "
+        "The AS_BUILT_INVARIANT_CONTRACT inside PLAN_DETAILS_JSON is mandatory: preserve every listed balcony/loggia/terrace, "
+        "external opening, entrance, stair/elevator/landing relationship, recess and neighboring-unit boundary exactly. "
+        "If the source shows three balconies, the output must show the same three balconies, not windows and not omitted exterior spaces. "
         f"Detected rooms to respect: {rooms}. Client-selected variant: {variant['label']} ({variant['strategy']}). "
         f"Generate only this variant, no alternatives. Client priorities: {priorities}. "
         "Use clean architectural drafting style, white/cream background, black wall lines, restrained material hatches, "
         "professional plan composition. Do not add rooms, doors, windows, balconies, stairs, second levels or volumes not "
         f"supported by the reference and this PLAN_DETAILS_JSON / optimized_floor_plan_json contract: {plan_details}. "
         "STRICT_REJECTION_RULES: no balconies/terraces unless clearly visible in the uploaded plan; no kitchen cabinets, "
+        "never convert a balcony/terrace/loggia into a simple window; never simplify irregular perimeter, recesses or shared-wall boundaries; "
+        "never create facade openings on sides that border another unit, stair, elevator, landing or common area; "
         "appliances or counters inside bathrooms or service bathrooms; do not label any wall as load-bearing or structural "
         "unless the source explicitly proves it; uncertain walls must be labelled only as verification required. "
         "DOOR_AND_ACCESS_RULES: preserve visible door/opening connections exactly; do not close a visible passage; "
@@ -4368,6 +4942,7 @@ def _redistributed_2d_prompt(job: Dict[str, Any]) -> str:
         "If a cabina armadio is adjacent to a camera da letto, keep the bedroom-side access when it is shown in the source; "
         "never replace it with an invented bathroom-side access. "
         f"{correction_prompt}"
+        f"{job.get('learned_render_constraints') or ''}"
         f"{professional_addendum} "
         "No logo, no watermark, no decorative fantasy elements."
     )
@@ -4383,10 +4958,14 @@ def _clean_defined_2d_prompt(job: Dict[str, Any]) -> str:
         "Create a clean professional 2D architectural drafting version of the uploaded floor plan and technical_floor_plan_json. "
         "This is a DEFINED PROJECT cleanup, not a redistribution. Preserve exactly the same exterior perimeter, "
         "room relationships, walls, doors, windows, kitchen, bathrooms, stairs, balconies, access points and visible constraints. "
+        "The AS_BUILT_INVARIANT_CONTRACT inside PLAN_DETAILS_JSON is mandatory: keep every balcony/loggia/terrace, "
+        "external opening, entrance, stair/elevator/landing relationship, recess and neighboring-unit boundary exactly as in the uploaded plan. "
         f"Client-selected variant metadata: {variant['label']} ({variant['strategy']}); keep layout locked unless this is only a graphic cleanup. "
         f"Detected rooms to label only if supported: {rooms}. "
         f"Use this PLAN_DETAILS_JSON as the hard preservation contract: {plan_details}. "
         "STRICT_REJECTION_RULES: no balconies/terraces unless clearly visible in the uploaded plan; no kitchen cabinets, "
+        "never convert a balcony/terrace/loggia into a simple window; never simplify irregular perimeter, recesses or shared-wall boundaries; "
+        "never create facade openings on sides that border another unit, stair, elevator, landing or common area; "
         "appliances or counters inside bathrooms or service bathrooms; do not label any wall as load-bearing or structural "
         "unless the source explicitly proves it; uncertain walls must be labelled only as verification required. "
         "DOOR_AND_ACCESS_RULES: preserve visible door/opening connections exactly; do not close a visible passage; "
@@ -4394,6 +4973,7 @@ def _clean_defined_2d_prompt(job: Dict[str, Any]) -> str:
         "If a cabina armadio is adjacent to a camera da letto, keep the bedroom-side access when it is shown in the source; "
         "never replace it with an invented bathroom-side access. "
         f"{correction_prompt}"
+        f"{job.get('learned_render_constraints') or ''}"
         f"{professional_addendum} "
         "Improve readability with sober lineweights, clean labels, compact legend and verification notes. "
         "Do not add, remove, enlarge, reduce or move any architectural element. No logo, no watermark, no decorative fantasy elements."
@@ -4423,13 +5003,22 @@ async def _generate_clean_defined_2d_plan(db, job_id: str, job: Dict[str, Any], 
 
 
 async def _generate_redistributed_2d_plan(db, job_id: str, job: Dict[str, Any], reference_url: Optional[str]) -> Optional[str]:
+    invariant_score, invariant_details = _layout_invariant_gate(job, "redistributed")
     if (
         not reference_url
         or not AI_ALLOW_GENERATIVE_2D_LAYOUTS
         or _selected_image_provider() == "local"
         or (job.get("vision_analysis") or {}).get("is_fallback")
         or _safe_float((job.get("vision_analysis") or {}).get("confidence"), 0) < VISION_MIN_ACCEPTABLE_CONFIDENCE
+        or not invariant_details.get("generative_2d_allowed")
     ):
+        if reference_url and not invariant_details.get("generative_2d_allowed"):
+            await _log_non_blocking_error(
+                db,
+                job_id,
+                "redistributed_2d_plan_invariant_gate",
+                RuntimeError(f"Generative 2D skipped: invariant lock score {invariant_score}"),
+            )
         return None
     try:
         return await _generate_ai_image(
@@ -4623,8 +5212,17 @@ async def _emit_deterministic_2d(
 
 async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: str) -> bool:
     await _mark_step(db, job_id, "proposal_2d")
+    # Automiglioramento: le regole apprese (es. distribuzione/aperture) guidano gia la generazione 2D.
+    await _apply_learned_constraints(db, job, "redistributed_2d_plan" if mode == "redistributed" else "clean_2d_plan")
     reference_url = _layout_reference_url(job)
-    gate_score, gate_details = _layout_gate_score(job)
+    geometry_gate_score, geometry_gate_details = _layout_gate_score(job)
+    invariant_score, invariant_details = _layout_invariant_gate(job, mode)
+    gate_score = min(geometry_gate_score, invariant_score) if mode == "redistributed" else geometry_gate_score
+    gate_details = {
+        **geometry_gate_details,
+        "geometry_gate_score": geometry_gate_score,
+        "as_built_invariant_gate": invariant_details,
+    }
     gate_passed = gate_score >= LAYOUT_GATE_MIN_SCORE
     await _record_quality_gate(
         db,
@@ -4727,10 +5325,20 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
             },
         )
     redistributed_url = None
-    if reference_url:
-        # gpt-image-2/Fal ridisegnano in image-to-image dalla planimetria reale: tentiamo sempre la
-        # redistribuzione generativa quando esiste il riferimento, anche con gate geometrico debole.
+    if reference_url and gate_passed and invariant_details.get("generative_2d_allowed"):
+        # gpt-image-2/Fal ridisegnano in image-to-image dalla planimetria reale, ma solo quando
+        # perimetro/aperture/balconi/accessi sono stati bloccati in un contratto strutturato.
         redistributed_url = await _generate_redistributed_2d_plan(db, job_id, job, reference_url)
+    elif reference_url:
+        await _log_non_blocking_error(
+            db,
+            job_id,
+            "redistributed_2d_generative_skipped",
+            RuntimeError(
+                "Generative 2D skipped because planimetric invariant gate is not strong enough "
+                f"(geometry={geometry_gate_score}, invariants={invariant_score})"
+            ),
+        )
     if redistributed_url:
         await _add_output(
             db,
@@ -4746,6 +5354,7 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
                 "approvable_for_render": True,
                 "approval_basis": "generative_ai_image_with_uploaded_reference",
                 "approval_required_before_client": True,
+                "as_built_invariant_gate": invariant_details,
             },
         )
         return True
@@ -4787,6 +5396,8 @@ async def _continue_render_generation(db, job_id: str):
     if not job.get("estimate"):
         await persist_gb_estimate_for_ai_job(db, job_id, job)
     mode = "redistributed" if _should_redistribute(job) else "defined"
+    # Automiglioramento: applica le regole apprese dalle correzioni staff a topdown e render.
+    await _apply_learned_constraints(db, job, "room_render")
     force_safe_visuals = bool(job.get("force_safe_visuals"))
     image_provider_label = "safe-vector" if force_safe_visuals else _selected_image_provider()
     existing_outputs = await db.ai_architect_outputs.find({"job_id": job_id}).sort("created_at", 1).to_list(200)
@@ -5425,6 +6036,8 @@ async def refine_output(
         size = OPENAI_IMAGE_SIZE_RENDER if output_type == "room_render" else OPENAI_IMAGE_SIZE_PLAN
         name = f"refine-{output_type}-{_safe_name(output.get('room_name') or output_type)}-r{revision}-{uuid.uuid4().hex[:6]}"
 
+        # Automiglioramento: il refine stesso applica le regole apprese dalle correzioni precedenti.
+        await _apply_learned_constraints(db, job, output_type)
         prompt = _refine_prompt(job, output, instruction, normalized_region)
         mask_path = (
             _build_edit_mask_png(_reference_image_path(base_url), normalized_region, job_id, name)
@@ -5448,7 +6061,12 @@ async def refine_output(
             geometry_brief=geometry_brief,
         )
 
-        await _add_output(
+        # Classifica la correzione: errore strutturale (geometria/distribuzione/aperture/proporzioni/
+        # arredo) -> memoria forte riusabile; preferenza estetica -> memoria debole.
+        geometry_context = geometry_brief or _plan_details_for_prompt(job, "redistributed" if _should_redistribute(job) else "defined")
+        classification = await _classify_refinement_signal(instruction, output_type, geometry_context)
+
+        refined_output_id = await _add_output(
             db,
             job_id,
             output_type,
@@ -5465,9 +6083,29 @@ async def refine_output(
                     "reviewer": _normalize_text(reviewer) or "Dashboard staff",
                     "created_at": now_iso(),
                 },
+                "learning_signal": {
+                    "category": classification.get("category"),
+                    "strength": "strong" if classification.get("structural") and classification.get("learnable") else "weak",
+                    "learnable": classification.get("learnable"),
+                },
                 "fidelity_review": fidelity_review,
             },
         )
+
+        try:
+            await _persist_refinement_memory(
+                db,
+                job,
+                output=output,
+                refined_output_id=refined_output_id,
+                instruction=instruction,
+                region=normalized_region,
+                classification=classification,
+                fidelity_review=fidelity_review,
+                reviewer=reviewer,
+            )
+        except Exception as exc:
+            await _log_non_blocking_error(db, job_id, "refine:memory", exc)
 
         action_key = AI_REFINABLE_OUTPUT_TYPES[output_type]
         try:
@@ -5493,6 +6131,31 @@ async def refine_output(
         await _set_job(db, job_id, status=restore_status, refine_in_progress=False)
 
 
+async def list_refinement_memories(
+    db,
+    *,
+    job_id: Optional[str] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """Memorie di apprendimento. Senza job_id ritorna quelle dell'account (cross-progetto)."""
+    if job_id:
+        query: Dict[str, Any] = {"job_id": job_id}
+    else:
+        query = {"account_id": ai_credit_service.ACCOUNT_ID}
+    docs = await db.ai_architect_refinement_memories.find(query).sort("created_at", -1).to_list(limit)
+    return [serialize_doc(doc) for doc in docs]
+
+
+async def set_refinement_memory_enabled(db, memory_id: str, enabled: bool) -> Optional[Dict[str, Any]]:
+    """Lo staff puo disattivare una regola appresa errata (smette di influenzare le generazioni)."""
+    await db.ai_architect_refinement_memories.update_one(
+        {"_id": ObjectId(memory_id)},
+        {"$set": {"enabled": bool(enabled), "updated_at": now_iso()}},
+    )
+    doc = await db.ai_architect_refinement_memories.find_one({"_id": ObjectId(memory_id)})
+    return serialize_doc(doc)
+
+
 async def regenerate_outputs(
     db,
     job_id: str,
@@ -5510,6 +6173,9 @@ async def regenerate_outputs(
     if requested & CONCEPT_2D_REGENERATION_TYPES:
         await _regenerate_concept_2d(db, job_id, job, correction_notes=correction_notes)
         return
+
+    # Automiglioramento: applica le regole apprese anche alle rigenerazioni manuali.
+    await _apply_learned_constraints(db, job, "room_render")
 
     delete_types = list(requested)
     await db.ai_architect_outputs.delete_many({"job_id": job_id, "output_type": {"$in": delete_types}})

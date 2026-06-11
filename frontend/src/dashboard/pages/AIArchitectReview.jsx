@@ -45,6 +45,20 @@ const STATUS = {
   failed: { label: "Da controllare", cls: "bg-danger/15 text-danger" },
 };
 
+const MEMORY_CATEGORY = {
+  geometry_error: { label: "Geometria", strong: true },
+  distribution_error: { label: "Distribuzione", strong: true },
+  opening_error: { label: "Aperture", strong: true },
+  wall_error: { label: "Muri", strong: true },
+  proportion_error: { label: "Proporzioni", strong: true },
+  layout_furniture_error: { label: "Layout/arredo", strong: true },
+  style_preference: { label: "Stile", strong: false },
+  material_preference: { label: "Materiali", strong: false },
+  lighting_preference: { label: "Luce", strong: false },
+  visual_preference: { label: "Estetica", strong: false },
+  other: { label: "Altro", strong: false },
+};
+
 const DEFAULT_LAYOUT_2D_WARNING =
   "La planimetria 2D e un concept preliminare generato da un agente AI specializzato. Nonostante la precisione del sistema, possono esserci errori su misure, aperture, muri, arredi o rapporti tra ambienti. In fase di sopralluogo puoi chiedere allo staff GB Construction di verificare e, se necessario, modificare la planimetria collegata al progetto.";
 
@@ -461,6 +475,24 @@ export default function AIArchitectReview() {
 
   const submitRefine = (payload, onDone) =>
     refine.mutate(payload, { onSuccess: onDone });
+
+  const { data: learnedMemories = [] } = useQuery({
+    queryKey: ["ai-architect-memories"],
+    queryFn: async () =>
+      (await client.get("/ai-architect/refinement-memories")).data,
+  });
+
+  const toggleMemory = useMutation({
+    mutationFn: ({ memoryId, enabled }) =>
+      client.patch(`/ai-architect/refinement-memories/${memoryId}`, {
+        enabled,
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["ai-architect-memories"] });
+    },
+    onError: (err) =>
+      toast.error(formatApiErrorDetail(err.response?.data?.detail)),
+  });
 
   const outputs = selectedJob?.outputs || [];
   const analysis = latest(outputs, "analysis");
@@ -1449,6 +1481,105 @@ export default function AIArchitectReview() {
                     )}
                   </div>
                 </div>
+
+                {learnedMemories.length > 0 && (
+                  <div className="rounded-2xl border border-stroke bg-surface p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <Brain className="w-5 h-5 text-brand" />
+                        <h3 className="font-display font-semibold uppercase text-sm text-ink">
+                          Memoria appresa AI
+                        </h3>
+                      </div>
+                      <span className="font-display uppercase text-[10px] text-fog">
+                        {
+                          learnedMemories.filter(
+                            (m) => m.strength === "strong" && m.enabled !== false,
+                          ).length
+                        }{" "}
+                        regole attive
+                      </span>
+                    </div>
+                    <p className="font-body text-xs text-fog mb-3 leading-relaxed">
+                      Correzioni dello staff trasformate in vincoli riusabili. Le
+                      regole strutturali (geometria, distribuzione, aperture,
+                      proporzioni) guidano le generazioni future; le preferenze
+                      estetiche restano suggerimenti. Disattiva una regola se non
+                      vuoi che influenzi i prossimi progetti.
+                    </p>
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {learnedMemories
+                        .filter((m) => m.learnable && m.extracted_rule)
+                        .map((memory) => {
+                          const meta =
+                            MEMORY_CATEGORY[memory.category] ||
+                            MEMORY_CATEGORY.other;
+                          const active = memory.enabled !== false;
+                          return (
+                            <div
+                              key={memory.id}
+                              className={`rounded-xl border p-3 ${
+                                active
+                                  ? "border-stroke bg-bg"
+                                  : "border-stroke/60 bg-bg/50 opacity-60"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 font-display text-[9px] uppercase ${
+                                        meta.strong
+                                          ? "bg-brand/15 text-brand"
+                                          : "bg-fog/15 text-fog"
+                                      }`}
+                                    >
+                                      {meta.label}
+                                    </span>
+                                    <span className="font-display uppercase text-[9px] text-fog">
+                                      {memory.strength === "strong"
+                                        ? "Vincolo"
+                                        : "Preferenza"}
+                                    </span>
+                                    {memory.job_id === selectedJob.id && (
+                                      <span className="font-display uppercase text-[9px] text-success">
+                                        da questo progetto
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="font-body text-xs text-ink leading-snug">
+                                    {memory.extracted_rule}
+                                  </p>
+                                  {memory.instruction && (
+                                    <p className="font-body text-[10px] text-fog mt-1 leading-snug">
+                                      Da: “{memory.instruction}”
+                                    </p>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleMemory.mutate({
+                                      memoryId: memory.id,
+                                      enabled: !active,
+                                    })
+                                  }
+                                  disabled={toggleMemory.isPending}
+                                  className={`shrink-0 rounded-full px-3 py-1 font-display uppercase text-[9px] border transition-colors disabled:opacity-60 ${
+                                    active
+                                      ? "border-stroke text-fog hover:text-danger"
+                                      : "border-brand text-brand hover:bg-brand hover:text-white"
+                                  }`}
+                                >
+                                  {active ? "Disattiva" : "Riattiva"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
 
                 {estimate?.pacchetti && (
                   <div className="rounded-2xl border border-stroke bg-surface p-5">
