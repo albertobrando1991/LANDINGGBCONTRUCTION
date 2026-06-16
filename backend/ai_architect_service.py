@@ -401,6 +401,9 @@ class PlanVisionAnalysis(BaseModel):
     model_name: str = "unknown"
     is_fallback: bool = False
     fallback_reason: Optional[str] = None
+    vision_fallback: bool = False
+    geometry_source: Optional[str] = None
+    geometry_verified: bool = True
 
 
 def now_iso() -> str:
@@ -1596,7 +1599,9 @@ def _professional_analysis_issues(analysis: Dict[str, Any]) -> List[str]:
         room for room in analysis.get("detected_rooms") or []
         if isinstance(room, dict) and room.get("name")
     ]
-    if REQUIRE_ADVANCED_VISION and provider not in {"anthropic", "openai", "openrouter", "professional-safe-mode"}:
+    if _analysis_geometry_unverified(analysis):
+        issues.append("geometria non verificata dall'immagine: richiede validazione umana")
+    if REQUIRE_ADVANCED_VISION and provider not in {"anthropic", "openai", "openrouter"}:
         issues.append("analisi non prodotta da provider AI vision avanzato")
     if analysis.get("is_fallback"):
         issues.append("analisi fallback non ammessa")
@@ -1614,6 +1619,16 @@ def _professional_analysis_issues(analysis: Dict[str, Any]) -> List[str]:
     return issues
 
 
+def _analysis_geometry_unverified(analysis: Dict[str, Any]) -> bool:
+    if not analysis:
+        return False
+    return bool(analysis.get("vision_fallback")) or analysis.get("geometry_verified") is False
+
+
+def _job_geometry_unverified(job: Dict[str, Any]) -> bool:
+    return _analysis_geometry_unverified(job.get("vision_analysis") or {})
+
+
 def _ensure_professional_analysis(job: Dict[str, Any]):
     issues = _professional_analysis_issues(job.get("vision_analysis") or {})
     if issues:
@@ -1625,18 +1640,22 @@ def _ensure_professional_analysis(job: Dict[str, Any]):
 
 def _safe_mode_analysis_json(job: Dict[str, Any], reason: str) -> Dict[str, Any]:
     analysis = _local_vision_analysis_json(job, reason)
-    analysis["confidence"] = max(_safe_float(analysis.get("confidence"), 0), 0.74)
+    analysis["confidence"] = min(_safe_float(analysis.get("confidence"), 0.0), 0.45)
     analysis["model_provider"] = "professional-safe-mode"
     analysis["model_name"] = "gb-safe-delivery-v1"
-    analysis["is_fallback"] = False
-    analysis["fallback_reason"] = None
+    analysis["is_fallback"] = True
+    analysis["vision_fallback"] = True
+    analysis["geometry_source"] = "synthetic_blueprint"
+    analysis["geometry_verified"] = False
+    analysis["fallback_reason"] = reason
     analysis["measurement_notes"] = (
-        "Output preliminare professionale in modalita conservativa: misure, muri portanti, "
-        "impianti e pratiche edilizie restano da validare in sopralluogo."
+        "Lettura automatica della planimetria non riuscita: misure, muri portanti, "
+        "impianti e distribuzione reale richiedono validazione manuale GB."
     )
     analysis["dynamic_disclaimer"] = (
-        "Analisi preliminare completata in modalita professionale conservativa. "
-        "Il concept e utilizzabile per orientare il preventivo e deve essere validato da tecnico GB prima dell'esecutivo."
+        "Lettura automatica della planimetria non riuscita: la distribuzione mostrata e una bozza "
+        "orientativa generata dai dati dichiarati, non letta dall'immagine. Un tecnico GB validara "
+        "la planimetria reale prima del preventivo."
     )
     architectural = analysis.get("architectural_analysis") or {}
     risks = list(architectural.get("risks_or_uncertainties") or [])
@@ -2137,11 +2156,11 @@ async def _vision_analysis_with_retries(db, job_id: str, job: Dict[str, Any]) ->
             job_id,
             1,
             "vision_analysis",
-            passed=True,
-            score=max(gate_score, VISION_GATE_MIN_SCORE),
+            passed=False,
+            score=gate_score,
             details=gate_details,
             retry_triggered=True,
-            resolution="professional_safe_mode",
+            resolution="professional_safe_mode_needs_human_review",
         )
         return analysis, False
     raise RuntimeError(f"Analisi AI vision non completata dopo retry: {last_error}")
@@ -4531,6 +4550,8 @@ def _output_json_content(output: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 def _output_approvable_for_render(output: Optional[Dict[str, Any]], job: Dict[str, Any]) -> bool:
     if not output or not output.get("image_url"):
         return False
+    if _job_geometry_unverified(job):
+        return False
     output_type = output.get("output_type")
     payload = _output_json_content(output)
     if output_type == "redistributed_2d_plan":
@@ -5103,6 +5124,16 @@ async def process_job(db, job_id: str):
             json_content=analysis,
         )
 
+        if _job_geometry_unverified(job):
+            await _log_non_blocking_error(
+                db,
+                job_id,
+                "analysis_geometry_unverified",
+                RuntimeError("safe-delivery geometry is not verified from uploaded image"),
+            )
+            await _route_unverified_geometry_for_review(db, job_id, job)
+            return
+
         if quality_issues:
             await _log_non_blocking_error(db, job_id, "analysis_quality_hold", RuntimeError("; ".join(quality_issues)))
             await _set_job(
@@ -5138,6 +5169,7 @@ async def _emit_deterministic_2d(
     prima del cliente. Usato quando il provider generativo non e disponibile o la lettura e debole.
     """
     analysis = job.get("vision_analysis") or {}
+    geometry_unverified = _job_geometry_unverified(job)
     disclaimer = analysis.get("dynamic_disclaimer") or "Tavola preliminare da validare con tecnico abilitato e sopralluogo."
     output_type = "redistributed_2d_plan" if mode == "redistributed" else "clean_2d_plan"
     proposal_key = "redistributed" if mode == "redistributed" else "defined"
@@ -5194,10 +5226,16 @@ async def _emit_deterministic_2d(
         json_content={
             **_proposal_json(proposal_key, job),
             "generated_with": "deterministic_vector_plan",
-            "approvable_for_render": True,
+            "approvable_for_render": not geometry_unverified,
             "approval_basis": "deterministic_professional_tavola_from_vision_analysis",
             "approval_required_before_client": True,
             "low_confidence_source": low_confidence,
+            "geometry_verified": not geometry_unverified,
+            **(
+                {"approval_blocker": "geometry_not_verified_from_uploaded_image"}
+                if geometry_unverified
+                else {}
+            ),
             "disclaimer": disclaimer,
         },
     )
@@ -5369,6 +5407,42 @@ async def _generate_layout_outputs(db, job_id: str, job: Dict[str, Any], mode: s
         reference_url=reference_url,
     )
     return False
+
+
+async def _route_unverified_geometry_for_review(db, job_id: str, job: Dict[str, Any]) -> None:
+    """Safe-delivery: mostra una tavola orientativa, ma blocca render e approvazione.
+
+    Questo path esiste quando i provider vision reali non hanno letto la planimetria.
+    La geometria deriva da dati dichiarati/blueprint sintetico, quindi e utile solo come
+    supporto preliminare fino alla validazione manuale.
+    """
+    mode = "redistributed" if _should_redistribute(job) else "defined"
+    plan_details = _plan_details_json(job, mode)
+    await _set_job(db, job_id, plan_details=plan_details)
+    await _add_output(
+        db,
+        job_id,
+        "plan_details",
+        text_content="Contratto preliminare non verificato: richiede validazione manuale della planimetria.",
+        json_content={**plan_details, "geometry_verified": False},
+    )
+    await _emit_deterministic_2d(db, job_id, job, mode, low_confidence=True)
+    await _set_job(
+        db,
+        job_id,
+        status="needs_confirmation",
+        current_step="confirmation",
+        progress_percentage=_progress_for("confirmation"),
+        requires_confirmation=True,
+        review_required=True,
+        review_status="blocked_pending_plan_verification",
+        layout_quality_hold=True,
+        render_quality_hold=True,
+        error_message=(
+            "Lettura automatica della planimetria non riuscita: un tecnico GB Construction deve "
+            "validare manualmente la planimetria reale prima di generare render o preventivo definitivo."
+        ),
+    )
 
 
 async def _continue_render_generation(db, job_id: str):
