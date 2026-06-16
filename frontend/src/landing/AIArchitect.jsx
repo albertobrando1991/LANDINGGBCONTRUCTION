@@ -98,7 +98,7 @@ const PROCESS_STEPS = [
 ];
 
 const DEFAULT_LAYOUT_2D_WARNING =
-  "La planimetria 2D e un concept preliminare generato da un agente AI specializzato. Nonostante la precisione del sistema, possono esserci errori su misure, aperture, muri, arredi o rapporti tra ambienti. In fase di sopralluogo puoi chiedere allo staff GB Construction di verificare e, se necessario, modificare la planimetria collegata al progetto.";
+  "La planimetria 2D e un concept preliminare generato da un agente AI specializzato. Puo contenere errori su misure, aperture, muri, arredi o rapporti tra ambienti. In fase di sopralluogo puoi chiedere allo staff GB Construction di verificare e, se necessario, modificare la planimetria collegata al progetto.";
 
 const initialForm = {
   file: null,
@@ -198,6 +198,10 @@ export default function AIArchitect({
   const concept2d = redistributed2d || clean2d;
   const conceptPayload = concept2d?.json_content || {};
   const conceptApprovable = conceptPayload.approvable_for_render === true;
+  const geometryUnverified =
+    job?.vision_analysis?.vision_fallback === true ||
+    job?.vision_analysis?.geometry_verified === false ||
+    conceptPayload.geometry_verified === false;
   const layoutRegenerationLimit = Number(job?.layout_regeneration_limit ?? 1);
   const layoutRegenerationCount = Number(job?.layout_regeneration_count ?? 0);
   const layoutRegenerationAvailable =
@@ -479,6 +483,12 @@ export default function AIArchitect({
               Concept preliminare generato con AI, da verificare con tecnico
               abilitato.
             </p>
+            {job && (
+              <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-success/35 bg-success/10 px-4 py-2 font-display text-[10px] font-semibold uppercase tracking-wider text-success">
+                <CheckCircle2 className="w-4 h-4" />
+                Validazione tecnica umana inclusa
+              </div>
+            )}
           </div>
 
           <div className="bg-surface border border-stroke rounded-3xl p-5 md:p-8">
@@ -708,6 +718,25 @@ export default function AIArchitect({
                     />
                   </div>
 
+                  {geometryUnverified && (
+                    <div className="mb-6 rounded-2xl border border-warning/50 bg-warning/10 p-5">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="w-6 h-6 text-warning shrink-0" />
+                        <div>
+                          <p className="font-display font-semibold uppercase text-ink">
+                            Lettura automatica non riuscita
+                          </p>
+                          <p className="font-body text-sm text-fog mt-1 leading-relaxed">
+                            Un tecnico GB Construction verifichera manualmente
+                            la planimetria prima del preventivo. La tavola
+                            mostrata e solo una bozza orientativa basata sui
+                            dati dichiarati.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {renderWaitActive && (
                     <div className="mb-6 rounded-2xl border border-gold/40 bg-gold/10 p-5">
                       <div className="flex items-start gap-4">
@@ -838,36 +867,60 @@ export default function AIArchitect({
                               className="mt-4 w-full max-h-72 rounded-xl border border-stroke object-contain bg-bg"
                             />
                           )}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-                            <button
-                              type="button"
-                              onClick={() => confirmPlanType("defined_project")}
-                              disabled={confirming}
-                              className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
-                            >
-                              {confirming ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="w-4 h-4" />
-                              )}
-                              E' stato di progetto: mantieni identica
-                            </button>
-                            <button
-                              type="button"
-                              onClick={
-                                redistributionBlocked
-                                  ? restartWithBetterPlan
-                                  : () => confirmPlanType("existing_state")
-                              }
-                              disabled={confirming}
-                              className="bg-surface border border-stroke text-ink rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
-                            >
-                              <FileText className="w-4 h-4" />
-                              {redistributionBlocked
-                                ? "Carica planimetria migliore"
-                                : "E' stato attuale: genera nuova 2D"}
-                            </button>
-                          </div>
+                          {geometryUnverified ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                              <a
+                                href={WHATSAPP}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2"
+                              >
+                                <MessageCircle className="w-4 h-4" />
+                                Parla con un tecnico
+                              </a>
+                              <button
+                                type="button"
+                                onClick={restartWithBetterPlan}
+                                className="bg-surface border border-stroke text-ink rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2"
+                              >
+                                <FileText className="w-4 h-4" />
+                                Carica planimetria migliore
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  confirmPlanType("defined_project")
+                                }
+                                disabled={confirming}
+                                className="bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
+                              >
+                                {confirming ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-4 h-4" />
+                                )}
+                                E' stato di progetto: mantieni identica
+                              </button>
+                              <button
+                                type="button"
+                                onClick={
+                                  redistributionBlocked
+                                    ? restartWithBetterPlan
+                                    : () => confirmPlanType("existing_state")
+                                }
+                                disabled={confirming}
+                                className="bg-surface border border-stroke text-ink rounded-full px-5 py-3 font-display font-semibold uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
+                              >
+                                <FileText className="w-4 h-4" />
+                                {redistributionBlocked
+                                  ? "Carica planimetria migliore"
+                                  : "E' stato attuale: genera nuova 2D"}
+                              </button>
+                            </div>
+                          )}
                           <p className="font-body text-xs text-fog mt-3">
                             I render partono solo quando il concept 2D coincide
                             con la planimetria allegata o con una
@@ -884,13 +937,14 @@ export default function AIArchitect({
                         <CheckCircle2 className="w-6 h-6 text-brand shrink-0" />
                         <div className="w-full">
                           <p className="font-display font-semibold uppercase text-ink">
-                            Concept pronto per approvazione
+                            {geometryUnverified
+                              ? "Bozza da validare manualmente"
+                              : "Concept pronto per approvazione"}
                           </p>
                           <p className="font-body text-sm text-fog mt-1">
-                            Controlla che il 2D coincida con la planimetria
-                            allegata. Se e uno stato di progetto, deve restare
-                            identico: i render partiranno solo dopo questa
-                            approvazione.
+                            {geometryUnverified
+                              ? "La lettura automatica non ha verificato la geometria della planimetria. Lo staff GB deve validarla prima di qualsiasi render."
+                              : "Controlla che il 2D coincida con la planimetria allegata. Se e uno stato di progetto, deve restare identico: i render partiranno solo dopo questa approvazione."}
                           </p>
                           {uploadedPlanUrl &&
                             concept2d?.image_url !== uploadedPlanUrl && (
@@ -1115,12 +1169,18 @@ export default function AIArchitect({
                         Anteprima risultati
                       </p>
                       <h3 className="font-display font-bold uppercase text-3xl text-ink">
-                        Concept AI pronto
+                        {geometryUnverified
+                          ? "Bozza orientativa da validare"
+                          : "Concept AI pronto"}
                       </h3>
                       <p className="font-body text-sm text-fog mt-2">
                         {analysis?.text_content ||
                           "Analisi completata e output collegati al job."}
                       </p>
+                      <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-success/35 bg-success/10 px-3 py-1.5 font-display text-[10px] font-semibold uppercase tracking-wider text-success">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Validazione tecnica umana inclusa
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-3">
                       <select
