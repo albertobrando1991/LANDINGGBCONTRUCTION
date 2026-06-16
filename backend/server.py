@@ -582,8 +582,18 @@ def _parse_priorities(raw: str) -> List[str]:
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
+def _client_ip(request: Request) -> Optional[str]:
+    forwarded_for = (request.headers.get("x-forwarded-for") or "").strip()
+    if forwarded_for:
+        first_hop = forwarded_for.split(",", 1)[0].strip()
+        if first_hop:
+            return first_hop
+    return request.client.host if request.client else None
+
+
 @api.post("/ai-architect/jobs")
 async def create_ai_architect_job(
+    request: Request,
     background_tasks: BackgroundTasks,
     planimetria: UploadFile = File(...),
     plan_type_selected: str = Form(...),
@@ -598,6 +608,7 @@ async def create_ai_architect_job(
     lead_id: Optional[str] = Form(None),
 ):
     linked_lead_id = lead_id if (lead_id and ObjectId.is_valid(lead_id)) else None
+    await ai_architect_service.enforce_upload_rate_limit(db, _client_ip(request))
     await ai_credit_service.require_available_for_generation(
         db,
         ai_credit_service.RATE_CARD["ai_architect_preliminary"]["credits"],
@@ -1962,6 +1973,7 @@ async def startup():
     await db.ai_architect_outputs.create_index([("job_id", 1), ("created_at", 1)])
     await db.ai_architect_errors.create_index([("job_id", 1), ("created_at", -1)])
     await db.ai_architect_quality_logs.create_index([("job_id", 1), ("gate_id", 1), ("timestamp", -1)])
+    await ai_architect_service.ensure_upload_rate_limit_indexes(db)
     await db.ai_architect_cache.create_index(
         [("cache_type", 1), ("file_hash", 1), ("schema_version", 1), ("provider", 1), ("model", 1)],
         unique=True,

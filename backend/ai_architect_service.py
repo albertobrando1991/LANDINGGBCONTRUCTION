@@ -10,7 +10,7 @@ import re
 import time
 import unicodedata
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -200,6 +200,8 @@ AI_ALLOW_GENERATIVE_DEFINED_CLEANUP = os.getenv("AI_ALLOW_GENERATIVE_DEFINED_CLE
 # emetti comunque una tavola 2D professionale deterministica (derivata dall'analisi vision reale,
 # non sagome casuali) invece di bloccare il flusso. Disattiva (=false) per tornare al blocco rigido legacy.
 AI_GUARANTEED_PROFESSIONAL_2D = os.getenv("AI_GUARANTEED_PROFESSIONAL_2D", "true").lower() not in {"0", "false", "no"}
+AI_ARCHITECT_UPLOAD_MAX_PER_IP = max(0, int(os.getenv("AI_ARCHITECT_UPLOAD_MAX_PER_IP", "2")))
+AI_ARCHITECT_UPLOAD_WINDOW_HOURS = max(1, int(os.getenv("AI_ARCHITECT_UPLOAD_WINDOW_HOURS", "24")))
 STEPS = [
     ("upload", "Upload planimetria"),
     ("analysis", "Analisi architettonica"),
@@ -569,6 +571,40 @@ def _render_room_limit_for_job(job: Dict[str, Any]) -> int:
     if context == "staff" or role in {"staff", "operations", "admin"}:
         return AI_RENDER_MAX_ROOMS_STAFF
     return AI_RENDER_MAX_ROOMS_PUBLIC
+
+
+async def ensure_upload_rate_limit_indexes(db) -> None:
+    expire_after = AI_ARCHITECT_UPLOAD_WINDOW_HOURS * 3600
+    try:
+        await db.ai_architect_upload_log.create_index("created_at", expireAfterSeconds=expire_after)
+        await db.ai_architect_upload_log.create_index([("ip", 1), ("created_at", -1)])
+    except Exception as exc:
+        logger.warning("AI Architect upload rate-limit index setup failed: %s", exc)
+
+
+async def enforce_upload_rate_limit(db, ip: Optional[str]) -> None:
+    normalized_ip = (ip or "").strip()
+    if not normalized_ip:
+        logger.warning("AI Architect public upload without client IP; skipping rate limit")
+        return
+    if AI_ARCHITECT_UPLOAD_MAX_PER_IP <= 0:
+        return
+
+    await ensure_upload_rate_limit_indexes(db)
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(hours=AI_ARCHITECT_UPLOAD_WINDOW_HOURS)
+    count = await db.ai_architect_upload_log.count_documents(
+        {"ip": normalized_ip, "created_at": {"$gte": window_start}}
+    )
+    if count >= AI_ARCHITECT_UPLOAD_MAX_PER_IP:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Hai raggiunto il numero massimo di analisi gratuite nelle ultime 24 ore. "
+                "Riprova piu tardi o prenota un sopralluogo."
+            ),
+        )
+    await db.ai_architect_upload_log.insert_one({"ip": normalized_ip, "created_at": now})
 
 
 def _guess_mime(path: Path, file_type: str) -> str:
