@@ -36,9 +36,19 @@ import tenancy
 from edilos_routes import register_edilos_routes
 from contextlib import asynccontextmanager
 
-mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+# Railway espone spesso MONGO_PUBLIC_URL / MONGO_URL; fallback locale solo in dev.
+mongo_url = (
+    os.environ.get("MONGO_URL")
+    or os.environ.get("MONGO_PUBLIC_URL")
+    or os.environ.get("MONGODB_URI")
+    or "mongodb://localhost:27017"
+)
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get('DB_NAME', 'gb_construction')]
+db = client[
+    os.environ.get("DB_NAME")
+    or os.environ.get("PROD_DB_NAME")
+    or "gb_construction"
+]
 
 app = FastAPI(title="GB Construction Lead Engine")
 api = APIRouter(prefix="/api")

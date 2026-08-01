@@ -43,6 +43,45 @@ class RipristinaBody(BaseModel):
     categoria: Optional[str] = None
 
 
+class CreaComputoBody(BaseModel):
+    lead_id: Optional[str] = None
+    cantiere_id: Optional[str] = None
+    prezzario_id: Optional[str] = None
+    tipo: str = "estimativo"
+
+
+class AggiungiVoceBody(BaseModel):
+    prezzario_voce_id: str
+    qta: float = 1
+
+
+class AggiornaVoceBody(BaseModel):
+    qta: Optional[float] = None
+    prezzo_unitario: Optional[float] = None
+    descrizione: Optional[str] = None
+    validata_umano: Optional[bool] = None
+
+
+class RiordinaBody(BaseModel):
+    ordine: List[str]
+
+
+class PreventivoBody(BaseModel):
+    sconto: float = 0
+    iva: float = 10
+
+
+class GeneraDaAiBody(BaseModel):
+    lead_id: Optional[str] = None
+    prezzario_id: Optional[str] = None
+    analisi_ai: Dict[str, Any] = Field(default_factory=dict)
+    config_lead: Optional[Dict[str, Any]] = None
+
+
+class ValidaAiBody(BaseModel):
+    voce_ids: Optional[List[str]] = None
+
+
 def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     """Monta le route su un APIRouter esistente (prefix /api)."""
 
@@ -106,38 +145,6 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             )
 
     # ---------- Computi ----------
-    class CreaComputoBody(BaseModel):
-        lead_id: Optional[str] = None
-        cantiere_id: Optional[str] = None
-        prezzario_id: Optional[str] = None
-        tipo: str = "estimativo"
-
-    class AggiungiVoceBody(BaseModel):
-        prezzario_voce_id: str
-        qta: float = 1
-
-    class AggiornaVoceBody(BaseModel):
-        qta: Optional[float] = None
-        prezzo_unitario: Optional[float] = None
-        descrizione: Optional[str] = None
-        validata_umano: Optional[bool] = None
-
-    class RiordinaBody(BaseModel):
-        ordine: List[str]
-
-    class PreventivoBody(BaseModel):
-        sconto: float = 0
-        iva: float = 10
-
-    class GeneraDaAiBody(BaseModel):
-        lead_id: Optional[str] = None
-        prezzario_id: Optional[str] = None
-        analisi_ai: Dict[str, Any] = Field(default_factory=dict)
-        config_lead: Optional[Dict[str, Any]] = None
-
-    class ValidaAiBody(BaseModel):
-        voce_ids: Optional[List[str]] = None
-
     @api.get("/computi")
     async def lista_computi(request: Request):
         user = await _user(request, db)
