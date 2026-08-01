@@ -59,7 +59,17 @@ def _prepare_asyncpg_dsn(dsn: str) -> tuple[str, dict]:
 
     if want_ssl:
         ctx = ssl.create_default_context()
-        # Supabase managed certs: default context is fine; no hostname fail on pooler if needed
+        # sslmode=require (libpq): cifratura obbligatoria, senza verifica cert.
+        # Utile su reti con TLS inspection / solo pooler IPv4, o se CA locale è incompleta.
+        # Preferire verify-full in produzione quando possibile.
+        insecure = (
+            (sslmode or "").lower() in ("require", "prefer", "allow")
+            or (os.environ.get("SUPABASE_SSL_NO_VERIFY") or "").strip().lower()
+            in ("1", "true", "yes")
+        )
+        if insecure:
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
         kwargs["ssl"] = ctx
 
     return clean_dsn, kwargs
