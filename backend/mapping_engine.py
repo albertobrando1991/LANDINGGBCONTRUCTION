@@ -121,6 +121,22 @@ async def carica_regole(
         sql += f" and v.prezzario_id = ${len(args)}::uuid"
     sql += " order by r.ordine"
     rows = await conn.fetch(sql, *args)
+    # Le regole seed puntano alle voci del prezzario Campania: se si passa un
+    # listino duplicato senza remapping, non matchano. Fallback al listino
+    # di riferimento (stesse regole, prezzi delle voci originali).
+    if not rows and prezzario_id:
+        rows = await conn.fetch(
+            """
+            select r.id, r.metrica, r.prezzario_voce_id, r.moltiplicatore, r.condizione, r.ordine,
+                   v.super_categoria, v.categoria, v.sub_categoria, v.descrizione, v.um, v.tipo,
+                   v.prezzo_unitario
+            from public.mapping_regole r
+            join public.prezzario_voci v on v.id = r.prezzario_voce_id
+            where r.tenant_id = $1::uuid and r.attiva = true
+            order by r.ordine
+            """,
+            tenant_id,
+        )
     regole = []
     for r in rows:
         regole.append(
