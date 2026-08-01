@@ -174,7 +174,9 @@ async def _verify_legacy(token: str, db) -> dict:
         user.pop("password_hash", None)
         user["auth_provider"] = "legacy"
         user["access_token"] = token
-        return user
+        from legacy_tenant import map_legacy_user
+
+        return map_legacy_user(user)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Sessione scaduta")
     except jwt.InvalidTokenError:
@@ -186,7 +188,9 @@ async def get_current_user(request: Request, db) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Non autenticato")
     if _looks_like_supabase_jwt(token):
-        return await _verify_supabase(token)
+        user = await _verify_supabase(token)
+        user["access_token"] = token
+        return user
     return await _verify_legacy(token, db)
 
 

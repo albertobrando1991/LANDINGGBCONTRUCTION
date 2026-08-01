@@ -1956,16 +1956,32 @@ async def create_staff(body: StaffCreate, user: dict = Depends(require_admin)):
 # ----------------------- Startup -----------------------
 @asynccontextmanager
 async def get_tenant_conn(request: Request, user: dict):
-    """Apre una connessione Postgres con RLS tenant, se il pool è configurato."""
+    """Apre una connessione Postgres con RLS tenant, se il pool è configurato.
+
+    Supporta JWT Supabase e staff legacy GB (claim sintetici + membership seed).
+    Tenant di default: gbconstruction (landing su dominio GB attuale).
+    """
     if not db_pg.pool_ready():
         raise HTTPException(
             status_code=503,
             detail="Database Supabase non configurato (SUPABASE_DB_URL)",
         )
-    token = user.get("access_token") or authlib._extract_token(request)
-    if not token:
-        raise HTTPException(status_code=401, detail="Non autenticato")
-    async with db_pg.tenant_conn(token) as conn:
+    from legacy_tenant import claims_for_user, map_legacy_user
+
+    user = map_legacy_user(user)
+    if user.get("auth_provider") == "supabase" and user.get("access_token"):
+        token = user["access_token"]
+        try:
+            async with db_pg.tenant_conn(token) as conn:
+                tenant = await tenancy.current_tenant(request, user, conn=conn)
+                yield conn, tenant
+            return
+        except Exception:
+            # fallback a claim sintetici se JWKS/claim incompleti
+            pass
+
+    claims = claims_for_user(user)
+    async with db_pg.tenant_conn_claims(claims) as conn:
         tenant = await tenancy.current_tenant(request, user, conn=conn)
         yield conn, tenant
 

@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import HTTPException, Request
 
 BASE_DOMAIN = os.environ.get("APP_BASE_DOMAIN", "alantis.it")
+DEFAULT_TENANT_SLUG = os.environ.get("DEFAULT_TENANT_SLUG", "gbconstruction")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$")
 
 
@@ -24,10 +25,14 @@ def extract_tenant_slug(request: Request) -> Optional[str]:
         if slug and "." not in slug and SLUG_RE.match(slug):
             return slug
 
+    # Landing GB: hostname gbconstruction.it / www / api non sono slug tenant
+    if "gbconstruction" in host:
+        return DEFAULT_TENANT_SLUG
+
     q = (request.query_params.get("tenant") or "").strip().lower()
     if q and SLUG_RE.match(q):
         return q
-    return None
+    return DEFAULT_TENANT_SLUG
 
 
 def tenants_from_user(user: dict) -> list[dict]:
@@ -72,10 +77,11 @@ async def current_tenant(request: Request, user: dict, conn=None) -> dict:
         )
         if not row:
             raise HTTPException(status_code=404, detail="Tenant non trovato")
+        uid = user.get("supabase_user_id") or user.get("id") or user.get("sub")
         member = await conn.fetchrow(
             "select role from public.tenant_members where tenant_id = $1 and user_id = $2::uuid",
             row["id"],
-            user.get("id") or user.get("sub"),
+            uid,
         )
         if not member:
             raise HTTPException(status_code=403, detail="Non sei membro di questo tenant")
@@ -86,11 +92,11 @@ async def current_tenant(request: Request, user: dict, conn=None) -> dict:
             "theme": row["theme"],
             "contatti": row["contatti"],
             "piano": row["piano"],
-            "role": member["role"],
+            "role": str(member["role"]),
         }
 
     # nessun slug: primo membership
-    uid = user.get("id") or user.get("sub")
+    uid = user.get("supabase_user_id") or user.get("id") or user.get("sub")
     row = await conn.fetchrow(
         """
         select t.id, t.slug, t.ragione_sociale, t.theme, t.contatti, t.piano, m.role
@@ -111,7 +117,7 @@ async def current_tenant(request: Request, user: dict, conn=None) -> dict:
         "theme": row["theme"],
         "contatti": row["contatti"],
         "piano": row["piano"],
-        "role": row["role"],
+        "role": str(row["role"]),
     }
 
 

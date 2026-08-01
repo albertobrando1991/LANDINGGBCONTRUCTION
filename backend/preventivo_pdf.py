@@ -24,9 +24,26 @@ def _hex_color(value: str, fallback: str = "#111111") -> colors.Color:
         return colors.black
 
 
+def _as_dict(value, default=None):
+    if default is None:
+        default = {}
+    if value is None:
+        return default
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        import json
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else default
+        except Exception:
+            return default
+    return default
+
+
 def genera_pdf_preventivo(preventivo: dict, tenant: dict) -> bytes:
-    theme = tenant.get("theme") or {}
-    contatti = tenant.get("contatti") or {}
+    theme = _as_dict(tenant.get("theme"))
+    contatti = _as_dict(tenant.get("contatti"))
     primary = _hex_color(theme.get("primary") or "#C41E3A")
     secondary = _hex_color(theme.get("secondary") or "#D4AF37")
     ragione = tenant.get("ragione_sociale") or tenant.get("slug") or "Preventivo"

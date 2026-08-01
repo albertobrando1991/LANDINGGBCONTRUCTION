@@ -44,6 +44,34 @@ def _claims_from_token(access_token: str) -> dict[str, Any]:
     )
 
 
+async def _apply_jwt_claims(conn: asyncpg.Connection, claims: dict[str, Any]) -> None:
+    """Imposta ruolo + claim così auth.uid() e RLS lavorano come su PostgREST."""
+    sub = str(claims.get("sub") or "")
+    await conn.execute("select set_config('role', 'authenticated', true)")
+    await conn.execute(
+        "select set_config('request.jwt.claims', $1, true)",
+        json.dumps(claims, default=str),
+    )
+    # Compat: alcune installazioni leggono claim.sub singolo
+    if sub:
+        await conn.execute("select set_config('request.jwt.claim.sub', $1, true)", sub)
+        await conn.execute(
+            "select set_config('request.jwt.claim.role', $1, true)",
+            str(claims.get("role") or "authenticated"),
+        )
+
+
+@asynccontextmanager
+async def tenant_conn_claims(claims: dict[str, Any]) -> AsyncIterator[asyncpg.Connection]:
+    """Connessione RLS con claim già risolti (legacy bridge o Supabase)."""
+    if _pool is None:
+        raise RuntimeError("Pool Postgres non inizializzato (SUPABASE_DB_URL mancante)")
+    async with _pool.acquire() as conn:
+        async with conn.transaction():
+            await _apply_jwt_claims(conn, claims)
+            yield conn
+
+
 @asynccontextmanager
 async def tenant_conn(access_token: str) -> AsyncIterator[asyncpg.Connection]:
     """Connessione con i claim dell'utente impostati:
@@ -51,17 +79,9 @@ async def tenant_conn(access_token: str) -> AsyncIterator[asyncpg.Connection]:
          SET LOCAL request.jwt.claims = <claims json>;
        ⇒ RLS filtra esattamente come per il client browser.
        Usare per QUALSIASI operazione originata da una richiesta utente."""
-    if _pool is None:
-        raise RuntimeError("Pool Postgres non inizializzato (SUPABASE_DB_URL mancante)")
     claims = _claims_from_token(access_token)
-    async with _pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute("select set_config('role', 'authenticated', true)")
-            await conn.execute(
-                "select set_config('request.jwt.claims', $1, true)",
-                json.dumps(claims),
-            )
-            yield conn
+    async with tenant_conn_claims(claims) as conn:
+        yield conn
 
 
 @asynccontextmanager

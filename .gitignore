@@ -74,6 +74,7 @@ agentdb.rvf
 agentdb.rvf.lock
 backend/storage/
 scripts/ai_architect_ground_truth/results/
+scripts/_smoke_preventivo_gb.pdf
 
 # Supabase local
 supabase/.branches
