@@ -31,6 +31,10 @@ import ai_architect_service
 import ai_credit_service
 import email_service
 import meta_leads_service
+import db as db_pg
+import tenancy
+from edilos_routes import register_edilos_routes
+from contextlib import asynccontextmanager
 
 mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 client = AsyncIOMotorClient(mongo_url)
@@ -1950,8 +1954,33 @@ async def create_staff(body: StaffCreate, user: dict = Depends(require_admin)):
 
 
 # ----------------------- Startup -----------------------
+@asynccontextmanager
+async def get_tenant_conn(request: Request, user: dict):
+    """Apre una connessione Postgres con RLS tenant, se il pool è configurato."""
+    if not db_pg.pool_ready():
+        raise HTTPException(
+            status_code=503,
+            detail="Database Supabase non configurato (SUPABASE_DB_URL)",
+        )
+    token = user.get("access_token") or authlib._extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Non autenticato")
+    async with db_pg.tenant_conn(token) as conn:
+        tenant = await tenancy.current_tenant(request, user, conn=conn)
+        yield conn, tenant
+
+
+register_edilos_routes(api, db, get_tenant_conn)
+
+
 @app.on_event("startup")
 async def startup():
+    try:
+        await db_pg.init_pool()
+        if db_pg.pool_ready():
+            logger.info("Postgres pool ready (Supabase)")
+    except Exception as exc:
+        logger.warning("Postgres pool non avviato: %s", exc)
     await db.users.create_index("email", unique=True)
     await db.leads.create_index("origine")
     await db.leads.create_index("email_norm")
@@ -1999,6 +2028,7 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
+    await db_pg.close_pool()
     client.close()
 
 

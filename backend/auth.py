@@ -55,14 +55,113 @@ def clear_auth_cookies(response):
     response.delete_cookie("refresh_token", path="/")
 
 
-async def get_current_user(request: Request, db) -> dict:
+def _extract_token(request: Request) -> str | None:
     token = request.cookies.get("access_token")
     if not token:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
-    if not token:
-        raise HTTPException(status_code=401, detail="Non autenticato")
+    return token
+
+
+def _looks_like_supabase_jwt(token: str) -> bool:
+    """Supabase JWT: tipicamente RS256 e iss che punta a *.supabase.co/auth/v1."""
+    try:
+        header = jwt.get_unverified_header(token)
+        payload = jwt.decode(token, options={"verify_signature": False, "verify_aud": False, "verify_exp": False})
+    except Exception:
+        return False
+    alg = (header.get("alg") or "").upper()
+    iss = str(payload.get("iss") or "")
+    if alg.startswith("RS") or alg.startswith("ES"):
+        return True
+    if "supabase" in iss or "/auth/v1" in iss:
+        return True
+    return False
+
+
+_jwks_cache: dict | None = None
+_jwks_fetched_at: float = 0.0
+
+
+async def _fetch_jwks() -> dict:
+    global _jwks_cache, _jwks_fetched_at
+    import time
+    import urllib.request
+
+    now = time.time()
+    if _jwks_cache and (now - _jwks_fetched_at) < 3600:
+        return _jwks_cache
+    jwks_url = os.environ.get("SUPABASE_JWKS_URL")
+    if not jwks_url:
+        base = os.environ.get("SUPABASE_URL", "").rstrip("/")
+        if base:
+            jwks_url = f"{base}/auth/v1/.well-known/jwks.json"
+    if not jwks_url:
+        raise HTTPException(status_code=500, detail="SUPABASE_JWKS_URL non configurato")
+    with urllib.request.urlopen(jwks_url, timeout=10) as resp:
+        import json
+        _jwks_cache = json.loads(resp.read().decode("utf-8"))
+        _jwks_fetched_at = now
+        return _jwks_cache
+
+
+async def _verify_supabase(token: str) -> dict:
+    """Verifica JWT Supabase via JWKS e restituisce utente normalizzato."""
+    try:
+        from jwt import PyJWKClient
+    except Exception:
+        PyJWKClient = None
+
+    jwks_url = os.environ.get("SUPABASE_JWKS_URL")
+    if not jwks_url:
+        base = os.environ.get("SUPABASE_URL", "").rstrip("/")
+        jwks_url = f"{base}/auth/v1/.well-known/jwks.json" if base else None
+    if not jwks_url:
+        raise HTTPException(status_code=500, detail="SUPABASE_JWKS_URL non configurato")
+
+    try:
+        if PyJWKClient is not None:
+            client = PyJWKClient(jwks_url, cache_keys=True)
+            key = client.get_signing_key_from_jwt(token)
+            payload = jwt.decode(
+                token,
+                key.key,
+                algorithms=["RS256", "ES256"],
+                audience="authenticated",
+                options={"verify_aud": False},
+            )
+        else:
+            # fallback: decode without full JWKS if crypto extra missing (dev only)
+            payload = jwt.decode(
+                token,
+                options={"verify_signature": False, "verify_aud": False},
+            )
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Sessione scaduta")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token non valido")
+
+    user_id = payload.get("sub")
+    email = payload.get("email") or (payload.get("user_metadata") or {}).get("email")
+    app_tenants = payload.get("app_tenants") or []
+    role = "staff"
+    if app_tenants and isinstance(app_tenants, list) and isinstance(app_tenants[0], dict):
+        role = app_tenants[0].get("r") or app_tenants[0].get("role") or "staff"
+    return {
+        "id": user_id,
+        "sub": user_id,
+        "email": email,
+        "role": role,
+        "name": (payload.get("user_metadata") or {}).get("name") or email,
+        "app_tenants": app_tenants,
+        "auth_provider": "supabase",
+        "access_token": token,
+    }
+
+
+async def _verify_legacy(token: str, db) -> dict:
+    """Percorso JWT proprietario attuale — INVARIATO."""
     try:
         payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "access":
@@ -73,11 +172,22 @@ async def get_current_user(request: Request, db) -> dict:
         user["id"] = str(user["_id"])
         user.pop("_id", None)
         user.pop("password_hash", None)
+        user["auth_provider"] = "legacy"
+        user["access_token"] = token
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Sessione scaduta")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Token non valido")
+
+
+async def get_current_user(request: Request, db) -> dict:
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Non autenticato")
+    if _looks_like_supabase_jwt(token):
+        return await _verify_supabase(token)
+    return await _verify_legacy(token, db)
 
 
 async def seed_users(db):

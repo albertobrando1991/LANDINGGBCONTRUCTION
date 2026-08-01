@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Home, Inbox, KanbanSquare, CalendarDays, FileText, HardHat,
   BarChart3, Settings as SettingsIcon, Menu, Bell, LogOut, Search, X, Brain,
+  Calculator, ListTree,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/dashboard/Avatar";
@@ -20,6 +21,8 @@ const NAV = [
   { to: "/dashboard/pipeline", label: "Pipeline", Icon: KanbanSquare },
   { to: "/dashboard/sopralluoghi", label: "Sopralluoghi", Icon: CalendarDays },
   { to: "/dashboard/preventivi", label: "Preventivi", Icon: FileText },
+  { to: "/dashboard/prezzario", label: "Prezzario", Icon: Calculator },
+  { to: "/dashboard/computi", label: "Computi", Icon: ListTree },
   { to: "/dashboard/cantieri", label: "Cantieri attivi", Icon: HardHat },
   { to: "/dashboard/ai-architect", label: "AI Architect", Icon: Brain },
   { to: "/dashboard/report", label: "Report", Icon: BarChart3, admin: true },

@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, "feat/**"]
+  pull_request:
+
+jobs:
+  rls-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if tenant_id table without RLS in same migration
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in supabase/migrations/*.sql; do
+            [ -f "$f" ] || continue
+            if grep -qiE 'create table.*tenant_id|tenant_id uuid not null' "$f"; then
+              if ! grep -qi 'enable row level security' "$f"; then
+                echo "RLS missing in $f (has tenant_id but no enable row level security)"
+                fail=1
+              fi
+            fi
+          done
+          exit $fail
+
+  service-role-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: service_role only in system_jobs
+        run: |
+          set -euo pipefail
+          # Fallisce se service_role / SERVICE_ROLE_KEY compare fuori da system_jobs
+          if grep -rn "service_role\|SERVICE_ROLE_KEY" backend/ --include="*.py" \
+            | grep -v "backend/system_jobs/" \
+            | grep -v "backend/db.py" \
+            | grep -v "#"; then
+            echo "service_role usato fuori da backend/system_jobs/"
+            exit 1
+          fi
+          echo "OK service-role-guard"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+      - name: Unit tests (no live Mongo required for pure tests)
+        working-directory: backend
+        env:
+          JWT_SECRET: ci-test-secret-not-for-production
+          MONGO_URL: mongodb://localhost:27017
+          DB_NAME: gb_construction_ci
+        run: |
+          pytest tests/test_mapping_engine.py tests/test_prezzario.py tests/test_auth_dual_mode.py tests/test_tenant_isolation.py -v --tb=short
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install & build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
