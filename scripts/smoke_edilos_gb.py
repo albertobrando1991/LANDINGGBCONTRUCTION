@@ -19,10 +19,15 @@ from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 load_dotenv(BACKEND / ".env", override=True)
 
-# default locale se non impostato
-os.environ.setdefault(
-    "SUPABASE_DB_URL", "postgresql://postgres:postgres@127.0.0.1:55432/postgres"
-)
+# default locale se non impostato (CONNECTION_STRING_SUPABASE ha priorità in db.resolve_db_url)
+if not (
+    os.environ.get("CONNECTION_STRING_SUPABASE")
+    or os.environ.get("SUPABASE_DB_URL")
+    or os.environ.get("DATABASE_URL")
+):
+    os.environ["SUPABASE_DB_URL"] = (
+        "postgresql://postgres:postgres@127.0.0.1:55432/postgres"
+    )
 
 import db as db_pg
 import boq_service

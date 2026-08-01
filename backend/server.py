@@ -1964,7 +1964,7 @@ async def get_tenant_conn(request: Request, user: dict):
     if not db_pg.pool_ready():
         raise HTTPException(
             status_code=503,
-            detail="Database Supabase non configurato (SUPABASE_DB_URL)",
+            detail="Database Supabase non configurato (CONNECTION_STRING_SUPABASE / SUPABASE_DB_URL)",
         )
     from legacy_tenant import claims_for_user, map_legacy_user
 

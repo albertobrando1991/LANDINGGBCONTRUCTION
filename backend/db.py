@@ -12,14 +12,74 @@ import asyncpg
 _pool: Optional[asyncpg.Pool] = None
 
 
+def resolve_db_url() -> str | None:
+    """DSN Postgres Supabase. Alias supportati (ordine di priorità):
+    CONNECTION_STRING_SUPABASE | SUPABASE_DB_URL | DATABASE_URL
+    """
+    for key in (
+        "CONNECTION_STRING_SUPABASE",
+        "SUPABASE_DB_URL",
+        "DATABASE_URL",
+    ):
+        val = (os.environ.get(key) or "").strip().strip('"').strip("'")
+        if val:
+            return val
+    return None
+
+
+def _prepare_asyncpg_dsn(dsn: str) -> tuple[str, dict]:
+    """Normalizza DSN Supabase per asyncpg (ssl, rimozione query libpq non supportate)."""
+    import re
+    import ssl
+    from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+    # SQLAlchemy-style prefixes
+    dsn = dsn.replace("postgres://", "postgresql://", 1)
+    dsn = dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
+    dsn = dsn.replace("postgresql+psycopg2://", "postgresql://", 1)
+
+    parsed = urlparse(dsn)
+    qs = parse_qs(parsed.query)
+    kwargs: dict = {}
+
+    host = (parsed.hostname or "").lower()
+    is_supabase = "supabase.co" in host or "supabase.com" in host
+    sslmode = (qs.get("sslmode") or qs.get("ssl") or [None])[0]
+    want_ssl = is_supabase or (sslmode in ("require", "verify-full", "verify-ca", "true", "1"))
+
+    # asyncpg non usa sslmode= nella query come libpq: togli e passa ssl=
+    for k in list(qs.keys()):
+        if k.lower() in ("sslmode", "ssl", "channel_binding"):
+            qs.pop(k, None)
+
+    clean = parsed._replace(query=urlencode({k: v[0] for k, v in qs.items()}))
+    clean_dsn = urlunparse(clean)
+    # rimuovi ? vuoto
+    clean_dsn = re.sub(r"\?$", "", clean_dsn)
+
+    if want_ssl:
+        ctx = ssl.create_default_context()
+        # Supabase managed certs: default context is fine; no hostname fail on pooler if needed
+        kwargs["ssl"] = ctx
+
+    return clean_dsn, kwargs
+
+
 async def init_pool() -> None:
     global _pool
     if _pool is not None:
         return
-    dsn = os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL")
+    dsn = resolve_db_url()
     if not dsn:
         return
-    _pool = await asyncpg.create_pool(dsn, min_size=1, max_size=10, command_timeout=60)
+    clean_dsn, kwargs = _prepare_asyncpg_dsn(dsn)
+    _pool = await asyncpg.create_pool(
+        clean_dsn,
+        min_size=1,
+        max_size=10,
+        command_timeout=60,
+        **kwargs,
+    )
 
 
 async def close_pool() -> None:
@@ -65,7 +125,10 @@ async def _apply_jwt_claims(conn: asyncpg.Connection, claims: dict[str, Any]) ->
 async def tenant_conn_claims(claims: dict[str, Any]) -> AsyncIterator[asyncpg.Connection]:
     """Connessione RLS con claim già risolti (legacy bridge o Supabase)."""
     if _pool is None:
-        raise RuntimeError("Pool Postgres non inizializzato (SUPABASE_DB_URL mancante)")
+        raise RuntimeError(
+            "Pool Postgres non inizializzato "
+            "(imposta CONNECTION_STRING_SUPABASE o SUPABASE_DB_URL)"
+        )
     async with _pool.acquire() as conn:
         async with conn.transaction():
             await _apply_jwt_claims(conn, claims)
@@ -101,7 +164,10 @@ async def system_conn() -> AsyncIterator[asyncpg.Connection]:
             "usa tenant_conn per le richieste utente"
         )
     if _pool is None:
-        raise RuntimeError("Pool Postgres non inizializzato (SUPABASE_DB_URL mancante)")
+        raise RuntimeError(
+            "Pool Postgres non inizializzato "
+            "(imposta CONNECTION_STRING_SUPABASE o SUPABASE_DB_URL)"
+        )
     async with _pool.acquire() as conn:
         yield conn
 

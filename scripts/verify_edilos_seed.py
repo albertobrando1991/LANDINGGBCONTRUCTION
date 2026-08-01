@@ -7,8 +7,11 @@ import asyncpg
 
 
 async def main():
-    dsn = os.environ.get(
-        "SUPABASE_DB_URL", "postgresql://postgres:postgres@127.0.0.1:55432/postgres"
+    dsn = (
+        os.environ.get("CONNECTION_STRING_SUPABASE")
+        or os.environ.get("SUPABASE_DB_URL")
+        or os.environ.get("DATABASE_URL")
+        or "postgresql://postgres:postgres@127.0.0.1:55432/postgres"
     )
     c = await asyncpg.connect(dsn)
     tenants = await c.fetch(
