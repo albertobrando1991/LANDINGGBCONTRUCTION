@@ -43,16 +43,57 @@ def create_refresh_token(user_id: str) -> str:
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
+def _cookie_flags() -> dict:
+    """Flag cookie per auth.
+
+    Dashboard su Vercel (gb-construction.vercel.app) chiama API su
+    api.gbconstruction.it → cross-site: serve SameSite=None + Secure.
+    In locale (HTTP) resta Lax + non-secure.
+    Override: AUTH_COOKIE_SAMESITE=none|lax e COOKIE_SECURE=true|false.
+    """
+    explicit = (os.environ.get("AUTH_COOKIE_SAMESITE") or "").strip().lower()
+    secure_env = (os.environ.get("COOKIE_SECURE") or os.environ.get("AUTH_COOKIE_SECURE") or "").strip().lower()
+    railway_prod = (os.environ.get("RAILWAY_ENVIRONMENT") or "").strip().lower() == "production"
+
+    if explicit in ("none", "lax", "strict"):
+        samesite = explicit
+    elif secure_env in ("1", "true", "yes") or railway_prod:
+        samesite = "none"
+    else:
+        samesite = "lax"
+
+    if secure_env in ("1", "true", "yes"):
+        secure = True
+    elif secure_env in ("0", "false", "no"):
+        secure = False
+    else:
+        # SameSite=None richiede Secure nei browser moderni
+        secure = samesite == "none" or railway_prod
+
+    return {"httponly": True, "secure": secure, "samesite": samesite, "path": "/"}
+
+
 def set_auth_cookies(response, access_token: str, refresh_token: str):
-    response.set_cookie(key="access_token", value=access_token, httponly=True,
-                        secure=False, samesite="lax", max_age=43200, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True,
-                        secure=False, samesite="lax", max_age=604800, path="/")
+    flags = _cookie_flags()
+    response.set_cookie(key="access_token", value=access_token, max_age=43200, **flags)
+    response.set_cookie(key="refresh_token", value=refresh_token, max_age=604800, **flags)
 
 
 def clear_auth_cookies(response):
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/")
+    flags = _cookie_flags()
+    # delete_cookie deve allineare path/secure/samesite per invalidare
+    response.delete_cookie(
+        "access_token",
+        path=flags["path"],
+        secure=flags["secure"],
+        samesite=flags["samesite"],
+    )
+    response.delete_cookie(
+        "refresh_token",
+        path=flags["path"],
+        secure=flags["secure"],
+        samesite=flags["samesite"],
+    )
 
 
 def _extract_token(request: Request) -> str | None:

@@ -353,8 +353,8 @@ async def refresh(request: Request, response: Response):
         if not user:
             raise HTTPException(status_code=401, detail="Utente non trovato")
         access = authlib.create_access_token(str(user["_id"]), user["email"], user["role"])
-        response.set_cookie("access_token", access, httponly=True, secure=False,
-                            samesite="lax", max_age=43200, path="/")
+        flags = authlib._cookie_flags()
+        response.set_cookie("access_token", access, max_age=43200, **flags)
         return {"ok": True}
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Token non valido")
