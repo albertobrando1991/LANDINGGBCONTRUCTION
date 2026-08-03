@@ -1581,6 +1581,53 @@ export default function AIArchitectReview() {
                   </div>
                 )}
 
+                {selectedJob && (
+                  <div className="rounded-2xl border border-brand/30 bg-brand/5 p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-brand" />
+                        <h3 className="font-display font-semibold uppercase text-sm text-ink">
+                          Bozza computo da planimetria
+                        </h3>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-xl bg-brand px-3 py-2 text-[10px] font-display uppercase tracking-wider text-white"
+                        onClick={async () => {
+                          try {
+                            const analisi = {
+                              mq: selectedJob?.mq || selectedJob?.floor_area_mq || estimate?.mq || 80,
+                              bagni: selectedJob?.bagni || 1,
+                              camere: selectedJob?.camere || 2,
+                              ...(selectedJob?.metriche || selectedJob?.metrics || {}),
+                            };
+                            const { data } = await client.post("/computi/da-ai", {
+                              analisi_ai: analisi,
+                              lead_id: selectedJob?.lead_id || undefined,
+                              config_lead: selectedJob?.config || {},
+                            });
+                            toast.success(
+                              `Bozza creata: ${data.n_voci} voci · € ${Number(data.totale || 0).toLocaleString("it-IT")}`
+                            );
+                            navigate(`/dashboard/computi/${data.id}`);
+                          } catch (err) {
+                            toast.error(
+                              formatApiErrorDetail(err?.response?.data?.detail) ||
+                                "Generazione bozza non disponibile (serve Supabase)"
+                            );
+                          }
+                        }}
+                      >
+                        Genera bozza computo
+                      </button>
+                    </div>
+                    <p className="font-body text-[11px] text-fog">
+                      L&apos;AI estrae solo quantità. I prezzi arrivano dal prezzario del tenant.
+                      Ogni voce nasce non validata: conferma bloccata finché non le approvi.
+                    </p>
+                  </div>
+                )}
+
                 {estimate?.pacchetti && (
                   <div className="rounded-2xl border border-stroke bg-surface p-5">
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-4">

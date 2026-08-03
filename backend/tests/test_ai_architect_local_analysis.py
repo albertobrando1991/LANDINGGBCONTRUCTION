@@ -25,10 +25,14 @@ def test_fallback_analysis_returns_professional_safe_delivery():
     )
 
     assert analysis["model_provider"] == "professional-safe-mode"
-    assert analysis["is_fallback"] is False
-    assert analysis["confidence"] >= svc.VISION_MIN_ACCEPTABLE_CONFIDENCE
+    assert analysis["is_fallback"] is True
+    assert analysis["vision_fallback"] is True
+    assert analysis["geometry_source"] == "synthetic_blueprint"
+    assert analysis["geometry_verified"] is False
+    assert analysis["confidence"] < svc.VISION_MIN_ACCEPTABLE_CONFIDENCE
     assert len(analysis["detected_rooms"]) >= svc.VISION_MIN_ROOMS
-    assert svc._professional_analysis_issues(analysis) == []
+    issues = svc._professional_analysis_issues(analysis)
+    assert "geometria non verificata dall'immagine: richiede validazione umana" in issues
 
 
 def test_local_vision_does_not_pass_professional_gate_when_advanced_vision_is_required():
@@ -68,8 +72,8 @@ def test_local_vision_preview_is_structured_when_explicitly_used():
     assert all(room.get("bounding_box") for room in analysis["detected_rooms"])
 
 
-def test_anthropic_provider_passes_professional_gate():
-    analysis = svc._safe_mode_analysis_json(
+def _real_provider_analysis():
+    analysis = svc._local_vision_analysis_json(
         {
             "plan_type_selected": "auto",
             "project_goal": "Ristrutturazione completa",
@@ -80,8 +84,22 @@ def test_anthropic_provider_passes_professional_gate():
         },
         "test",
     )
-    analysis["model_provider"] = "anthropic"
-    analysis["model_name"] = "claude-test"
+    analysis.update(
+        {
+            "model_provider": "anthropic",
+            "model_name": "claude-test",
+            "confidence": 0.86,
+            "geometry_source": "uploaded_image",
+            "geometry_verified": True,
+            "vision_fallback": False,
+            "is_fallback": False,
+        }
+    )
+    return analysis
+
+
+def test_real_vision_analysis_still_passes_gate():
+    analysis = _real_provider_analysis()
 
     assert svc._professional_analysis_issues(analysis) == []
 
@@ -393,6 +411,96 @@ def test_synthetic_redistributed_2d_is_not_approvable_for_render():
     assert svc._output_approvable_for_render(synthetic, job) is False
     assert svc._output_approvable_for_render(source_reference, job) is False
     assert svc._output_approvable_for_render(generative, job) is True
+
+
+def test_safe_mode_is_never_approvable_for_render():
+    job = {
+        "plan_type_selected": "existing_state",
+        "plan_type_detected": "existing_state",
+        "vision_analysis": {
+            "vision_fallback": True,
+            "geometry_verified": False,
+        },
+    }
+    output = {
+        "output_type": "redistributed_2d_plan",
+        "image_url": "/api/ai-architect/files/outputs/tavola.png",
+        "json_content": {
+            "generated_with": "deterministic_vector_plan",
+            "approvable_for_render": True,
+        },
+    }
+
+    assert svc._output_approvable_for_render(output, job) is False
+
+
+class _FakeInsertResult:
+    def __init__(self):
+        self.inserted_id = ObjectId()
+
+
+class _FakeCollection:
+    def __init__(self, docs=None):
+        self.docs = list(docs or [])
+
+    async def insert_one(self, doc):
+        self.docs.append(dict(doc))
+        return _FakeInsertResult()
+
+    async def update_one(self, flt, update):
+        target_id = flt.get("_id")
+        for doc in self.docs:
+            if doc.get("_id") == target_id:
+                doc.update(update.get("$set", {}))
+                for key, value in update.get("$inc", {}).items():
+                    doc[key] = int(doc.get(key) or 0) + value
+                return None
+        return None
+
+
+class _FakeReviewDB:
+    def __init__(self, job):
+        self.ai_architect_jobs = _FakeCollection([job])
+        self.ai_architect_outputs = _FakeCollection()
+        self.ai_architect_errors = _FakeCollection()
+
+
+def test_safe_mode_routes_to_mandatory_human_review():
+    job_id = ObjectId()
+    analysis = svc._safe_mode_analysis_json(
+        {
+            "plan_type_selected": "existing_state",
+            "project_goal": "Ristrutturazione completa",
+            "priorities": ["open space"],
+            "sqm": 80,
+            "uploaded_file_path": "missing.pdf",
+            "original_filename": "planimetria.pdf",
+        },
+        "provider unavailable",
+    )
+    job = {
+        "_id": job_id,
+        "plan_type_selected": "existing_state",
+        "plan_type_detected": "existing_state",
+        "project_goal": "Ristrutturazione completa",
+        "priorities": ["open space"],
+        "vision_analysis": analysis,
+    }
+    db = _FakeReviewDB(job)
+
+    asyncio.run(svc._route_unverified_geometry_for_review(db, str(job_id), job))
+
+    assert db.ai_architect_jobs.docs[0]["status"] == "needs_confirmation"
+    assert db.ai_architect_jobs.docs[0]["review_required"] is True
+    assert db.ai_architect_jobs.docs[0]["review_status"] == "blocked_pending_plan_verification"
+    concepts = [
+        doc
+        for doc in db.ai_architect_outputs.docs
+        if doc["output_type"] in {"clean_2d_plan", "redistributed_2d_plan"}
+    ]
+    assert concepts
+    assert concepts[-1]["json_content"]["approvable_for_render"] is False
+    assert concepts[-1]["json_content"]["geometry_verified"] is False
 
 
 def test_deterministic_vector_plan_is_approvable_for_render():

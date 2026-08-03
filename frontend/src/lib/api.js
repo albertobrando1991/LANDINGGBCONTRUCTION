@@ -19,6 +19,18 @@ const client = axios.create({
   withCredentials: true,
 });
 
+// Landing GB Construction: tenant fisso (no subdominio alantis su questo deploy)
+const DEFAULT_TENANT_SLUG =
+  process.env.REACT_APP_DEFAULT_TENANT_SLUG || "gbconstruction";
+
+client.interceptors.request.use((config) => {
+  config.headers = config.headers || {};
+  if (!config.headers["X-Tenant-Slug"]) {
+    config.headers["X-Tenant-Slug"] = DEFAULT_TENANT_SLUG;
+  }
+  return config;
+});
+
 export function formatApiErrorDetail(detail) {
   if (detail == null) return "Si è verificato un errore. Riprova.";
   if (typeof detail === "string") return detail;

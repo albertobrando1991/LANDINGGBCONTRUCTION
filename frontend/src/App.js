@@ -2,6 +2,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { TenantProvider } from "@/context/TenantContext";
 
 import Landing from "@/landing/Landing";
 import Login from "@/dashboard/Login";
@@ -16,6 +17,10 @@ import Cantieri from "@/dashboard/pages/Cantieri";
 import Report from "@/dashboard/pages/Report";
 import Settings from "@/dashboard/pages/Settings";
 import AIArchitectReview from "@/dashboard/pages/AIArchitectReview";
+import Prezzario from "@/dashboard/pages/Prezzario";
+import PrezzarioWizard from "@/dashboard/pages/PrezzarioWizard";
+import Computi from "@/dashboard/pages/Computi";
+import ComputoEditor from "@/dashboard/pages/ComputoEditor";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -35,35 +40,41 @@ function ProtectedRoute({ children }) {
 function App() {
   return (
     <div className="App dark">
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/login" element={<Login />} />
-            <Route
-              path="/dashboard"
-              element={
-                <ProtectedRoute>
-                  <DashboardLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Today />} />
-              <Route path="inbox" element={<LeadInbox />} />
-              <Route path="lead/:id" element={<LeadDetail />} />
-              <Route path="pipeline" element={<Pipeline />} />
-              <Route path="sopralluoghi" element={<Sopralluoghi />} />
-              <Route path="preventivi" element={<Preventivi />} />
-              <Route path="cantieri" element={<Cantieri />} />
-              <Route path="ai-architect" element={<AIArchitectReview />} />
-              <Route path="report" element={<Report />} />
-              <Route path="impostazioni" element={<Settings />} />
-            </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
-        <Toaster position="top-right" theme="dark" richColors />
-      </AuthProvider>
+      <TenantProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/login" element={<Login />} />
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Today />} />
+                <Route path="inbox" element={<LeadInbox />} />
+                <Route path="lead/:id" element={<LeadDetail />} />
+                <Route path="pipeline" element={<Pipeline />} />
+                <Route path="sopralluoghi" element={<Sopralluoghi />} />
+                <Route path="preventivi" element={<Preventivi />} />
+                <Route path="cantieri" element={<Cantieri />} />
+                <Route path="prezzario" element={<Prezzario />} />
+                <Route path="prezzario/wizard" element={<PrezzarioWizard />} />
+                <Route path="computi" element={<Computi />} />
+                <Route path="computi/:id" element={<ComputoEditor />} />
+                <Route path="ai-architect" element={<AIArchitectReview />} />
+                <Route path="report" element={<Report />} />
+                <Route path="impostazioni" element={<Settings />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+          <Toaster position="top-right" theme="dark" richColors />
+        </AuthProvider>
+      </TenantProvider>
     </div>
   );
 }

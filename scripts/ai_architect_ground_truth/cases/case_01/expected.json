@@ -1,0 +1,19 @@
+{
+  "case_id": "case_01",
+  "source_note": "placeholder anonimizzato - sostituire con planimetria reale",
+  "plan_type": "existing_state",
+  "expected": {
+    "room_count_min": 4,
+    "room_count_max": 6,
+    "must_have_rooms": ["cucina", "bagno", "soggiorno"],
+    "must_not_invent_rooms": true,
+    "external_openings_present": true,
+    "balconies_count": 2,
+    "load_bearing_walls_present": true
+  },
+  "hard_fail_if": [
+    "stanza inventata non presente nell'originale",
+    "muro portante segnalato come demolibile",
+    "bagno/cucina spostati lontano dagli scarichi senza nota"
+  ]
+}

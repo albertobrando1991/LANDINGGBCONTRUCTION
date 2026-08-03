@@ -73,6 +73,12 @@ agenthub/agents/youtube/db
 agentdb.rvf
 agentdb.rvf.lock
 backend/storage/
+scripts/ai_architect_ground_truth/results/
+scripts/_smoke_preventivo_gb.pdf
+
+# Supabase local
+supabase/.branches
+supabase/.temp
 
 # Source-only media. Runtime-ready public assets live in frontend/public/cantieri.
 /PUBLIC/
