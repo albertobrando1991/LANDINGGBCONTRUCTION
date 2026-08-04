@@ -1,28 +1,27 @@
-import { memo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 import LoadingScreen from "@/landing/LoadingScreen";
 import Navbar from "@/landing/Navbar";
 import ImmersiveHero from "@/landing/ImmersiveHero";
-import SocialProof from "@/landing/SocialProof";
-import Packages from "@/landing/Packages";
-import Configurator from "@/landing/Configurator";
-import AIArchitect from "@/landing/AIArchitect";
-import QuickDetails from "@/landing/QuickDetails";
-import ContactGate from "@/landing/ContactGate";
-import Output from "@/landing/Output";
 import BookingModal from "@/landing/BookingModal";
-import SecondChance from "@/landing/SecondChance";
-import Team from "@/landing/Team";
-import Footer from "@/landing/Footer";
 import { scheduleSmoothScrollToElement } from "@/lib/scroll";
+
+const SocialProof = lazy(() => import("@/landing/SocialProof"));
+const Packages = lazy(() => import("@/landing/Packages"));
+const Configurator = lazy(() => import("@/landing/Configurator"));
+const AIArchitect = lazy(() => import("@/landing/AIArchitect"));
+const QuickDetails = lazy(() => import("@/landing/QuickDetails"));
+const ContactGate = lazy(() => import("@/landing/ContactGate"));
+const Output = lazy(() => import("@/landing/Output"));
+const SecondChance = lazy(() => import("@/landing/SecondChance"));
+const Team = lazy(() => import("@/landing/Team"));
+const Footer = lazy(() => import("@/landing/Footer"));
 
 const StaticNavbar = memo(Navbar);
 const StaticImmersiveHero = memo(ImmersiveHero);
-const StaticSocialProof = memo(SocialProof);
-const StaticPackages = memo(Packages);
-const StaticSecondChance = memo(SecondChance);
-const StaticTeam = memo(Team);
-const StaticFooter = memo(Footer);
-const StaticBookingModal = memo(BookingModal);
+
+function SectionFallback({ label = "Caricamento sezione" }) {
+  return <div className="min-h-32 bg-bg" role="status" aria-label={label} />;
+}
 
 export default function Landing() {
   const [loading, setLoading] = useState(true);
@@ -31,6 +30,10 @@ export default function Landing() {
   const [config, setConfig] = useState(null);
   const [result, setResult] = useState(null);
   const flowRef = useRef(null);
+
+  useEffect(() => {
+    document.title = "GB Construction | Ristrutturazioni";
+  }, []);
 
   const scrollFlow = () => {
     setTimeout(() => {
@@ -104,43 +107,53 @@ export default function Landing() {
       {loading && <LoadingScreen onDone={() => setLoading(false)} />}
       <StaticNavbar />
       <StaticImmersiveHero />
-      <StaticSocialProof />
-      <StaticPackages />
+      <Suspense fallback={<SectionFallback label="Caricamento progetti" />}>
+        <SocialProof />
+        <Packages />
+      </Suspense>
 
       <div ref={flowRef}>
-        {phase === "config" && <Configurator onComplete={handleConfigDone} />}
-        {phase === "details" && (
-          <QuickDetails
-            baseConfig={config}
-            onComplete={handleDetailsDone}
-            onBack={handleDetailsBack}
-          />
-        )}
-        {phase === "gate" && (
-          <ContactGate config={config} onSubmit={handleGateSubmit} />
-        )}
-        {phase === "output" && (
-          <Output
-            estimate={result?.estimate}
-            aiProject={config?.aiArchitect}
-            onStartArchitect={config?.aiArchitect ? undefined : handleStartArchitect}
-            bookingContext={config?.lead_contact}
-          />
-        )}
-        {phase === "architect" && (
-          <AIArchitect
-            baseConfig={config}
-            leadId={config?.lead_id}
-            onComplete={handleArchitectDone}
-            onSkip={handleArchitectSkip}
-          />
-        )}
+        <Suspense
+          fallback={<SectionFallback label="Caricamento configuratore" />}
+        >
+          {phase === "config" && <Configurator onComplete={handleConfigDone} />}
+          {phase === "details" && (
+            <QuickDetails
+              baseConfig={config}
+              onComplete={handleDetailsDone}
+              onBack={handleDetailsBack}
+            />
+          )}
+          {phase === "gate" && (
+            <ContactGate config={config} onSubmit={handleGateSubmit} />
+          )}
+          {phase === "output" && (
+            <Output
+              estimate={result?.estimate}
+              aiProject={config?.aiArchitect}
+              onStartArchitect={
+                config?.aiArchitect ? undefined : handleStartArchitect
+              }
+              bookingContext={config?.lead_contact}
+            />
+          )}
+          {phase === "architect" && (
+            <AIArchitect
+              baseConfig={config}
+              leadId={config?.lead_id}
+              onComplete={handleArchitectDone}
+              onSkip={handleArchitectSkip}
+            />
+          )}
+        </Suspense>
       </div>
 
-      <StaticSecondChance />
-      <StaticTeam />
-      <StaticFooter />
-      <StaticBookingModal />
+      <Suspense fallback={<SectionFallback label="Caricamento contenuti" />}>
+        <SecondChance />
+        <Team />
+        <Footer />
+      </Suspense>
+      <BookingModal />
     </div>
   );
 }

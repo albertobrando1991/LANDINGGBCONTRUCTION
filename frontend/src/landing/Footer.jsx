@@ -1,8 +1,6 @@
 import {
   Instagram,
   Facebook,
-  Linkedin,
-  Youtube,
   MapPin,
   Phone,
   Mail,
@@ -120,21 +118,20 @@ export default function Footer() {
 
         <div>
           <h4 className="font-display font-semibold uppercase tracking-[0.15em] text-sm text-ink mb-4">
-            Newsletter
+            Hai un progetto?
           </h4>
           <p className="font-body text-sm text-fog mb-4">
-            Ispirazioni progetti e bonus fiscali ogni mese.
+            Scrivici su WhatsApp: risponde direttamente il team GB Construction.
           </p>
-          <div className="flex gap-2">
-            <input
-              type="email"
-              placeholder="La tua email"
-              className="flex-1 bg-surface border border-stroke rounded-full px-4 py-2 text-sm text-ink placeholder:text-fog focus:outline-none focus:border-brand"
-            />
-            <button className="bg-brand text-white rounded-full px-5 py-2 font-display font-semibold uppercase tracking-wider text-xs hover:scale-105 transition-transform">
-              Iscriviti
-            </button>
-          </div>
+          <a
+            href={`${WHATSAPP}?text=${encodeURIComponent("Ciao GB Construction, vorrei parlarvi del mio progetto di ristrutturazione.")}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 bg-brand text-white rounded-full px-5 py-3 font-display font-semibold uppercase tracking-wider text-xs hover:scale-105 transition-transform"
+          >
+            <MessageCircle className="w-4 h-4" aria-hidden="true" />
+            Parla con noi
+          </a>
         </div>
       </div>
 
@@ -144,22 +141,23 @@ export default function Footer() {
             {
               Icon: Instagram,
               href: "https://www.instagram.com/gbconstructionsrl/",
+              label: "GB Construction su Instagram",
             },
             {
               Icon: Facebook,
               href: "https://www.facebook.com/gbconstructionsrls",
+              label: "GB Construction su Facebook",
             },
-            { Icon: Linkedin, href: WHATSAPP },
-            { Icon: Youtube, href: WHATSAPP },
-          ].map(({ Icon, href }, i) => (
+          ].map(({ Icon, href, label }) => (
             <a
-              key={i}
+              key={label}
               href={href}
               target="_blank"
               rel="noreferrer"
+              aria-label={label}
               className="text-fog hover:text-brand transition-colors"
             >
-              <Icon className="w-5 h-5" />
+              <Icon className="w-5 h-5" aria-hidden="true" />
             </a>
           ))}
         </div>
@@ -168,8 +166,15 @@ export default function Footer() {
           Sopralluoghi disponibili questa settimana
         </div>
         <div className="font-body text-xs text-fog text-center">
-          P.IVA · © 2026 GB Construction S.R.L.S. · Casalnuovo di Napoli (NA) ·
-          Privacy · Cookie
+          P.IVA 09965211213 · © 2026 GB Construction S.R.L.S. · Casalnuovo di
+          Napoli (NA) ·{" "}
+          <a href="/privacy-policy" className="underline hover:text-ink">
+            Privacy
+          </a>{" "}
+          ·{" "}
+          <a href="/cookie-policy" className="underline hover:text-ink">
+            Cookie
+          </a>
         </div>
       </div>
     </footer>

@@ -24,8 +24,12 @@ export default function LoadingScreen({ onDone }) {
   }, []);
 
   useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setCount(100);
+      return undefined;
+    }
     const start = performance.now();
-    const duration = 2200;
+    const duration = 900;
     const tick = (now) => {
       const p = Math.min((now - start) / duration, 1);
       setCount(Math.floor(p * 100));
@@ -33,7 +37,7 @@ export default function LoadingScreen({ onDone }) {
     };
     raf.current = requestAnimationFrame(tick);
     // Safety fallback: force completion if rAF gets throttled (background tab)
-    const fallback = setTimeout(() => setCount(100), 2800);
+    const fallback = setTimeout(() => setCount(100), 1400);
     return () => {
       cancelAnimationFrame(raf.current);
       clearTimeout(fallback);
@@ -52,8 +56,8 @@ export default function LoadingScreen({ onDone }) {
     if (count >= 100) {
       const t = setTimeout(() => {
         setHide(true);
-        setTimeout(onDone, 600);
-      }, 400);
+        setTimeout(onDone, 250);
+      }, 120);
       return () => clearTimeout(t);
     }
   }, [count, onDone]);
@@ -65,7 +69,8 @@ export default function LoadingScreen({ onDone }) {
           data-testid="loading-screen"
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.6 }}
+          transition={{ duration: 0.25 }}
+          aria-hidden="true"
           className="fixed inset-0 z-[9999] bg-bg overflow-hidden"
         >
           <div className="absolute top-6 left-6 font-display font-semibold uppercase tracking-[0.3em] text-xs text-brand">

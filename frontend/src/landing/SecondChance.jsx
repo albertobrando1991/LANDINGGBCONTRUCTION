@@ -79,7 +79,7 @@ export default function SecondChance() {
           {PROJECTS.map((p, i) => (
             <div
               key={i}
-              className={`relative break-inside-avoid rounded-2xl overflow-hidden border border-stroke group cursor-pointer ${p.tall ? "h-80" : "h-56"}`}
+              className={`relative break-inside-avoid rounded-2xl overflow-hidden border border-stroke group ${p.tall ? "h-80" : "h-56"}`}
             >
               <img
                 src={p.poster}
@@ -138,30 +138,54 @@ export default function SecondChance() {
             <p className="font-body text-sm text-fog mb-6">
               Lasciaci nome, email e numero: ti contattiamo entro 2 ore.
             </p>
-            <form onSubmit={submit} className="space-y-4">
+            <form onSubmit={submit} className="space-y-4" aria-busy={sending}>
+              <label htmlFor="callback-name" className="sr-only">
+                Nome
+              </label>
               <input
+                id="callback-name"
                 data-testid="callback-nome"
+                type="text"
+                autoComplete="name"
+                required
                 value={form.nome}
                 onChange={(e) => setForm({ ...form, nome: e.target.value })}
                 placeholder="Nome *"
                 className="w-full bg-surface border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
               />
+              <label htmlFor="callback-phone" className="sr-only">
+                Telefono
+              </label>
               <input
+                id="callback-phone"
                 data-testid="callback-telefono"
+                type="tel"
+                autoComplete="tel"
+                required
                 value={form.telefono}
                 onChange={(e) => setForm({ ...form, telefono: e.target.value })}
                 placeholder="Telefono *"
                 className="w-full bg-surface border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
               />
+              <label htmlFor="callback-email" className="sr-only">
+                Email
+              </label>
               <input
+                id="callback-email"
                 data-testid="callback-email"
                 type="email"
+                autoComplete="email"
+                required
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 placeholder="Email *"
                 className="w-full bg-surface border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
               />
+              <label htmlFor="callback-message" className="sr-only">
+                Messaggio opzionale
+              </label>
               <textarea
+                id="callback-message"
                 data-testid="callback-messaggio"
                 value={form.messaggio}
                 onChange={(e) =>
@@ -171,7 +195,15 @@ export default function SecondChance() {
                 rows={3}
                 className="w-full bg-surface border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand resize-none"
               />
+              <p className="font-body text-xs leading-relaxed text-fog">
+                Inviando la richiesta dichiari di aver letto la{" "}
+                <a href="/privacy-policy" className="underline hover:text-ink">
+                  Privacy Policy
+                </a>
+                .
+              </p>
               <button
+                type="submit"
                 data-testid="callback-submit"
                 disabled={sending}
                 className="w-full bg-brand text-white rounded-full py-4 font-display font-semibold uppercase tracking-wider hover:scale-[1.02] transition-transform disabled:opacity-60"
