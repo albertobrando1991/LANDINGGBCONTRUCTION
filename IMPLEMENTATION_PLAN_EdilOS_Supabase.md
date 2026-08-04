@@ -1,7 +1,7 @@
-# Implementation Plan: EdilOS AI — SaaS multi-tenant white-label per imprese edili
+# Implementation Plan: EdilOS AI — piattaforma tenant-scoped per GB Construction
 
 **Database di riferimento**: Supabase (Postgres + RLS + Auth + Storage)
-**Dominio aziendale**: `alantis.it` — ogni tenant su `<slug>.alantis.it`
+**Domini di produzione**: `gbconstruction.it` (frontend) e `api.gbconstruction.it` (backend)
 **Prezzario base**: Regione Campania, duplicabile e personalizzabile per tenant
 **Metodo**: vibe-coding — migration SQL first, types generati, UI dopo
 **Complessità**: LARGE (~5 mesi, 1 sviluppatore)
@@ -20,14 +20,14 @@ preventivi, ma non ha ancora superato tutti i gate per una release SaaS.
 | Prezzario e ponte AI | **Verde in locale** | Il listino duplicato diventa default e le regole AI risolvono le voci personalizzate per codice, usando i prezzi calibrati |
 | Computo → preventivo | **Hardening completato** | Conversione consentita solo da computo `confermato`; voci AI non validate restano un blocco server-side |
 | Bridge Mongo → Postgres | **Transitorio implementato** | Gli ObjectId lead vengono sincronizzati on-demand in UUID tenant-scoped; Mongo resta comunque presente fino a Fase 2 |
-| Tenant branding | **Implementato, deploy/DNS assenti** | `/api/tenant/config` usa whitelist e privilegi per colonna; `TenantContext` carica tema/meta. Wildcard DNS e deploy applicativo della patch non sono completati |
+| Tenant branding | **Implementato sul dominio corrente** | `/api/tenant/config` usa whitelist e privilegi per colonna; `TenantContext` carica tema/meta. Il dominio non seleziona il tenant e non è richiesto alcun wildcard DNS |
 | CI | **Verde** | Run `30891017246` sul commit `6332869`: build, test Supabase/RLS, `rls-guard` e `service-role-guard` completati con successo |
 | Ground truth | **Bloccante release** | Esistono 10 casi sintetici, ma manca il set di 10 planimetrie PDF reali con preventivi storici per provare il gate 8/10 entro 15% |
 | Auth/Storage frontend | **Parziale** | Dual-mode backend presente; migrazione completa a Supabase Auth e flussi Storage firmati restano da chiudere |
 
 La migration `20260803175957_edilos_release_hardening.sql` è stata applicata e
 testata sia sul Supabase locale sia sul progetto EdilOS remoto. Il deploy
-applicativo della patch e i record DNS `*.alantis.it` non sono ancora completati.
+applicativo della patch resta da completare dopo la validazione del branch `develop`.
 
 ---
 
@@ -35,7 +35,7 @@ applicativo della patch e i record DNS `*.alantis.it` non sono ancora completati
 
 Trasformare l'attuale Lead Engine GB Construction (single-tenant) in **EdilOS AI**: piattaforma SaaS replicabile che ogni impresa edile acquista e ottiene:
 
-1. **Front-office white-label** — landing + configuratore + AI Architect su proprio subdominio e brand
+1. **Front-office GB Construction** — landing + configuratore + AI Architect su `gbconstruction.it`
 2. **Back-office operativo** — prezzario, computi metrici, cantieri, libretto di misura, SAL, varianti, economics
 3. **Portale cliente finale** — read-only su avanzamento lavori + approvazione varianti
 
@@ -170,7 +170,7 @@ create table public.tenants (
            and slug not in ('app','api','www','admin','docs','mail','staging','cdn','static')),
   ragione_sociale text not null,
   piva text,
-  custom_domain text unique,   -- il subdominio è <slug>.alantis.it, derivato: non duplicarlo
+  custom_domain text unique,   -- riservato a un'eventuale estensione futura; non usato in produzione
   theme jsonb not null default '{}'::jsonb,    -- logo_url, primary, secondary, font
   contatti jsonb not null default '{}'::jsonb, -- whatsapp, email, telefono
   piano text not null default 'starter',
@@ -379,22 +379,21 @@ Criterio di accettazione funzionale: da planimetria PDF reale GB → bozza compu
 
 ---
 
-### Fase 2 — Multi-tenant hardening + migrazione Mongo (settimana 8-11)
+### Fase 2 — Tenant hardening + migrazione Mongo (settimana 8-11)
 
 Si fa **quando arriva il cliente #2**, non prima. GB Construction è il design partner della Fase 1.
 
 - Migrazione delle collection residue Mongo → Postgres (AI architect, credit ledger, cache, webhook events, sopralluoghi). `clienti`/`leads`/`cantieri` sono già migrate in Fase 0
-- `TenantContext.jsx` — creato già in Fase 1 (serve alla dashboard), qui viene esteso alla risoluzione da hostname reale e ai domini custom
+- `TenantContext.jsx` — creato già in Fase 1 (serve alla dashboard), mantiene il tenant GB predefinito sui domini di produzione
 - Endpoint pubblico `GET /api/tenant/config` — **espone solo campi brand**. Mai P.IVA, mai crediti, mai piano. Whitelist esplicita, non blacklist
-- **Dominio aziendale: `alantis.it`**. Wildcard DNS `*.alantis.it` → dominio wildcard su Vercel + certificato wildcard. Ogni tenant ottiene `<slug>.alantis.it` (es. `gbconstruction.alantis.it`). Onboarding nuovo tenant = 1 record in `tenants`, zero lavoro manuale, zero DNS
+- **Domini di produzione invariati**: `gbconstruction.it` per il frontend e `api.gbconstruction.it` per il backend. Nessun sottodominio tenant, wildcard DNS o dominio alternativo da configurare
 - Riservare gli slug di sistema: `app`, `api`, `www`, `admin`, `docs`, `mail`, `staging` — constraint sulla tabella `tenants`
-- Dominio custom del cliente (es. `preventivi.impresarossi.it`): solo piano alto, procedura documentata e semi-automatica
 - Rate limiting per tenant sull'upload pubblico AI (estende `backend/tests/test_ai_architect_rate_limit.py`)
-- CORS: `DEFAULT_CORS_ORIGIN_REGEX` (`backend/server.py:64`) va esteso a `https://([a-z0-9-]+\.)?alantis\.it` più i domini custom letti da `tenants.custom_domain`
+- CORS: consentire esplicitamente solo gli origin GB Construction previsti, oltre agli origin locali di sviluppo
 - Dismissione Mongo, rimozione `motor`/`pymongo` da requirements
 - Rimozione del path JWT legacy in `backend/auth.py`
 
-**Validazione**: onboarding di un tenant demo end-to-end in < 10 minuti, senza toccare codice o DNS.
+**Validazione**: flusso end-to-end GB sul dominio corrente, con isolamento dati tenant e senza modifiche DNS.
 
 ---
 
@@ -563,7 +562,7 @@ Regole permanenti:
 - [x] Test di isolamento tenant verde, con dati A/B su ogni tabella di dominio e sulla view aggregata
 - [ ] Nessun `service_role` fuori da `backend/system_jobs/` (verificato in CI)
 - [ ] Bozza computo da planimetria entro 15% dal preventivo storico su 8/10 casi ground-truth
-- [ ] Onboarding nuovo tenant in < 10 minuti: 1 record in `tenants` → `<slug>.alantis.it` live, senza intervento su codice o DNS
+- [ ] Flusso GB end-to-end su `gbconstruction.it` e `api.gbconstruction.it`, senza dipendenze da domini tenant o wildcard DNS
 - [x] Slug di sistema (`app`, `api`, `www`, …) rifiutati dal constraint
 - [x] Prezzario Campania duplicabile: copia modificabile/default, base di sistema protetta e prezzi custom usati dal mapping AI
 - [ ] Zero riferimenti a Mongo nel codice a fine Fase 2
@@ -571,5 +570,5 @@ Regole permanenti:
 
 ---
 
-**PROSSIMO GATE** — deploy applicativo controllato, smoke staging, configurazione
-DNS e acquisizione dei 10 casi ground-truth reali.
+**PROSSIMO GATE** — completamento e verifica su `develop`, smoke pre-merge e
+acquisizione dei 10 casi ground-truth reali. I domini di produzione restano invariati.

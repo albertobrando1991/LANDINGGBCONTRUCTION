@@ -89,12 +89,12 @@ SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...        # SOLO backend/system_jobs/
 SUPABASE_DB_URL=postgresql://postgres:...@db.xxxxx.supabase.co:5432/postgres
 SUPABASE_JWKS_URL=https://xxxxx.supabase.co/auth/v1/.well-known/jwks.json
-APP_BASE_DOMAIN=alantis.it
+DEFAULT_TENANT_SLUG=gbconstruction
 
 # --- Frontend (frontend/.env.example) — prefisso REACT_APP_ obbligatorio ---
 REACT_APP_SUPABASE_URL=https://xxxxx.supabase.co
 REACT_APP_SUPABASE_ANON_KEY=eyJ...
-REACT_APP_BASE_DOMAIN=alantis.it
+REACT_APP_DEFAULT_TENANT_SLUG=gbconstruction
 ```
 
 Nuove dipendenze — **solo queste**:
@@ -157,7 +157,7 @@ create table public.tenants (
 );
 
 comment on column public.tenants.slug is
-  'Il subdominio è <slug>.alantis.it — derivato, non memorizzato separatamente.';
+  'Identificatore tenant interno; la produzione pubblica resta su gbconstruction.it e api.gbconstruction.it.';
 
 create type public.tenant_role as enum ('owner','admin','staff','operations','client');
 
@@ -429,8 +429,8 @@ Il controllo runtime in `system_conn` è la prima difesa; la CI del TASK 0.7 è 
 
 ```python
 async def current_tenant(request: Request) -> dict:
-    """Risolve il tenant da header X-Tenant-Slug oppure da hostname
-       <slug>.alantis.it. Verifica che l'utente sia membro, 403 altrimenti."""
+    """Usa il tenant GB predefinito; header/query restano disponibili solo
+       per integrazioni e test controllati. Verifica l'appartenenza, 403 altrimenti."""
 
 async def require_tenant_role(request: Request, roles: list[str]) -> dict:
     """Come sopra + controllo ruolo. 403 con detail italiano."""
@@ -810,7 +810,7 @@ PDF con `reportlab` (già in requirements). Template white-label: logo, colori e
 
 | File | Contenuto |
 |---|---|
-| `frontend/src/context/TenantContext.jsx` | Risolve il tenant da hostname (`<slug>.alantis.it`) o `?tenant=` in dev. Inietta `--brand-primary`, `--brand-secondary`, logo e font come CSS custom properties su `:root` |
+| `frontend/src/context/TenantContext.jsx` | Usa il tenant GB predefinito su `gbconstruction.it`; `?tenant=` resta disponibile per test controllati. Inietta `--brand-primary`, `--brand-secondary`, logo e font come CSS custom properties su `:root` |
 | `frontend/src/dashboard/pages/Prezzario.jsx` | Lista prezzari, duplicazione, tabella voci con edit inline, "Ripristina Campania", import CSV |
 | `frontend/src/dashboard/pages/PrezzarioWizard.jsx` | 28 voci in step per super_categoria, anteprima dell'impatto sulla categoria, salvataggio unico |
 | `frontend/src/dashboard/pages/Computi.jsx` | Lista computi con totale da `computi_totali` e badge "N voci da validare" |

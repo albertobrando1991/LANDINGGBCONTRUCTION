@@ -1,4 +1,4 @@
-"""Risoluzione tenant da header/hostname e controllo ruoli."""
+"""Risoluzione tenant interna e controllo ruoli."""
 from __future__ import annotations
 
 import os
@@ -8,7 +8,6 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request
 
-BASE_DOMAIN = os.environ.get("APP_BASE_DOMAIN", "alantis.it")
 DEFAULT_TENANT_SLUG = os.environ.get("DEFAULT_TENANT_SLUG", "gbconstruction")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$")
 PUBLIC_TENANT_FIELDS = ("slug", "ragione_sociale", "theme", "contatti")
@@ -19,20 +18,13 @@ def extract_tenant_slug(request: Request) -> Optional[str]:
     if header and SLUG_RE.match(header):
         return header
 
-    host = (request.headers.get("Host") or request.url.hostname or "").split(":")[0].lower()
-    base = BASE_DOMAIN.lower()
-    if host.endswith("." + base):
-        slug = host[: -(len(base) + 1)]
-        if slug and "." not in slug and SLUG_RE.match(slug):
-            return slug
-
-    # Landing GB: hostname gbconstruction.it / www / api non sono slug tenant
-    if "gbconstruction" in host:
-        return DEFAULT_TENANT_SLUG
-
     q = (request.query_params.get("tenant") or "").strip().lower()
     if q and SLUG_RE.match(q):
         return q
+
+    # La produzione resta sui domini gbconstruction.it/api.gbconstruction.it:
+    # l'hostname non seleziona mai il tenant. Header e query sono riservati a
+    # integrazioni controllate e test; il sito pubblico usa sempre il default.
     return DEFAULT_TENANT_SLUG
 
 
@@ -58,8 +50,10 @@ def public_tenant_config(row: Any) -> dict:
 
 
 async def current_tenant(request: Request, user: dict, conn=None) -> dict:
-    """Risolve il tenant da header X-Tenant-Slug oppure da hostname
-    <slug>.alantis.it. Verifica che l'utente sia membro, 403 altrimenti."""
+    """Risolve il tenant da header/query o dal default GB Construction.
+
+    Verifica sempre che l'utente sia membro e risponde 403 in caso contrario.
+    """
     slug = extract_tenant_slug(request)
     memberships = tenants_from_user(user)
 
