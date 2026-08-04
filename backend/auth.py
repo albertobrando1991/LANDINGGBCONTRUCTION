@@ -1,5 +1,6 @@
 """GB Construction - Autenticazione JWT email+password con ruoli."""
 import os
+import logging
 import jwt
 import bcrypt
 from datetime import datetime, timezone, timedelta
@@ -7,10 +8,28 @@ from fastapi import HTTPException, Request
 from bson import ObjectId
 
 JWT_ALGORITHM = "HS256"
+logger = logging.getLogger("gb.auth")
+LEGACY_DEMO_EMAILS = ("staff@gbconstruction.it", "operations@gbconstruction.it")
+UNSAFE_PASSWORDS = {"gbadmin2026!", "replace-with-a-strong-password", "changeme"}
 
 
 def get_jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
+
+
+def validate_production_security_configuration() -> None:
+    if (os.environ.get("RAILWAY_ENVIRONMENT") or "").strip().lower() != "production":
+        return
+
+    jwt_secret = os.environ.get("JWT_SECRET") or ""
+    admin_email = (os.environ.get("ADMIN_EMAIL") or "").strip()
+    admin_password = os.environ.get("ADMIN_PASSWORD") or ""
+    if len(jwt_secret) < 32 or "replace-with" in jwt_secret.lower():
+        raise RuntimeError("JWT_SECRET di produzione deve contenere almeno 32 caratteri casuali")
+    if not admin_email or len(admin_password) < 12 or admin_password.strip().lower() in UNSAFE_PASSWORDS:
+        raise RuntimeError("ADMIN_EMAIL e ADMIN_PASSWORD forti sono obbligatori in produzione")
+    if (os.environ.get("ENABLE_DEMO_SEED") or "false").strip().lower() in {"1", "true", "yes"}:
+        raise RuntimeError("ENABLE_DEMO_SEED non può essere attivo in produzione")
 
 
 def hash_password(password: str) -> str:
@@ -46,9 +65,8 @@ def create_refresh_token(user_id: str) -> str:
 def _cookie_flags() -> dict:
     """Flag cookie per auth.
 
-    Dashboard su Vercel (gb-construction.vercel.app) chiama API su
-    api.gbconstruction.it → cross-site: serve SameSite=None + Secure.
-    In locale (HTTP) resta Lax + non-secure.
+    Frontend e API di produzione restano sotto gbconstruction.it, quindi sono
+    same-site e usano Lax + Secure. In locale resta Lax + non-secure.
     Override: AUTH_COOKIE_SAMESITE=none|lax e COOKIE_SECURE=true|false.
     """
     explicit = (os.environ.get("AUTH_COOKIE_SAMESITE") or "").strip().lower()
@@ -58,7 +76,9 @@ def _cookie_flags() -> dict:
     if explicit in ("none", "lax", "strict"):
         samesite = explicit
     elif secure_env in ("1", "true", "yes") or railway_prod:
-        samesite = "none"
+        # Frontend e API usano sottodomini dello stesso sito gbconstruction.it.
+        # Lax mantiene il cookie same-site senza esporlo a richieste cross-site.
+        samesite = "lax"
     else:
         samesite = "lax"
 
@@ -210,6 +230,8 @@ async def _verify_legacy(token: str, db) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="Utente non trovato")
+        if user.get("disabled"):
+            raise HTTPException(status_code=401, detail="Account disabilitato")
         user["id"] = str(user["_id"])
         user.pop("_id", None)
         user.pop("password_hash", None)
@@ -236,30 +258,48 @@ async def get_current_user(request: Request, db) -> dict:
 
 
 async def seed_users(db):
-    """Crea admin + utenti staff/operations demo (idempotente)."""
-    defaults = [
-        (os.environ.get("ADMIN_EMAIL", "admin@gbconstruction.it"),
-         os.environ.get("ADMIN_PASSWORD", "GBadmin2026!"), "Giuseppe Brancale", "admin",
-         "/brand/staff-giuseppe.png"),
-        ("staff@gbconstruction.it", "GBstaff2026!", "Vincenzo Brancale", "staff",
-         "/brand/staff-vincenzo.png"),
-        ("operations@gbconstruction.it", "GBops2026!", "Giovanni Brancale", "operations",
-         "/brand/staff-giovanni.png"),
-    ]
-    for email, password, name, role, photo in defaults:
-        email = email.lower()
-        existing = await db.users.find_one({"email": email})
-        if existing is None:
-            await db.users.insert_one({
-                "email": email, "password_hash": hash_password(password),
-                "name": name, "role": role, "photo": photo,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            })
-        else:
-            updates = {}
-            if role == "admin" and not verify_password(password, existing["password_hash"]):
-                updates["password_hash"] = hash_password(password)
-            if (existing.get("photo") or "").startswith("https://"):
-                updates["photo"] = photo
-            if updates:
-                await db.users.update_one({"email": email}, {"$set": updates})
+    """Crea il primo admin solo con credenziali esplicite e mai lo reimposta."""
+
+    email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
+    password = os.environ.get("ADMIN_PASSWORD") or ""
+    if not email or not password:
+        logger.info("Bootstrap admin non richiesto: ADMIN_EMAIL/ADMIN_PASSWORD assenti")
+        return None
+
+    if len(password) < 12 or password.strip().lower() in UNSAFE_PASSWORDS:
+        raise RuntimeError("ADMIN_PASSWORD deve essere una password forte e non predefinita")
+
+    existing = await db.users.find_one({"email": email})
+    if existing is not None:
+        return None
+
+    document = {
+        "email": email,
+        "password_hash": hash_password(password),
+        "name": (os.environ.get("ADMIN_NAME") or "Amministratore GB Construction").strip(),
+        "role": "admin",
+        "photo": (os.environ.get("ADMIN_PHOTO") or "").strip(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(document)
+    logger.info("Creato account amministratore iniziale %s", email)
+    return document
+
+
+async def disable_legacy_demo_users(db) -> int:
+    """Disabilita gli account generici creati dalle vecchie routine di seed."""
+
+    result = await db.users.update_many(
+        {"email": {"$in": list(LEGACY_DEMO_EMAILS)}},
+        {
+            "$set": {
+                "disabled": True,
+                "disabled_reason": "legacy_demo_account",
+                "disabled_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    )
+    count = int(getattr(result, "modified_count", 0) or 0)
+    if count:
+        logger.warning("Disabilitati %s account demo legacy", count)
+    return count

@@ -1,10 +1,12 @@
 import asyncio
+import io
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi import UploadFile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -92,3 +94,26 @@ def test_rate_limit_configures_ttl_index(monkeypatch):
     asyncio.run(svc.ensure_upload_rate_limit_indexes(db))
 
     assert ("created_at", {"expireAfterSeconds": 24 * 3600}) in db.ai_architect_upload_log.indexes
+
+
+def test_upload_rejects_oversized_file_and_removes_partial(monkeypatch, tmp_path):
+    monkeypatch.setattr(svc, "UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(svc, "AI_ARCHITECT_UPLOAD_MAX_BYTES", 4)
+    upload = UploadFile(file=io.BytesIO(b"12345"), filename="planimetria.pdf")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(svc.save_upload("job-test", upload))
+
+    assert exc.value.status_code == 413
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_upload_rejects_empty_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(svc, "UPLOAD_DIR", tmp_path)
+    upload = UploadFile(file=io.BytesIO(b""), filename="planimetria.pdf")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(svc.save_upload("job-empty", upload))
+
+    assert exc.value.status_code == 400
+    assert list(tmp_path.iterdir()) == []

@@ -11,14 +11,14 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Literal
 
 from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, Query, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, TypeAdapter, ValidationError
 from bson import ObjectId
 import json
 
@@ -31,6 +31,7 @@ import ai_architect_service
 import ai_credit_service
 import email_service
 import meta_leads_service
+import api_security
 import boq_service
 import db as db_pg
 import tenancy
@@ -83,9 +84,15 @@ DEFAULT_CORS_ORIGIN_REGEX = (
     r"172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|"
     r"192\.168\.\d{1,3}\.\d{1,3}"
     r"):3000"
-    r"|https://gb-construction(?:-[a-z0-9-]+)*\.vercel\.app"
-    r"|https://(?:[a-z0-9-]+\.)?gbconstruction\.it"
+    r"|https://(?:www\.)?gbconstruction\.it"
 )
+
+AUTH_LOGIN_MAX_PER_15_MIN = max(1, int(os.getenv("AUTH_LOGIN_MAX_PER_15_MIN", "10")))
+PUBLIC_LEAD_MAX_PER_HOUR = max(1, int(os.getenv("PUBLIC_LEAD_MAX_PER_HOUR", "10")))
+PUBLIC_BOOKING_MAX_PER_HOUR = max(1, int(os.getenv("PUBLIC_BOOKING_MAX_PER_HOUR", "10")))
+EMAIL_ADDRESS_ADAPTER = TypeAdapter(EmailStr)
+MAX_EMAIL_ATTACHMENT_BYTES = 15 * 1024 * 1024
+MAX_EMAIL_TOTAL_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
 
 # ----------------------- Helpers -----------------------
@@ -141,12 +148,12 @@ async def optional_current_user(request: Request) -> Optional[dict]:
 # ----------------------- Models -----------------------
 class LoginBody(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=1, max_length=256)
 
 
 class LeadConfig(BaseModel):
     tipo_immobile: str = "appartamento"
-    mq: int = 80
+    mq: int = Field(default=80, ge=1, le=2000)
     livello: str = "premium"
     bagni: int = 1
     camere: int = 2
@@ -168,14 +175,23 @@ class LeadConfig(BaseModel):
 
 
 class LeadCreate(BaseModel):
-    nome: str
+    nome: str = Field(min_length=2, max_length=120)
     email: EmailStr
-    telefono: str
-    citta: str
-    indirizzo: Optional[str] = ""
-    privacy: bool = True
+    telefono: str = Field(min_length=6, max_length=32)
+    citta: str = Field(min_length=1, max_length=120)
+    indirizzo: Optional[str] = Field(default="", max_length=300)
+    privacy: Literal[True]
     newsletter: bool = False
     tracking: Dict[str, Any] = Field(default_factory=dict)
+    config: LeadConfig
+
+
+class StaffPreventivoCreate(BaseModel):
+    nome: str = Field(min_length=2, max_length=120)
+    email: EmailStr
+    telefono: str = Field(min_length=6, max_length=32)
+    citta: str = Field(min_length=1, max_length=120)
+    indirizzo: Optional[str] = Field(default="", max_length=300)
     config: LeadConfig
 
 
@@ -184,10 +200,10 @@ class EstimateBody(BaseModel):
 
 
 class CallbackBody(BaseModel):
-    nome: str
+    nome: str = Field(min_length=2, max_length=120)
     email: Optional[EmailStr] = None
-    telefono: str
-    messaggio: Optional[str] = ""
+    telefono: str = Field(min_length=6, max_length=32)
+    messaggio: Optional[str] = Field(default="", max_length=2000)
 
 
 class UnlockEmailBody(BaseModel):
@@ -195,21 +211,21 @@ class UnlockEmailBody(BaseModel):
 
 
 class SopralluogoSlotCreate(BaseModel):
-    date: str  # YYYY-MM-DD
-    start: str  # HH:MM
-    end: str  # HH:MM
-    tecnico: Optional[str] = None
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    start: str = Field(pattern=r"^\d{2}:\d{2}$")
+    end: str = Field(pattern=r"^\d{2}:\d{2}$")
+    tecnico: Optional[str] = Field(default=None, max_length=120)
 
 
 class SopralluogoBook(BaseModel):
     slot_id: str
-    nome: str
+    nome: str = Field(min_length=2, max_length=120)
     email: EmailStr
-    telefono: str
-    citta: Optional[str] = ""
-    indirizzo: Optional[str] = ""
+    telefono: str = Field(min_length=6, max_length=32)
+    citta: Optional[str] = Field(default="", max_length=120)
+    indirizzo: Optional[str] = Field(default="", max_length=300)
     lead_id: Optional[str] = None
-    note: Optional[str] = ""
+    note: Optional[str] = Field(default="", max_length=2000)
 
 
 class LeadUpdate(BaseModel):
@@ -226,10 +242,10 @@ class TimelineEvent(BaseModel):
 
 
 class StaffCreate(BaseModel):
-    nome: str
+    nome: str = Field(min_length=2, max_length=120)
     email: EmailStr
-    password: str
-    role: str = "staff"
+    password: str = Field(min_length=12, max_length=128)
+    role: Literal["admin", "staff", "operations"] = "staff"
 
 
 class AiCreditPackGrant(BaseModel):
@@ -268,12 +284,12 @@ class AiArchitectRefine(BaseModel):
 
 
 class AiProjectQuoteCreate(BaseModel):
-    nome: str
+    nome: str = Field(min_length=2, max_length=120)
     email: EmailStr
-    telefono: str
-    citta: str
-    indirizzo: Optional[str] = ""
-    privacy: bool = True
+    telefono: str = Field(min_length=6, max_length=32)
+    citta: str = Field(min_length=1, max_length=120)
+    indirizzo: Optional[str] = Field(default="", max_length=300)
+    privacy: Literal[True]
     newsletter: bool = False
     tracking: Dict[str, Any] = Field(default_factory=dict)
     ai_architect_job_id: str
@@ -317,10 +333,22 @@ class CantiereUpdate(BaseModel):
 
 # ----------------------- Auth routes -----------------------
 @api.post("/auth/login")
-async def login(body: LoginBody, response: Response):
+async def login(request: Request, body: LoginBody, response: Response):
+    await api_security.enforce_rate_limit(
+        db,
+        scope="auth_login",
+        identity=_client_ip(request),
+        limit=AUTH_LOGIN_MAX_PER_15_MIN,
+        window_seconds=15 * 60,
+        detail="Troppi tentativi di accesso. Riprova tra qualche minuto.",
+    )
     email = body.email.lower()
     user = await db.users.find_one({"email": email})
-    if not user or not authlib.verify_password(body.password, user["password_hash"]):
+    if (
+        not user
+        or user.get("disabled")
+        or not authlib.verify_password(body.password, user["password_hash"])
+    ):
         raise HTTPException(status_code=401, detail="Credenziali non valide")
     uid = str(user["_id"])
     access = authlib.create_access_token(uid, email, user["role"])
@@ -507,7 +535,15 @@ def _duplicate_email_error(existing: Dict[str, Any]) -> HTTPException:
 
 
 @api.post("/leads")
-async def create_lead(body: LeadCreate, background_tasks: BackgroundTasks):
+async def create_lead(request: Request, body: LeadCreate, background_tasks: BackgroundTasks):
+    await api_security.enforce_rate_limit(
+        db,
+        scope="public_lead",
+        identity=_client_ip(request),
+        limit=PUBLIC_LEAD_MAX_PER_HOUR,
+        window_seconds=60 * 60,
+        detail="Troppe richieste inviate. Riprova più tardi o contattaci telefonicamente.",
+    )
     if not _email_has_unlimited_quotes(body.email):
         existing = await _existing_lead_for_email(body.email)
         if existing:
@@ -563,7 +599,15 @@ async def create_lead(body: LeadCreate, background_tasks: BackgroundTasks):
 
 
 @api.post("/callback")
-async def callback(body: CallbackBody, background_tasks: BackgroundTasks):
+async def callback(request: Request, body: CallbackBody, background_tasks: BackgroundTasks):
+    await api_security.enforce_rate_limit(
+        db,
+        scope="public_callback",
+        identity=_client_ip(request),
+        limit=PUBLIC_LEAD_MAX_PER_HOUR,
+        window_seconds=60 * 60,
+        detail="Troppe richieste inviate. Riprova più tardi o contattaci telefonicamente.",
+    )
     email = body.email.lower() if body.email else ""
     doc = {
         "nome": body.nome, "email": email, "telefono": body.telefono, "citta": "",
@@ -1039,7 +1083,19 @@ async def ai_architect_report(job_id: str):
 
 
 @api.post("/quote/from-ai-project")
-async def quote_from_ai_project(body: AiProjectQuoteCreate, background_tasks: BackgroundTasks):
+async def quote_from_ai_project(
+    request: Request,
+    body: AiProjectQuoteCreate,
+    background_tasks: BackgroundTasks,
+):
+    await api_security.enforce_rate_limit(
+        db,
+        scope="public_ai_quote",
+        identity=_client_ip(request),
+        limit=PUBLIC_LEAD_MAX_PER_HOUR,
+        window_seconds=60 * 60,
+        detail="Troppe richieste inviate. Riprova più tardi o contattaci telefonicamente.",
+    )
     ai_job_oid = object_id_or_400(body.ai_architect_job_id, "Progetto AI Architect")
     job = await db.ai_architect_jobs.find_one({"_id": ai_job_oid})
     if not job:
@@ -1264,13 +1320,29 @@ async def send_lead_email(
     to_email = (to or lead.get("email") or "").strip()
     if not to_email:
         raise HTTPException(status_code=400, detail="Email destinatario mancante")
+    try:
+        to_email = str(EMAIL_ADDRESS_ADAPTER.validate_python(to_email))
+    except ValidationError:
+        raise HTTPException(status_code=400, detail="Email destinatario non valida")
+    subject = subject.strip()
+    body = body.strip()
+    if not subject or len(subject) > 200:
+        raise HTTPException(status_code=400, detail="Oggetto email non valido")
+    if not body or len(body) > 10000:
+        raise HTTPException(status_code=400, detail="Messaggio email non valido")
+    if len(attachments or []) > 10:
+        raise HTTPException(status_code=400, detail="Puoi allegare al massimo 10 file")
     files_payload = []
+    total_attachment_bytes = 0
     for upload in attachments or []:
         content = await upload.read()
         if not content:
             continue
-        if len(content) > 15 * 1024 * 1024:
+        if len(content) > MAX_EMAIL_ATTACHMENT_BYTES:
             raise HTTPException(status_code=400, detail=f"Allegato troppo grande: {upload.filename}")
+        total_attachment_bytes += len(content)
+        if total_attachment_bytes > MAX_EMAIL_TOTAL_ATTACHMENT_BYTES:
+            raise HTTPException(status_code=400, detail="Gli allegati superano il limite totale di 25 MB")
         files_payload.append({
             "filename": upload.filename or "allegato",
             "content": content,
@@ -1286,7 +1358,8 @@ async def send_lead_email(
             reply_to=email_service._notification_email(),
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Invio email non riuscito: {exc}")
+        logger.exception("Invio email lead %s non riuscito: %s", lead_id, exc)
+        raise HTTPException(status_code=502, detail="Invio email non riuscito. Riprova più tardi.")
     event = {
         "id": "ev-" + uuid.uuid4().hex[:8], "tipo": "messaggio",
         "testo": f"Email inviata a {to_email} da {user.get('name') or 'staff'}: {subject}"
@@ -1454,11 +1527,18 @@ async def list_sopralluogo_slots(user: dict = Depends(current_user)):
 
 @api.post("/sopralluoghi/slots")
 async def create_sopralluogo_slot(body: SopralluogoSlotCreate, user: dict = Depends(current_user)):
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", body.date or ""):
-        raise HTTPException(status_code=400, detail="Data non valida (atteso YYYY-MM-DD)")
-    if not re.match(r"^\d{2}:\d{2}$", body.start or "") or not re.match(r"^\d{2}:\d{2}$", body.end or ""):
-        raise HTTPException(status_code=400, detail="Orario non valido (atteso HH:MM)")
-    if body.end <= body.start:
+    try:
+        slot_date = datetime.strptime(body.date, "%Y-%m-%d").date()
+        start_time = datetime.strptime(body.start, "%H:%M").time()
+        end_time = datetime.strptime(body.end, "%H:%M").time()
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Data o orario non validi (attesi YYYY-MM-DD e HH:MM)",
+        )
+    if slot_date < datetime.now().date():
+        raise HTTPException(status_code=400, detail="Non puoi creare uno slot nel passato")
+    if end_time <= start_time:
         raise HTTPException(status_code=400, detail="L'orario di fine deve essere successivo all'inizio")
     duplicate = await db.sopralluogo_slots.find_one({"date": body.date, "start": body.start})
     if duplicate:
@@ -1499,7 +1579,19 @@ async def public_sopralluogo_slots():
 
 
 @api.post("/public/sopralluoghi/book")
-async def public_book_sopralluogo(body: SopralluogoBook, background_tasks: BackgroundTasks):
+async def public_book_sopralluogo(
+    request: Request,
+    body: SopralluogoBook,
+    background_tasks: BackgroundTasks,
+):
+    await api_security.enforce_rate_limit(
+        db,
+        scope="public_booking",
+        identity=_client_ip(request),
+        limit=PUBLIC_BOOKING_MAX_PER_HOUR,
+        window_seconds=60 * 60,
+        detail="Troppe prenotazioni inviate. Riprova più tardi o contattaci telefonicamente.",
+    )
     oid = object_id_or_400(body.slot_id, "Slot")
     # Claim atomico: solo se lo slot e ancora libero.
     claim = await db.sopralluogo_slots.update_one(
@@ -1579,7 +1671,7 @@ async def public_book_sopralluogo(body: SopralluogoBook, background_tasks: Backg
 
 
 @api.post("/preventivi")
-async def create_preventivo(body: LeadCreate, user: dict = Depends(current_user)):
+async def create_preventivo(body: StaffPreventivoCreate, user: dict = Depends(current_user)):
     """Preventivo creato manualmente dallo staff (cliente da telefono/sportello).
 
     Calcola la stima col motore predittivo e crea un lead in fase preventivo,
@@ -1599,7 +1691,7 @@ async def create_preventivo(body: LeadCreate, user: dict = Depends(current_user)
         "email_norm": meta_leads_service.normalize_email(body.email),
         "phone_norm": meta_leads_service.normalize_phone(body.telefono),
         "citta": body.citta, "indirizzo": (body.indirizzo or "").strip(),
-        "newsletter": body.newsletter, "privacy": body.privacy,
+        "newsletter": False, "privacy": False,
         "tipo_immobile": cfg["tipo_immobile"], "mq": cfg["mq"], "livello": cfg["livello"],
         "bagni": cfg["bagni"], "camere": cfg["camere"], "cucina": cfg["cucina"],
         "ambienti": cfg["ambienti"], "stile": cfg["stile"], "tempistiche": cfg["tempistiche"],
@@ -2014,6 +2106,7 @@ register_edilos_routes(api, db, get_tenant_conn)
 
 @app.on_event("startup")
 async def startup():
+    authlib.validate_production_security_configuration()
     try:
         await db_pg.init_pool()
         if db_pg.pool_ready():
@@ -2051,14 +2144,22 @@ async def startup():
     await db.ai_credit_ledger.create_index("idempotency_key", unique=True)
     await db.ai_credit_ledger.create_index([("account_id", 1), ("created_at", -1)])
     await db.ai_usage_events.create_index([("account_id", 1), ("created_at", -1)])
+    await api_security.ensure_rate_limit_indexes(db)
     await ai_credit_service.ensure_base_credit_pack(db)
     await authlib.seed_users(db)
-    if await db.leads.count_documents({}) == 0:
-        await db.leads.insert_many(seed_data.build_demo_leads())
-        logger.info("Seeded demo leads")
-    if await db.cantieri.count_documents({}) == 0:
-        await db.cantieri.insert_many(seed_data.build_demo_cantieri())
-        logger.info("Seeded demo cantieri")
+    await authlib.disable_legacy_demo_users(db)
+    demo_seed_enabled = os.getenv("ENABLE_DEMO_SEED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if demo_seed_enabled:
+        if await db.leads.count_documents({}) == 0:
+            await db.leads.insert_many(seed_data.build_demo_leads())
+            logger.info("Seeded demo leads")
+        if await db.cantieri.count_documents({}) == 0:
+            await db.cantieri.insert_many(seed_data.build_demo_cantieri())
+            logger.info("Seeded demo cantieri")
     await db.cantieri.update_many(
         {"stato": {"$exists": False}},
         {"$set": {"stato": "attivo", "updated_at": now_iso()}},
@@ -2077,6 +2178,22 @@ app.mount(
     StaticFiles(directory=str(ai_architect_service.STORAGE_DIR)),
     name="ai_architect_files",
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=()",
+    )
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -2089,6 +2206,6 @@ app.add_middleware(
         if origin.strip() and origin.strip() != "*"
     ],
     allow_origin_regex=os.environ.get("CORS_ORIGIN_REGEX", DEFAULT_CORS_ORIGIN_REGEX),
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Tenant-Slug"],
 )

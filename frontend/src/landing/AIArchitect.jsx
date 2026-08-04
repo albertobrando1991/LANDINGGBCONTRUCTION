@@ -20,6 +20,8 @@ import { toast } from "sonner";
 import client, { BACKEND_URL, formatApiErrorDetail } from "@/lib/api";
 import { WHATSAPP } from "@/lib/assets";
 
+const MAX_PLAN_FILE_BYTES = 20 * 1024 * 1024;
+
 const PLAN_TYPES = [
   { id: "existing_state", label: "Stato attuale dell'immobile" },
   { id: "defined_project", label: "Progetto gia definito" },
@@ -239,6 +241,14 @@ export default function AIArchitect({
   }, [job]);
 
   const update = (patch) => setForm((current) => ({ ...current, ...patch }));
+  const selectPlanFile = (file) => {
+    if (file && file.size > MAX_PLAN_FILE_BYTES) {
+      toast.error("Il file supera il limite di 20 MB.");
+      update({ file: null });
+      return;
+    }
+    update({ file: file || null });
+  };
 
   const togglePriority = (priority) => {
     update({
@@ -512,16 +522,14 @@ export default function AIArchitect({
                       type="file"
                       accept=".pdf,.png,.jpg,.jpeg,.webp,.dwg,.dxf,.ifc"
                       className="hidden"
-                      onChange={(e) =>
-                        update({ file: e.target.files?.[0] || null })
-                      }
+                      onChange={(e) => selectPlanFile(e.target.files?.[0])}
                     />
                     <UploadCloud className="w-11 h-11 text-brand mx-auto mb-4" />
                     <p className="font-display font-semibold uppercase text-center text-ink">
                       {form.file ? form.file.name : "Upload planimetria"}
                     </p>
                     <p className="font-body text-xs text-fog text-center mt-2">
-                      PDF, PNG, JPG, JPEG, WEBP, DWG, DXF, IFC
+                      PDF, PNG, JPG, JPEG, WEBP, DWG, DXF, IFC · massimo 20 MB
                     </p>
                   </label>
 

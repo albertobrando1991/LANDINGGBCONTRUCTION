@@ -202,6 +202,10 @@ AI_ALLOW_GENERATIVE_DEFINED_CLEANUP = os.getenv("AI_ALLOW_GENERATIVE_DEFINED_CLE
 AI_GUARANTEED_PROFESSIONAL_2D = os.getenv("AI_GUARANTEED_PROFESSIONAL_2D", "true").lower() not in {"0", "false", "no"}
 AI_ARCHITECT_UPLOAD_MAX_PER_IP = max(0, int(os.getenv("AI_ARCHITECT_UPLOAD_MAX_PER_IP", "2")))
 AI_ARCHITECT_UPLOAD_WINDOW_HOURS = max(1, int(os.getenv("AI_ARCHITECT_UPLOAD_WINDOW_HOURS", "24")))
+AI_ARCHITECT_UPLOAD_MAX_BYTES = max(
+    1,
+    int(os.getenv("AI_ARCHITECT_UPLOAD_MAX_MB", "20")),
+) * 1024 * 1024
 STEPS = [
     ("upload", "Upload planimetria"),
     ("analysis", "Analisi architettonica"),
@@ -691,6 +695,7 @@ async def save_upload(job_id: str, upload: UploadFile) -> Dict[str, Any]:
     destination = UPLOAD_DIR / file_name
     digest = hashlib.sha256()
     total_size = 0
+    too_large = False
 
     with destination.open("wb") as fh:
         while True:
@@ -698,8 +703,22 @@ async def save_upload(job_id: str, upload: UploadFile) -> Dict[str, Any]:
             if not chunk:
                 break
             total_size += len(chunk)
+            if total_size > AI_ARCHITECT_UPLOAD_MAX_BYTES:
+                too_large = True
+                break
             digest.update(chunk)
             fh.write(chunk)
+
+    if too_large:
+        destination.unlink(missing_ok=True)
+        max_mb = AI_ARCHITECT_UPLOAD_MAX_BYTES // (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail=f"File troppo grande. La dimensione massima è {max_mb} MB.",
+        )
+    if total_size == 0:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Il file caricato è vuoto.")
 
     file_type = ext.lstrip(".")
     mime_type = _guess_mime(destination, file_type)
