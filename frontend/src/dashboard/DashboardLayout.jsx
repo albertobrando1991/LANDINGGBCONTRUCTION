@@ -1,17 +1,34 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Home, Inbox, KanbanSquare, CalendarDays, FileText, HardHat,
-  BarChart3, Settings as SettingsIcon, Menu, Bell, LogOut, Search, X, Brain,
-  Calculator, ListTree,
+  Home,
+  Inbox,
+  KanbanSquare,
+  CalendarDays,
+  FileText,
+  HardHat,
+  BarChart3,
+  Settings as SettingsIcon,
+  Menu,
+  Bell,
+  LogOut,
+  Search,
+  X,
+  Brain,
+  Calculator,
+  ListTree,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/dashboard/Avatar";
 import EmailComposeModal from "@/dashboard/EmailComposeModal";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-  DropdownMenuLabel, DropdownMenuSeparator,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import client from "@/lib/api";
 
@@ -26,7 +43,12 @@ const NAV = [
   { to: "/dashboard/cantieri", label: "Cantieri attivi", Icon: HardHat },
   { to: "/dashboard/ai-architect", label: "AI Architect", Icon: Brain },
   { to: "/dashboard/report", label: "Report", Icon: BarChart3, admin: true },
-  { to: "/dashboard/impostazioni", label: "Impostazioni", Icon: SettingsIcon, admin: true },
+  {
+    to: "/dashboard/impostazioni",
+    label: "Impostazioni",
+    Icon: SettingsIcon,
+    admin: true,
+  },
 ];
 
 function SidebarContent({ user, onNav }) {
@@ -34,18 +56,33 @@ function SidebarContent({ user, onNav }) {
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 px-6 h-16 border-b border-stroke">
         <div className="w-9 h-9 rounded-full p-[2px] accent-metallic">
-          <div className="w-full h-full rounded-full bg-bg flex items-center justify-center font-display font-bold text-sm text-ink">GB</div>
+          <div className="w-full h-full rounded-full bg-bg flex items-center justify-center font-display font-bold text-sm text-ink">
+            GB
+          </div>
         </div>
-        <span className="font-display font-bold uppercase text-ink">Construction</span>
+        <span className="font-display font-bold uppercase text-ink">
+          Construction
+        </span>
       </div>
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav
+        className="flex-1 px-3 py-4 space-y-1 overflow-y-auto"
+        aria-label="Navigazione dashboard"
+      >
         {NAV.filter((n) => !n.admin || user?.role === "admin").map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.end} onClick={onNav}
+          <NavLink
+            key={n.to}
+            to={n.to}
+            end={n.end}
+            onClick={onNav}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-xl font-display uppercase text-xs tracking-wider transition-colors ${
-                isActive ? "bg-brand/15 text-brand" : "text-fog hover:bg-surface-2 hover:text-ink"
-              }`}>
-            <n.Icon className="w-4 h-4" /> {n.label}
+                isActive
+                  ? "bg-brand/15 text-brand"
+                  : "text-fog hover:bg-surface-2 hover:text-ink"
+              }`
+            }
+          >
+            <n.Icon className="w-4 h-4" aria-hidden="true" /> {n.label}
           </NavLink>
         ))}
       </nav>
@@ -53,8 +90,12 @@ function SidebarContent({ user, onNav }) {
         <div className="flex items-center gap-3 px-2 py-2">
           <Avatar name={user?.name} photo={user?.photo} size={36} />
           <div className="min-w-0">
-            <div className="font-display uppercase text-xs text-ink truncate">{user?.name}</div>
-            <div className="font-body text-[10px] text-fog truncate">{user?.role}</div>
+            <div className="font-display uppercase text-xs text-ink truncate">
+              {user?.name}
+            </div>
+            <div className="font-body text-[10px] text-fog truncate">
+              {user?.role}
+            </div>
           </div>
         </div>
       </div>
@@ -67,6 +108,9 @@ export default function DashboardLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const drawerRef = useRef(null);
+  const drawerCloseRef = useRef(null);
+  const sidebarToggleRef = useRef(null);
   const { data: leadCounts } = useQuery({
     queryKey: ["lead-counts"],
     queryFn: async () => (await client.get("/leads/counts")).data,
@@ -74,13 +118,51 @@ export default function DashboardLayout() {
   });
   const newLeadCount = leadCounts?.counts?.nuovo || 0;
 
-  const crumb = NAV.find((n) => n.to === location.pathname)?.label ||
+  const crumb =
+    NAV.find((n) => n.to === location.pathname)?.label ||
     (location.pathname.includes("/lead/") ? "Scheda lead" : "Dashboard");
 
   const handleLogout = async () => {
     await logout();
     navigate("/login");
   };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const toggleButton = sidebarToggleRef.current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    drawerCloseRef.current?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        return;
+      }
+      if (event.key !== "Tab" || !drawerRef.current) return;
+      const focusable = drawerRef.current.querySelectorAll(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      toggleButton?.focus();
+    };
+  }, [open]);
 
   return (
     <div className="min-h-screen bg-bg flex">
@@ -91,10 +173,28 @@ export default function DashboardLayout() {
 
       {/* Mobile drawer */}
       {open && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
-          <aside className="relative w-64 bg-surface border-r border-stroke">
-            <button onClick={() => setOpen(false)} className="absolute top-4 right-4 text-fog"><X className="w-5 h-5" /></button>
+        <div className="lg:hidden fixed inset-0 z-50 flex" role="presentation">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setOpen(false)}
+            aria-hidden="true"
+          />
+          <aside
+            ref={drawerRef}
+            className="relative w-64 bg-surface border-r border-stroke"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu dashboard"
+          >
+            <button
+              ref={drawerCloseRef}
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Chiudi menu dashboard"
+              className="absolute top-4 right-4 text-fog"
+            >
+              <X className="w-5 h-5" aria-hidden="true" />
+            </button>
             <SidebarContent user={user} onNav={() => setOpen(false)} />
           </aside>
         </div>
@@ -104,19 +204,52 @@ export default function DashboardLayout() {
         {/* Topbar */}
         <header className="h-16 sticky top-0 z-40 bg-bg/90 backdrop-blur-md border-b border-stroke flex items-center justify-between px-4 md:px-8">
           <div className="flex items-center gap-3">
-            <button className="lg:hidden text-ink" onClick={() => setOpen(true)} data-testid="sidebar-toggle"><Menu className="w-6 h-6" /></button>
+            <button
+              ref={sidebarToggleRef}
+              type="button"
+              className="lg:hidden text-ink"
+              onClick={() => setOpen(true)}
+              data-testid="sidebar-toggle"
+              aria-label="Apri menu dashboard"
+            >
+              <Menu className="w-6 h-6" aria-hidden="true" />
+            </button>
             <div className="font-display uppercase tracking-wider text-sm text-fog">
-              Dashboard <span className="text-stroke mx-1">/</span> <span className="text-ink">{crumb}</span>
+              Dashboard <span className="text-stroke mx-1">/</span>{" "}
+              <span className="text-ink">{crumb}</span>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden md:flex items-center gap-2 bg-surface border border-stroke rounded-full px-4 py-2 text-fog text-sm w-64">
-              <Search className="w-4 h-4" />
-              <input placeholder="Cerca lead, città…" className="bg-transparent outline-none text-ink placeholder:text-fog w-full text-sm"
-                onKeyDown={(e) => e.key === "Enter" && e.target.value && navigate(`/dashboard/inbox?q=${encodeURIComponent(e.target.value)}`)} />
+              <Search className="w-4 h-4" aria-hidden="true" />
+              <label htmlFor="dashboard-search" className="sr-only">
+                Cerca lead o città
+              </label>
+              <input
+                id="dashboard-search"
+                type="search"
+                placeholder="Cerca lead, città…"
+                className="bg-transparent outline-none text-ink placeholder:text-fog w-full text-sm"
+                onKeyDown={(e) =>
+                  e.key === "Enter" &&
+                  e.target.value &&
+                  navigate(
+                    `/dashboard/inbox?q=${encodeURIComponent(e.target.value)}`,
+                  )
+                }
+              />
             </div>
-            <button className="relative text-fog hover:text-ink">
-              <Bell className="w-5 h-5" />
+            <button
+              type="button"
+              className="relative text-fog hover:text-ink"
+              onClick={() => navigate("/dashboard/inbox?status=nuovo")}
+              aria-label={
+                newLeadCount
+                  ? `${newLeadCount} nuovi lead`
+                  : "Nessun nuovo lead"
+              }
+            >
+              <Bell className="w-5 h-5" aria-hidden="true" />
               {newLeadCount > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-brand text-white text-[9px] flex items-center justify-center">
                   {newLeadCount > 99 ? "99+" : newLeadCount}
@@ -125,14 +258,28 @@ export default function DashboardLayout() {
             </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button data-testid="account-menu" className="rounded-full overflow-hidden border border-stroke">
+                <button
+                  type="button"
+                  data-testid="account-menu"
+                  aria-label="Apri menu account"
+                  className="rounded-full overflow-hidden border border-stroke"
+                >
                   <Avatar name={user?.name} photo={user?.photo} size={36} />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-surface border-stroke">
-                <DropdownMenuLabel className="text-ink">{user?.name}</DropdownMenuLabel>
+              <DropdownMenuContent
+                align="end"
+                className="bg-surface border-stroke"
+              >
+                <DropdownMenuLabel className="text-ink">
+                  {user?.name}
+                </DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-stroke" />
-                <DropdownMenuItem data-testid="logout-btn" onClick={handleLogout} className="text-fog focus:text-ink cursor-pointer">
+                <DropdownMenuItem
+                  data-testid="logout-btn"
+                  onClick={handleLogout}
+                  className="text-fog focus:text-ink cursor-pointer"
+                >
                   <LogOut className="w-4 h-4 mr-2" /> Esci
                 </DropdownMenuItem>
               </DropdownMenuContent>

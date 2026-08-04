@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Phone, MessageCircle, Mail, Eye, Search, Trash2, Loader2 } from "lucide-react";
+import {
+  Phone,
+  MessageCircle,
+  Mail,
+  Eye,
+  Search,
+  Trash2,
+  Loader2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import client, { formatApiErrorDetail } from "@/lib/api";
@@ -30,7 +38,10 @@ const SOURCES = [
 
 export default function LeadInbox() {
   const [params] = useSearchParams();
-  const [tab, setTab] = useState("tutti");
+  const requestedTab = params.get("status");
+  const [tab, setTab] = useState(
+    TABS.some((item) => item.key === requestedTab) ? requestedTab : "tutti",
+  );
   const [origine, setOrigine] = useState(params.get("origine") || "tutte");
   const [q, setQ] = useState(params.get("q") || "");
   const navigate = useNavigate();
@@ -39,7 +50,12 @@ export default function LeadInbox() {
 
   const { data: leads = [], isLoading } = useQuery({
     queryKey: ["leads", tab, q, origine],
-    queryFn: async () => (await client.get("/leads", { params: { status: tab, q: q || undefined, origine } })).data,
+    queryFn: async () =>
+      (
+        await client.get("/leads", {
+          params: { status: tab, q: q || undefined, origine },
+        })
+      ).data,
     refetchInterval: 30000,
   });
 
@@ -48,7 +64,9 @@ export default function LeadInbox() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["leads"] });
       qc.invalidateQueries({ queryKey: ["lead-counts"] });
-      toast.success(`Eliminati ${res.data.deleted} lead di test (mantenuti ${res.data.kept}).`);
+      toast.success(
+        `Eliminati ${res.data.deleted} lead di test (mantenuti ${res.data.kept}).`,
+      );
     },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
@@ -56,16 +74,27 @@ export default function LeadInbox() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display font-bold uppercase text-3xl text-ink">Lead Inbox</h1>
+        <h1 className="font-display font-bold uppercase text-3xl text-ink">
+          Lead Inbox
+        </h1>
         {user?.role === "admin" && (
           <button
             onClick={() => {
-              if (window.confirm("Eliminare tutti i lead di test/esempio? Resteranno solo i lead reali (info@alantis.it).")) cleanupTest.mutate();
+              if (
+                window.confirm(
+                  "Eliminare tutti i lead di test/esempio? Resteranno solo i lead reali (info@alantis.it).",
+                )
+              )
+                cleanupTest.mutate();
             }}
             disabled={cleanupTest.isPending}
             className="bg-danger/10 border border-danger/40 text-danger rounded-full px-4 py-2 font-display uppercase text-xs inline-flex items-center gap-2 hover:bg-danger/20 transition-colors disabled:opacity-60"
           >
-            {cleanupTest.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            {cleanupTest.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Trash2 className="w-4 h-4" />
+            )}
             Pulisci lead di test
           </button>
         )}
@@ -73,10 +102,18 @@ export default function LeadInbox() {
 
       <div className="flex flex-wrap gap-2">
         {TABS.map((t) => (
-          <button key={t.key} data-testid={`tab-${t.key}`} onClick={() => setTab(t.key)}
+          <button
+            type="button"
+            key={t.key}
+            data-testid={`tab-${t.key}`}
+            onClick={() => setTab(t.key)}
+            aria-pressed={tab === t.key}
             className={`font-display uppercase text-xs tracking-wider px-4 py-2 rounded-full border transition-colors ${
-              tab === t.key ? "bg-brand text-white border-brand" : "bg-surface text-fog border-stroke hover:text-ink"
-            }`}>
+              tab === t.key
+                ? "bg-brand text-white border-brand"
+                : "bg-surface text-fog border-stroke hover:text-ink"
+            }`}
+          >
             {t.label}
           </button>
         ))}
@@ -84,19 +121,36 @@ export default function LeadInbox() {
 
       <div className="flex flex-wrap gap-2">
         {SOURCES.map((s) => (
-          <button key={s.key} onClick={() => setOrigine(s.key)}
+          <button
+            type="button"
+            key={s.key}
+            onClick={() => setOrigine(s.key)}
+            aria-pressed={origine === s.key}
             className={`font-display uppercase text-[10px] tracking-wider px-3 py-1.5 rounded-full border transition-colors ${
-              origine === s.key ? "bg-ink text-bg border-ink" : "bg-surface text-fog border-stroke hover:text-ink"
-            }`}>
+              origine === s.key
+                ? "bg-ink text-bg border-ink"
+                : "bg-surface text-fog border-stroke hover:text-ink"
+            }`}
+          >
             {s.label}
           </button>
         ))}
       </div>
 
       <div className="flex items-center gap-2 bg-surface border border-stroke rounded-full px-4 py-2 max-w-md">
-        <Search className="w-4 h-4 text-fog" />
-        <input data-testid="inbox-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca per nome, città, email…"
-          className="bg-transparent outline-none text-ink placeholder:text-fog w-full text-sm" />
+        <Search className="w-4 h-4 text-fog" aria-hidden="true" />
+        <label htmlFor="inbox-search" className="sr-only">
+          Cerca lead per nome, città o email
+        </label>
+        <input
+          id="inbox-search"
+          type="search"
+          data-testid="inbox-search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Cerca per nome, città, email…"
+          className="bg-transparent outline-none text-ink placeholder:text-fog w-full text-sm"
+        />
       </div>
 
       <div className="bg-surface border border-stroke rounded-2xl overflow-hidden">
@@ -117,38 +171,151 @@ export default function LeadInbox() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-fog font-display uppercase animate-pulse">Caricamento…</td></tr>
-              ) : leads.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-fog font-body">Nessun lead in questa vista.</td></tr>
-              ) : leads.map((l) => (
-                <tr key={l.id} data-testid={`lead-row-${l.id}`} className="border-b border-stroke/60 hover:bg-surface-2/50 transition-colors cursor-pointer"
-                  onClick={() => navigate(`/dashboard/lead/${l.id}`)}>
-                  <td className="px-4 py-3"><span className={`inline-block w-2.5 h-2.5 rounded-full ${priority(l.score).dot}`} /></td>
-                  <td className="px-4 py-3"><div className="font-display uppercase text-xs text-ink">{l.nome}</div><div className="font-body text-[11px] text-fog">{l.citta}</div></td>
-                  <td className="px-4 py-3 font-body text-xs text-fog capitalize">{l.tipo_immobile} · {l.mq}mq</td>
-                  <td className="px-4 py-3"><div className="font-display text-xs text-brand">{formatEuro(l.range_basso)}</div><div className="font-body text-[10px] text-fog capitalize">{l.livello}</div></td>
-                  <td className="px-4 py-3"><span className={`font-display uppercase text-[10px] px-2 py-1 rounded-full ${STATI[l.status]?.bg} ${STATI[l.status]?.color}`}>{STATI[l.status]?.label}</span></td>
-                  <td className="px-4 py-3 font-body text-xs text-fog capitalize">{l.origine}</td>
-                  <td className="px-4 py-3 font-body text-xs text-fog">{relativeDate(l.last_contact)}</td>
-                  <td className="px-4 py-3">{l.owner ? <span className="w-7 h-7 rounded-full bg-brand/20 text-brand inline-flex items-center justify-center font-display text-[10px]">{initials(l.owner)}</span> : <span className="text-fog text-xs">—</span>}</td>
-                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-end gap-2 text-fog">
-                      <a href={`tel:${l.telefono}`} className="hover:text-ink"><Phone className="w-4 h-4" /></a>
-                      {buildWhatsappUrl(l.telefono, l.nome) ? (
-                        <a href={buildWhatsappUrl(l.telefono, l.nome)} target="_blank" rel="noreferrer" className="hover:text-success"><MessageCircle className="w-4 h-4" /></a>
-                      ) : (
-                        <span className="opacity-30"><MessageCircle className="w-4 h-4" /></span>
-                      )}
-                      {l.email ? (
-                        <button onClick={() => openEmailCompose({ leadId: l.id, email: l.email, nome: l.nome })} className="hover:text-ink"><Mail className="w-4 h-4" /></button>
-                      ) : (
-                        <span className="opacity-30"><Mail className="w-4 h-4" /></span>
-                      )}
-                      <button onClick={() => navigate(`/dashboard/lead/${l.id}`)} className="hover:text-brand"><Eye className="w-4 h-4" /></button>
-                    </div>
+                <tr>
+                  <td
+                    colSpan={9}
+                    className="px-4 py-8 text-center text-fog font-display uppercase animate-pulse"
+                  >
+                    Caricamento…
                   </td>
                 </tr>
-              ))}
+              ) : leads.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={9}
+                    className="px-4 py-8 text-center text-fog font-body"
+                  >
+                    Nessun lead in questa vista.
+                  </td>
+                </tr>
+              ) : (
+                leads.map((l) => (
+                  <tr
+                    key={l.id}
+                    data-testid={`lead-row-${l.id}`}
+                    className="border-b border-stroke/60 hover:bg-surface-2/50 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/dashboard/lead/${l.id}`)}
+                    role="link"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (
+                        event.target === event.currentTarget &&
+                        (event.key === "Enter" || event.key === " ")
+                      ) {
+                        event.preventDefault();
+                        navigate(`/dashboard/lead/${l.id}`);
+                      }
+                    }}
+                  >
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-block w-2.5 h-2.5 rounded-full ${priority(l.score).dot}`}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-display uppercase text-xs text-ink">
+                        {l.nome}
+                      </div>
+                      <div className="font-body text-[11px] text-fog">
+                        {l.citta}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-body text-xs text-fog capitalize">
+                      {l.tipo_immobile} · {l.mq}mq
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-display text-xs text-brand">
+                        {formatEuro(l.range_basso)}
+                      </div>
+                      <div className="font-body text-[10px] text-fog capitalize">
+                        {l.livello}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`font-display uppercase text-[10px] px-2 py-1 rounded-full ${STATI[l.status]?.bg} ${STATI[l.status]?.color}`}
+                      >
+                        {STATI[l.status]?.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 font-body text-xs text-fog capitalize">
+                      {l.origine}
+                    </td>
+                    <td className="px-4 py-3 font-body text-xs text-fog">
+                      {relativeDate(l.last_contact)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {l.owner ? (
+                        <span className="w-7 h-7 rounded-full bg-brand/20 text-brand inline-flex items-center justify-center font-display text-[10px]">
+                          {initials(l.owner)}
+                        </span>
+                      ) : (
+                        <span className="text-fog text-xs">—</span>
+                      )}
+                    </td>
+                    <td
+                      className="px-4 py-3"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-end gap-2 text-fog">
+                        <a
+                          href={`tel:${l.telefono}`}
+                          aria-label={`Chiama ${l.nome}`}
+                          className="hover:text-ink"
+                        >
+                          <Phone className="w-4 h-4" aria-hidden="true" />
+                        </a>
+                        {buildWhatsappUrl(l.telefono, l.nome) ? (
+                          <a
+                            href={buildWhatsappUrl(l.telefono, l.nome)}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={`Scrivi a ${l.nome} su WhatsApp`}
+                            className="hover:text-success"
+                          >
+                            <MessageCircle
+                              className="w-4 h-4"
+                              aria-hidden="true"
+                            />
+                          </a>
+                        ) : (
+                          <span className="opacity-30">
+                            <MessageCircle className="w-4 h-4" />
+                          </span>
+                        )}
+                        {l.email ? (
+                          <button
+                            type="button"
+                            aria-label={`Invia email a ${l.nome}`}
+                            onClick={() =>
+                              openEmailCompose({
+                                leadId: l.id,
+                                email: l.email,
+                                nome: l.nome,
+                              })
+                            }
+                            className="hover:text-ink"
+                          >
+                            <Mail className="w-4 h-4" aria-hidden="true" />
+                          </button>
+                        ) : (
+                          <span className="opacity-30">
+                            <Mail className="w-4 h-4" />
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          aria-label={`Apri scheda di ${l.nome}`}
+                          onClick={() => navigate(`/dashboard/lead/${l.id}`)}
+                          className="hover:text-brand"
+                        >
+                          <Eye className="w-4 h-4" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
