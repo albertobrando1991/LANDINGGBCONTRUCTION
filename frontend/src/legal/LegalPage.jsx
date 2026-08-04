@@ -147,7 +147,7 @@ function CookiePolicy() {
       <Section title="2. Cookie di autenticazione staff">
         <p>
           L’area riservata usa cookie HTTP-only denominati{" "}
-          <code>access_token</code>e <code>refresh_token</code>. Servono
+          <code>access_token</code> e <code>refresh_token</code>. Servono
           esclusivamente a mantenere la sessione autenticata e sono protetti con
           attributi Secure e SameSite. La durata massima prevista è
           rispettivamente 12 ore e 7 giorni; vengono rimossi al logout.

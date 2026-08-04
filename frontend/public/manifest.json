@@ -1,0 +1,18 @@
+{
+  "short_name": "GB Construction",
+  "name": "GB Construction | Ristrutturazioni",
+  "description": "Ristrutturazioni chiavi in mano a Napoli e in Campania.",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0c0c0f",
+  "background_color": "#0c0c0f",
+  "lang": "it",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

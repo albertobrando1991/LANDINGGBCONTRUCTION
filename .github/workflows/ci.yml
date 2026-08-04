@@ -90,3 +90,4 @@ jobs:
           # CRA + date-fns v4 / react-day-picker v8: peer conflict noto
           npm ci --legacy-peer-deps
           npm run build
+          npm run check:release
