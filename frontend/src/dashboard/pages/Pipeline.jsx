@@ -37,6 +37,8 @@ export default function Pipeline() {
       <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
         {(data?.columns || []).map((col) => (
           <div key={col.key}
+            role="group"
+            aria-label={`${col.label}: ${col.count} lead`}
             onDragOver={(e) => { e.preventDefault(); setOverCol(col.key); }}
             onDrop={() => onDrop(col.key)}
             className={`w-72 shrink-0 bg-surface border rounded-2xl p-3 transition-colors ${overCol === col.key ? "border-brand" : "border-stroke"}`}>
@@ -52,8 +54,12 @@ export default function Pipeline() {
               {col.leads.map((l) => (
                 <div key={l.id} draggable data-testid={`kanban-card-${l.id}`}
                   onDragStart={() => setDragId(l.id)}
-                  onClick={() => navigate(`/dashboard/lead/${l.id}`)}
                   className={`bg-bg border border-stroke border-l-4 ${ageColor(l.giorni_in_stato)} rounded-xl p-3 cursor-grab active:cursor-grabbing hover:border-brand transition-colors`}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/dashboard/lead/${l.id}`)}
+                    className="block w-full text-left"
+                  >
                   <div className="flex items-center justify-between">
                     <span className="font-display uppercase text-xs text-ink truncate">{l.nome}</span>
                     <span className={`w-2 h-2 rounded-full ${priority(l.score).dot}`} />
@@ -64,6 +70,26 @@ export default function Pipeline() {
                     {l.owner && <span className="w-6 h-6 rounded-full bg-brand/20 text-brand inline-flex items-center justify-center font-display text-[9px]">{initials(l.owner)}</span>}
                   </div>
                   <div className="font-body text-[10px] text-fog mt-1">{l.giorni_in_stato}gg in stato</div>
+                  </button>
+                  <label className="mt-3 block">
+                    <span className="sr-only">Sposta {l.nome} in un altro stato</span>
+                    <select
+                      value={col.key}
+                      disabled={move.isPending}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        move.mutate({ id: l.id, status: event.target.value });
+                      }}
+                      className="w-full rounded-lg border border-stroke bg-surface px-2 py-1.5 font-display text-[10px] uppercase text-fog outline-none focus:border-brand disabled:opacity-50"
+                    >
+                      {(data?.columns || []).map((target) => (
+                        <option key={target.key} value={target.key}>
+                          {target.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
               ))}
             </div>

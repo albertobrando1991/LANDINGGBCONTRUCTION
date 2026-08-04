@@ -47,6 +47,7 @@ export default function Today() {
           <div className="space-y-2">
             {(d.nuovi_caldi || []).map((l) => (
               <button key={l.id} onClick={() => navigate(`/dashboard/lead/${l.id}`)}
+                type="button"
                 className="w-full flex items-center justify-between bg-bg border border-stroke rounded-xl px-3 py-2 hover:border-brand transition-colors text-left">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className={`w-2 h-2 rounded-full ${priority(l.score).dot}`} />
@@ -57,7 +58,7 @@ export default function Today() {
               </button>
             ))}
           </div>
-          <button onClick={() => navigate("/dashboard/inbox")} className="mt-4 font-display uppercase text-xs text-brand inline-flex items-center gap-1 hover:gap-2 transition-all">
+          <button type="button" onClick={() => navigate("/dashboard/inbox")} className="mt-4 font-display uppercase text-xs text-brand inline-flex items-center gap-1 hover:gap-2 transition-all">
             Vedi tutti <ArrowRight className="w-3 h-3" />
           </button>
         </Card>
@@ -71,7 +72,7 @@ export default function Today() {
                   <div className="font-display uppercase text-xs text-ink truncate">{l.nome}</div>
                   <div className="font-body text-[11px] text-fog">{STATI[l.status]?.label}</div>
                 </div>
-                <button onClick={() => navigate(`/dashboard/lead/${l.id}`)} className="font-display uppercase text-[10px] bg-brand text-white px-3 py-1.5 rounded-full">Fai ora</button>
+                <button type="button" onClick={() => navigate(`/dashboard/lead/${l.id}`)} className="font-display uppercase text-[10px] bg-brand text-white px-3 py-1.5 rounded-full">Fai ora</button>
               </div>
             ))}
             {(!d.followup || d.followup.length === 0) && <p className="font-body text-sm text-fog">Nessun follow-up oggi.</p>}
@@ -82,7 +83,7 @@ export default function Today() {
           badge={<CalendarDays className="w-4 h-4 text-violet-400" />}>
           <div className="font-display font-bold text-5xl text-violet-400 mb-2">{d.sopralluoghi_count || 0}</div>
           <p className="font-body text-sm text-fog">Sopralluoghi programmati.</p>
-          <button onClick={() => navigate("/dashboard/sopralluoghi")} className="mt-4 font-display uppercase text-xs text-brand inline-flex items-center gap-1 hover:gap-2 transition-all">
+          <button type="button" onClick={() => navigate("/dashboard/sopralluoghi")} className="mt-4 font-display uppercase text-xs text-brand inline-flex items-center gap-1 hover:gap-2 transition-all">
             Apri calendario <ArrowRight className="w-3 h-3" />
           </button>
         </Card>
@@ -99,7 +100,13 @@ export default function Today() {
                   </span>
                 </div>
                 {buildWhatsappUrl(l.telefono, l.nome) ? (
-                  <a href={buildWhatsappUrl(l.telefono, l.nome)} target="_blank" rel="noreferrer" className="text-success"><MessageCircle className="w-4 h-4" /></a>
+                  <a
+                    href={buildWhatsappUrl(l.telefono, l.nome)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Contatta ${l.nome} su WhatsApp`}
+                    className="text-success"
+                  ><MessageCircle className="w-4 h-4" aria-hidden /></a>
                 ) : (
                   <span className="text-fog/40"><MessageCircle className="w-4 h-4" /></span>
                 )}
@@ -116,6 +123,7 @@ export default function Today() {
           <div className="space-y-2">
             {d.alert.map((l) => (
               <button key={l.id} onClick={() => navigate(`/dashboard/lead/${l.id}`)}
+                type="button"
                 className="w-full flex items-center gap-3 bg-brand/10 border border-brand/30 rounded-xl px-3 py-2 text-left hover:bg-brand/15 transition-colors">
                 <Flame className="w-4 h-4 text-brand shrink-0" />
                 <span className="font-body text-sm text-ink">Lead <b>{l.nome}</b> non gestito da oltre 18h · arrivato {relativeDate(l.created_at)}</span>

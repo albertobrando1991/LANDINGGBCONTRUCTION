@@ -6,6 +6,7 @@ import client, { formatApiErrorDetail } from "@/lib/api";
 import { EMAIL_COMPOSE_EVENT } from "@/lib/emailCompose";
 
 const MAX_ATTACH_BYTES = 15 * 1024 * 1024;
+const MAX_TOTAL_ATTACH_BYTES = 25 * 1024 * 1024;
 
 const EMPTY = { leadId: null, email: "", nome: "" };
 
@@ -29,6 +30,10 @@ export default function EmailComposeModal() {
   const [done, setDone] = useState(false);
   const [configured, setConfigured] = useState(null);
   const fileInputRef = useRef(null);
+  const dialogRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const previousFocusRef = useRef(null);
+  const sendingRef = useRef(false);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -55,19 +60,52 @@ export default function EmailComposeModal() {
     return () => window.removeEventListener(EMAIL_COMPOSE_EVENT, handler);
   }, []);
 
+  sendingRef.current = sending;
+
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => e.key === "Escape" && !sending && setOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, sending]);
+    if (!open) return undefined;
+    previousFocusRef.current = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+    const onKey = (event) => {
+      if (event.key === "Escape" && !sendingRef.current) {
+        event.preventDefault();
+        setOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+      previousFocusRef.current?.focus?.();
+    };
+  }, [open]);
 
   if (!open) return null;
 
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
   const oversized = files.find((f) => f.size > MAX_ATTACH_BYTES);
+  const totalOversized = totalBytes > MAX_TOTAL_ATTACH_BYTES;
   const canSend =
-    !sending && to.trim() && subject.trim() && body.trim() && !oversized && target.leadId;
+    !sending && to.trim() && subject.trim() && body.trim() && !oversized && !totalOversized && target.leadId;
 
   const addFiles = (fileList) => {
     const incoming = Array.from(fileList || []);
@@ -118,13 +156,23 @@ export default function EmailComposeModal() {
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={() => !sending && setOpen(false)}
+        aria-hidden
       />
-      <div className="relative w-full max-w-lg bg-surface border border-stroke rounded-2xl shadow-xl overflow-hidden">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="email-compose-title"
+        className="relative w-full max-w-lg bg-surface border border-stroke rounded-2xl shadow-xl overflow-hidden"
+      >
         <div className="flex items-center justify-between px-5 h-14 border-b border-stroke">
-          <div className="flex items-center gap-2 font-display uppercase text-sm text-ink">
+          <div id="email-compose-title" className="flex items-center gap-2 font-display uppercase text-sm text-ink">
             <Mail className="w-4 h-4 text-brand" /> Email al cliente
           </div>
           <button
+            ref={closeButtonRef}
+            type="button"
+            aria-label="Chiudi composizione email"
             onClick={() => !sending && setOpen(false)}
             className="text-fog hover:text-ink disabled:opacity-40"
             disabled={sending}
@@ -142,8 +190,9 @@ export default function EmailComposeModal() {
           )}
 
           <div>
-            <label className="block font-display uppercase text-[10px] text-fog mb-1">Destinatario</label>
+            <label htmlFor="email-compose-to" className="block font-display uppercase text-[10px] text-fog mb-1">Destinatario</label>
             <input
+              id="email-compose-to"
               type="email"
               value={to}
               onChange={(e) => setTo(e.target.value)}
@@ -156,8 +205,9 @@ export default function EmailComposeModal() {
           </div>
 
           <div>
-            <label className="block font-display uppercase text-[10px] text-fog mb-1">Oggetto</label>
+            <label htmlFor="email-compose-subject" className="block font-display uppercase text-[10px] text-fog mb-1">Oggetto</label>
             <input
+              id="email-compose-subject"
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
@@ -167,8 +217,9 @@ export default function EmailComposeModal() {
           </div>
 
           <div>
-            <label className="block font-display uppercase text-[10px] text-fog mb-1">Messaggio</label>
+            <label htmlFor="email-compose-body" className="block font-display uppercase text-[10px] text-fog mb-1">Messaggio</label>
             <textarea
+              id="email-compose-body"
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={7}
@@ -207,7 +258,7 @@ export default function EmailComposeModal() {
                     <span className="truncate">{f.name}</span>
                     <span className="flex items-center gap-2 shrink-0">
                       <span>{formatBytes(f.size)}</span>
-                      <button onClick={() => removeFile(i)} className="hover:text-ink">
+                      <button type="button" onClick={() => removeFile(i)} aria-label={`Rimuovi allegato ${f.name}`} className="hover:text-ink">
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </span>
@@ -218,6 +269,11 @@ export default function EmailComposeModal() {
             {oversized && (
               <p className="mt-1 font-body text-[11px] text-red-400">
                 Allegato oltre 15 MB: rimuovilo per inviare.
+              </p>
+            )}
+            {totalOversized && (
+              <p className="mt-1 font-body text-[11px] text-red-400">
+                Gli allegati superano il limite totale di 25 MB.
               </p>
             )}
             {files.length > 0 && !oversized && (
@@ -241,6 +297,7 @@ export default function EmailComposeModal() {
 
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-stroke">
           <button
+            type="button"
             onClick={() => !sending && setOpen(false)}
             disabled={sending}
             className="font-display uppercase text-xs text-fog hover:text-ink px-4 py-2 disabled:opacity-40"
@@ -248,6 +305,7 @@ export default function EmailComposeModal() {
             Annulla
           </button>
           <button
+            type="button"
             onClick={handleSend}
             disabled={!canSend}
             className="inline-flex items-center gap-2 font-display uppercase text-xs bg-brand text-white rounded-xl px-4 py-2 hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"

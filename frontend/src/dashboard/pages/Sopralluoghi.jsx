@@ -97,6 +97,7 @@ export default function Sopralluoghi() {
               className="bg-bg border border-stroke rounded-xl px-3 py-2 text-ink text-sm placeholder:text-fog focus:outline-none focus:border-brand" />
           </label>
           <button
+            type="button"
             onClick={() => createSlot.mutate(slot)}
             disabled={createSlot.isPending}
             className="bg-brand text-white rounded-xl px-4 py-2.5 font-display uppercase text-xs inline-flex items-center justify-center gap-2 disabled:opacity-60"
@@ -121,8 +122,13 @@ export default function Sopralluoghi() {
                   <Clock className="w-3 h-3 text-brand" />
                   {formatDay(s.date)} · {s.start}–{s.end}
                   {s.tecnico ? ` · ${s.tecnico}` : ""}
-                  <button onClick={() => deleteSlot.mutate(s.id)} className="text-fog hover:text-danger ml-1">
-                    <Trash2 className="w-3.5 h-3.5" />
+                  <button
+                    type="button"
+                    onClick={() => deleteSlot.mutate(s.id)}
+                    aria-label={`Rimuovi lo slot del ${formatDay(s.date)} dalle ${s.start} alle ${s.end}`}
+                    className="text-fog hover:text-danger ml-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" aria-hidden />
                   </button>
                 </span>
               ))}

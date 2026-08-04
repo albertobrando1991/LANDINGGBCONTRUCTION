@@ -762,6 +762,7 @@ export default function AIArchitectReview() {
             <div className="flex items-center gap-2 bg-surface border border-stroke rounded-full px-4 py-2">
               <Search className="w-4 h-4 text-fog" />
               <input
+                aria-label="Cerca progetti AI Architect"
                 value={q}
                 onChange={(event) => setQ(event.target.value)}
                 placeholder="Cerca file, stile, obiettivo..."

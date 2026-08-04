@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -36,6 +36,11 @@ const inputCls =
 // Modal staff: crea un preventivo manuale (cliente da telefono/sportello).
 export default function NuovoPreventivoModal({ open, onClose }) {
   const [f, setF] = useState(EMPTY);
+  const dialogRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const previousFocusRef = useRef(null);
+  const pendingRef = useRef(false);
+  const onCloseRef = useRef(onClose);
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -72,6 +77,45 @@ export default function NuovoPreventivoModal({ open, onClose }) {
       toast.error(formatApiErrorDetail(err?.response?.data?.detail) || "Creazione preventivo non riuscita.");
     },
   });
+  pendingRef.current = mutation.isPending;
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    previousFocusRef.current = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && !pendingRef.current) {
+        event.preventDefault();
+        onCloseRef.current?.();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocusRef.current?.focus?.();
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -82,34 +126,40 @@ export default function NuovoPreventivoModal({ open, onClose }) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => !mutation.isPending && onClose?.()} />
-      <div className="relative w-full max-w-xl bg-surface border border-stroke rounded-2xl shadow-xl overflow-hidden">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => !mutation.isPending && onClose?.()} aria-hidden />
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-quote-title"
+        className="relative w-full max-w-xl bg-surface border border-stroke rounded-2xl shadow-xl overflow-hidden"
+      >
         <div className="flex items-center justify-between px-5 h-14 border-b border-stroke">
-          <div className="flex items-center gap-2 font-display uppercase text-sm text-ink">
+          <div id="new-quote-title" className="flex items-center gap-2 font-display uppercase text-sm text-ink">
             <FileText className="w-4 h-4 text-brand" /> Nuovo preventivo
           </div>
-          <button onClick={() => !mutation.isPending && onClose?.()} className="text-fog hover:text-ink disabled:opacity-40" disabled={mutation.isPending}>
+          <button ref={closeButtonRef} type="button" aria-label="Chiudi nuovo preventivo" onClick={() => !mutation.isPending && onClose?.()} className="text-fog hover:text-ink disabled:opacity-40" disabled={mutation.isPending}>
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="p-5 space-y-4 max-h-[72vh] overflow-y-auto">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Nome cliente">
-              <input className={inputCls} value={f.nome} onChange={(e) => set({ nome: e.target.value })} placeholder="Mario Rossi" />
+              <input type="text" autoComplete="name" className={inputCls} value={f.nome} onChange={(e) => set({ nome: e.target.value })} placeholder="Mario Rossi" />
             </Field>
             <Field label="Email">
-              <input type="email" className={inputCls} value={f.email} onChange={(e) => set({ email: e.target.value })} placeholder="mario@email.it" />
+              <input type="email" autoComplete="email" className={inputCls} value={f.email} onChange={(e) => set({ email: e.target.value })} placeholder="mario@email.it" />
             </Field>
             <Field label="Telefono">
-              <input className={inputCls} value={f.telefono} onChange={(e) => set({ telefono: e.target.value })} placeholder="333 1234567" />
+              <input type="tel" autoComplete="tel" className={inputCls} value={f.telefono} onChange={(e) => set({ telefono: e.target.value })} placeholder="333 1234567" />
             </Field>
             <Field label="Città">
               <input className={inputCls} value={f.citta} onChange={(e) => set({ citta: e.target.value })} placeholder="Napoli" />
             </Field>
           </div>
 
-          <div className="border-t border-stroke pt-4 grid grid-cols-2 gap-3">
+          <div className="border-t border-stroke pt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Tipo immobile">
               <select className={inputCls} value={f.tipo_immobile} onChange={(e) => set({ tipo_immobile: e.target.value })}>
                 {TIPI.map((t) => <option key={t} value={t} className="capitalize bg-surface">{t}</option>)}
@@ -152,10 +202,10 @@ export default function NuovoPreventivoModal({ open, onClose }) {
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-stroke">
-          <button onClick={() => !mutation.isPending && onClose?.()} disabled={mutation.isPending} className="font-display uppercase text-xs text-fog hover:text-ink px-4 py-2 disabled:opacity-40">
+          <button type="button" onClick={() => !mutation.isPending && onClose?.()} disabled={mutation.isPending} className="font-display uppercase text-xs text-fog hover:text-ink px-4 py-2 disabled:opacity-40">
             Annulla
           </button>
-          <button onClick={() => mutation.mutate()} disabled={!canSubmit} className="inline-flex items-center gap-2 font-display uppercase text-xs bg-brand text-white rounded-xl px-4 py-2 hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed">
+          <button type="button" onClick={() => mutation.mutate()} disabled={!canSubmit} className="inline-flex items-center gap-2 font-display uppercase text-xs bg-brand text-white rounded-xl px-4 py-2 hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed">
             {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
             {mutation.isPending ? "Calcolo…" : "Crea preventivo"}
           </button>

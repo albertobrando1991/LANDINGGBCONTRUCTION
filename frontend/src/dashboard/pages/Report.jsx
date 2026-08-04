@@ -13,9 +13,9 @@ const COLORS = ["#C62828", "#D4A847", "#6E6E6E", "#22c55e", "#f59e0b"];
 
 function KPI({ label, value, accent }) {
   return (
-    <div className="bg-surface border border-stroke rounded-2xl p-5">
+    <div className="min-w-0 bg-surface border border-stroke rounded-2xl p-5">
       <div className="font-display uppercase text-[10px] tracking-wider text-fog">{label}</div>
-      <div className={`font-display font-bold text-3xl mt-1 ${accent ? "text-brand" : "text-ink"}`}>{value}</div>
+      <div className={`break-words font-display font-bold text-2xl sm:text-3xl mt-1 ${accent ? "text-brand" : "text-ink"}`}>{value}</div>
     </div>
   );
 }
@@ -55,7 +55,7 @@ export default function Report() {
         <KPI label="Sopralluoghi" value={k.sopralluoghi} />
         <KPI label="Preventivi" value={k.preventivi} />
         <KPI label="Contratti chiusi" value={k.chiusi_vinti} accent />
-        <KPI label="Tasso conversione" value={`${k.conversione}%`} />
+        <KPI label="Tasso conversione" value={`${k.conversione ?? 0}%`} />
         <KPI label="Pipeline aperta" value={formatEuro(k.valore_pipeline)} />
         <KPI label="Valore chiuso" value={formatEuro(k.valore_chiuso)} accent />
       </div>
@@ -64,7 +64,7 @@ export default function Report() {
       <div className="bg-surface border border-stroke rounded-2xl p-6">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-semibold uppercase text-sm text-ink flex items-center gap-2"><TrendingUp className="w-4 h-4 text-brand" /> Insight AI</h3>
-          <button data-testid="report-insights" onClick={genInsights} disabled={loadingAi}
+          <button type="button" data-testid="report-insights" onClick={genInsights} disabled={loadingAi}
             className="font-display uppercase text-[10px] bg-brand/15 text-brand px-3 py-1.5 rounded-full inline-flex items-center gap-1 hover:bg-brand/25 transition-colors disabled:opacity-60">
             {loadingAi ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Genera insight
           </button>

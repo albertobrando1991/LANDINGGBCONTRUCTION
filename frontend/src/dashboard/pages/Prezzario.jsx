@@ -131,6 +131,7 @@ export default function Prezzario() {
 
       <div className="flex items-center gap-2">
         <input
+          aria-label="Cerca voce o codice nel prezzario"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Cerca voce o codice…"

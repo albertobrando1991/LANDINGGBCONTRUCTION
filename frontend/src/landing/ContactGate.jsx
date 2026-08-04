@@ -258,8 +258,14 @@ export default function ContactGate({ config, onSubmit }) {
 
           <form onSubmit={handleSubmit(submit)} className="mt-6 space-y-4">
             <div>
+              <label htmlFor="gate-name" className="sr-only">
+                Nome e cognome
+              </label>
               <input
+                id="gate-name"
                 data-testid="gate-nome"
+                type="text"
+                autoComplete="name"
                 {...register("nome")}
                 placeholder="Nome e cognome *"
                 className="w-full bg-surface border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
@@ -269,8 +275,14 @@ export default function ContactGate({ config, onSubmit }) {
               )}
             </div>
             <div>
+              <label htmlFor="gate-email" className="sr-only">
+                Email
+              </label>
               <input
+                id="gate-email"
                 data-testid="gate-email"
+                type="email"
+                autoComplete="email"
                 {...register("email")}
                 placeholder="Email *"
                 className="w-full bg-surface border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
@@ -282,8 +294,14 @@ export default function ContactGate({ config, onSubmit }) {
               )}
             </div>
             <div>
+              <label htmlFor="gate-phone" className="sr-only">
+                Telefono o WhatsApp
+              </label>
               <input
+                id="gate-phone"
                 data-testid="gate-telefono"
+                type="tel"
+                autoComplete="tel"
                 {...register("telefono")}
                 placeholder="Telefono / WhatsApp *"
                 className="w-full bg-surface border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
@@ -302,6 +320,7 @@ export default function ContactGate({ config, onSubmit }) {
               >
                 <SelectTrigger
                   data-testid="gate-citta"
+                  aria-label="Città dell'immobile"
                   className="w-full bg-surface border-stroke rounded-xl px-4 py-6 text-ink"
                 >
                   <SelectValue placeholder="Città dell'immobile *" />
@@ -321,8 +340,14 @@ export default function ContactGate({ config, onSubmit }) {
               )}
             </div>
             <div>
+              <label htmlFor="gate-address" className="sr-only">
+                Indirizzo dell'immobile
+              </label>
               <input
+                id="gate-address"
                 data-testid="gate-indirizzo"
+                type="text"
+                autoComplete="street-address"
                 {...register("indirizzo")}
                 placeholder="Indirizzo dell'immobile (via e civico) *"
                 className="w-full bg-surface border border-stroke rounded-xl px-4 py-3 text-ink placeholder:text-fog focus:outline-none focus:border-brand"
@@ -344,7 +369,15 @@ export default function ContactGate({ config, onSubmit }) {
                 className="mt-0.5"
               />
               <span className="font-body text-xs text-fog">
-                Accetto la privacy policy *
+                Accetto la{" "}
+                <a
+                  href="/privacy-policy"
+                  className="underline hover:text-ink"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  privacy policy
+                </a>{" "}
+                *
               </span>
             </label>
             {errors.privacy && (

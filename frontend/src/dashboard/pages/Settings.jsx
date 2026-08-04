@@ -71,15 +71,15 @@ export default function Settings() {
           <div className="bg-surface border border-stroke rounded-2xl p-6">
             <h3 className="font-display font-semibold uppercase text-sm text-ink mb-4">Aggiungi utente</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <input data-testid="staff-nome" placeholder="Nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="bg-bg border border-stroke rounded-xl px-4 py-2.5 text-ink text-sm focus:outline-none focus:border-brand" />
-              <input data-testid="staff-email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="bg-bg border border-stroke rounded-xl px-4 py-2.5 text-ink text-sm focus:outline-none focus:border-brand" />
-              <input data-testid="staff-password" type="password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="bg-bg border border-stroke rounded-xl px-4 py-2.5 text-ink text-sm focus:outline-none focus:border-brand" />
+              <input aria-label="Nome nuovo utente" autoComplete="name" data-testid="staff-nome" placeholder="Nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="bg-bg border border-stroke rounded-xl px-4 py-2.5 text-ink text-sm focus:outline-none focus:border-brand" />
+              <input aria-label="Email nuovo utente" type="email" autoComplete="email" data-testid="staff-email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="bg-bg border border-stroke rounded-xl px-4 py-2.5 text-ink text-sm focus:outline-none focus:border-brand" />
+              <input aria-label="Password nuovo utente" data-testid="staff-password" type="password" autoComplete="new-password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="bg-bg border border-stroke rounded-xl px-4 py-2.5 text-ink text-sm focus:outline-none focus:border-brand" />
               <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
-                <SelectTrigger className="bg-bg border-stroke text-ink"><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label="Ruolo nuovo utente" className="bg-bg border-stroke text-ink"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="operations">Operations</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent>
               </Select>
             </div>
-            <button data-testid="staff-create" onClick={() => createStaff.mutate(form)} disabled={!form.nome || !form.email || !form.password}
+            <button type="button" data-testid="staff-create" onClick={() => createStaff.mutate(form)} disabled={!form.nome || !form.email || !form.password}
               className="mt-4 bg-brand text-white rounded-full px-6 py-2.5 font-display uppercase text-xs tracking-wider hover:scale-105 transition-transform disabled:opacity-50">Crea utente</button>
           </div>
         </TabsContent>
@@ -108,7 +108,7 @@ export default function Settings() {
                 </div>
               </div>
             )}
-            <button onClick={() => retryMeta.mutate()} disabled={retryMeta.isPending || !metaStatus.failed_events}
+            <button type="button" onClick={() => retryMeta.mutate()} disabled={retryMeta.isPending || !metaStatus.failed_events}
               className="bg-brand text-white rounded-full px-5 py-2 font-display uppercase text-xs tracking-wider hover:scale-105 transition-transform disabled:opacity-50">
               Ritenta eventi falliti
             </button>
