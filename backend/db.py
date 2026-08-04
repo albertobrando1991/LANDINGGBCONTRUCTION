@@ -158,6 +158,28 @@ async def tenant_conn(access_token: str) -> AsyncIterator[asyncpg.Connection]:
 
 
 @asynccontextmanager
+async def public_conn() -> AsyncIterator[asyncpg.Connection]:
+    """Connessione anon con i privilegi/RLS del Data API Supabase.
+
+    È destinata esclusivamente a letture pubbliche esplicitamente concesse,
+    come la configurazione brand del tenant. Non bypassa RLS.
+    """
+    if _pool is None:
+        raise RuntimeError(
+            "Pool Postgres non inizializzato "
+            "(imposta CONNECTION_STRING_SUPABASE o SUPABASE_DB_URL)"
+        )
+    async with _pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("select set_config('role', 'anon', true)")
+            await conn.execute(
+                "select set_config('request.jwt.claims', $1, true)",
+                json.dumps({"role": "anon"}),
+            )
+            yield conn
+
+
+@asynccontextmanager
 async def system_conn() -> AsyncIterator[asyncpg.Connection]:
     """Connessione senza contesto utente, RLS bypassata.
     Import consentito SOLO da backend/system_jobs/.

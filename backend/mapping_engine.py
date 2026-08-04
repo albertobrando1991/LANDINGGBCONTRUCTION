@@ -107,29 +107,47 @@ def genera_voci(
 async def carica_regole(
     conn: asyncpg.Connection, tenant_id: str, prezzario_id: Optional[str] = None
 ) -> list[Regola]:
-    sql = """
-        select r.id, r.metrica, r.prezzario_voce_id, r.moltiplicatore, r.condizione, r.ordine,
-               v.super_categoria, v.categoria, v.sub_categoria, v.descrizione, v.um, v.tipo,
-               v.prezzo_unitario
-        from public.mapping_regole r
-        join public.prezzario_voci v on v.id = r.prezzario_voce_id
-        where r.tenant_id = $1::uuid and r.attiva = true
-    """
-    args: list[Any] = [tenant_id]
     if prezzario_id:
-        args.append(prezzario_id)
-        sql += f" and v.prezzario_id = ${len(args)}::uuid"
-    sql += " order by r.ordine"
-    rows = await conn.fetch(sql, *args)
-    # Le regole seed puntano alle voci del prezzario Campania: se si passa un
-    # listino duplicato senza remapping, non matchano. Fallback al listino
-    # di riferimento (stesse regole, prezzi delle voci originali).
-    if not rows and prezzario_id:
+        # Le regole sono stabili e puntano alle voci regionali. Per un listino
+        # duplicato risolviamo la voce equivalente per codice, così il ponte AI
+        # usa davvero descrizione e prezzo personalizzati. Se una voce manca,
+        # il riferimento regionale resta un fallback esplicito e deterministico.
         rows = await conn.fetch(
             """
-            select r.id, r.metrica, r.prezzario_voce_id, r.moltiplicatore, r.condizione, r.ordine,
-                   v.super_categoria, v.categoria, v.sub_categoria, v.descrizione, v.um, v.tipo,
-                   v.prezzo_unitario
+            select r.id, r.metrica,
+                   coalesce(target.id, source.id) as prezzario_voce_id,
+                   r.moltiplicatore, r.condizione, r.ordine,
+                   coalesce(target.super_categoria, source.super_categoria) as super_categoria,
+                   coalesce(target.categoria, source.categoria) as categoria,
+                   coalesce(target.sub_categoria, source.sub_categoria) as sub_categoria,
+                   coalesce(target.descrizione, source.descrizione) as descrizione,
+                   coalesce(target.um, source.um) as um,
+                   coalesce(target.tipo, source.tipo) as tipo,
+                   coalesce(target.prezzo_unitario, source.prezzo_unitario) as prezzo_unitario
+            from public.mapping_regole r
+            join public.prezzario_voci source on source.id = r.prezzario_voce_id
+            left join lateral (
+              select candidate.*
+              from public.prezzario_voci candidate
+              where candidate.tenant_id = r.tenant_id
+                and candidate.prezzario_id = $2::uuid
+                and candidate.codice = source.codice
+                and candidate.attiva = true
+              order by candidate.id
+              limit 1
+            ) target on true
+            where r.tenant_id = $1::uuid and r.attiva = true
+            order by r.ordine
+            """,
+            tenant_id,
+            prezzario_id,
+        )
+    else:
+        rows = await conn.fetch(
+            """
+            select r.id, r.metrica, r.prezzario_voce_id, r.moltiplicatore,
+                   r.condizione, r.ordine, v.super_categoria, v.categoria,
+                   v.sub_categoria, v.descrizione, v.um, v.tipo, v.prezzo_unitario
             from public.mapping_regole r
             join public.prezzario_voci v on v.id = r.prezzario_voce_id
             where r.tenant_id = $1::uuid and r.attiva = true

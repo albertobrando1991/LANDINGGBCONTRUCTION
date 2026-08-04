@@ -5,7 +5,29 @@
 **Prezzario base**: Regione Campania, duplicabile e personalizzabile per tenant
 **Metodo**: vibe-coding — migration SQL first, types generati, UI dopo
 **Complessità**: LARGE (~5 mesi, 1 sviluppatore)
-**Stato**: in attesa di conferma
+**Stato**: Fase 0 + Fase 1 in beta tecnica; hardening release verificato in locale
+
+### Aggiornamento implementazione — 3 agosto 2026
+
+La roadmap completa è circa al **25%**: le Fasi 3-6 non sono iniziate. Lo scope
+Fase 0 + Fase 1 è circa al **75%** e produce già prezzari, computi, ponte AI e
+preventivi, ma non ha ancora superato tutti i gate per una release SaaS.
+
+| Area | Stato verificato | Evidenza / limite attuale |
+|---|---|---|
+| Schema Supabase, seed, RLS | **Verde in locale** | `supabase db reset --local` ricostruisce 9 migration + seed; 10 tabelle tenant-scoped senza RLS mancanti |
+| Isolamento tenant | **Verde in locale** | Test transazionale A/B su lettura, scrittura e view `computi_totali`; ad `anon` sono negati P.IVA/piano/crediti |
+| Prezzario e ponte AI | **Verde in locale** | Il listino duplicato diventa default e le regole AI risolvono le voci personalizzate per codice, usando i prezzi calibrati |
+| Computo → preventivo | **Hardening completato** | Conversione consentita solo da computo `confermato`; voci AI non validate restano un blocco server-side |
+| Bridge Mongo → Postgres | **Transitorio implementato** | Gli ObjectId lead vengono sincronizzati on-demand in UUID tenant-scoped; Mongo resta comunque presente fino a Fase 2 |
+| Tenant branding | **Implementato, DNS assente** | `/api/tenant/config` usa whitelist e privilegi per colonna; `TenantContext` carica tema/meta. Wildcard DNS e deploy della patch non sono completati |
+| CI | **Rafforzata, run remoto pendente** | Workflow prepara Supabase locale, resetta il DB e lancia test RLS reali; serve ancora il run GitHub della patch |
+| Ground truth | **Bloccante release** | Esistono 10 casi sintetici, ma manca il set di 10 planimetrie PDF reali con preventivi storici per provare il gate 8/10 entro 15% |
+| Auth/Storage frontend | **Parziale** | Dual-mode backend presente; migrazione completa a Supabase Auth e flussi Storage firmati restano da chiudere |
+
+La migration `20260803175957_edilos_release_hardening.sql` è stata applicata e
+testata **solo sul Supabase locale**. Non è ancora stata distribuita al progetto
+remoto né sono stati configurati i record DNS `*.alantis.it`.
 
 ---
 
@@ -537,16 +559,17 @@ Regole permanenti:
 
 ## 9. Accettazione
 
-- [ ] `supabase db reset` ricostruisce l'intero schema da zero
-- [ ] Test di isolamento tenant verde, con una riga per ogni tabella di dominio
+- [x] `supabase db reset` ricostruisce l'intero schema da zero (verificato in locale il 2026-08-03)
+- [x] Test di isolamento tenant verde, con dati A/B su ogni tabella di dominio e sulla view aggregata
 - [ ] Nessun `service_role` fuori da `backend/system_jobs/` (verificato in CI)
 - [ ] Bozza computo da planimetria entro 15% dal preventivo storico su 8/10 casi ground-truth
 - [ ] Onboarding nuovo tenant in < 10 minuti: 1 record in `tenants` → `<slug>.alantis.it` live, senza intervento su codice o DNS
-- [ ] Slug di sistema (`app`, `api`, `www`, …) rifiutati dal constraint
-- [ ] Prezzario Campania duplicabile: il tenant modifica la sua copia, la base di sistema resta intatta
+- [x] Slug di sistema (`app`, `api`, `www`, …) rifiutati dal constraint
+- [x] Prezzario Campania duplicabile: copia modificabile/default, base di sistema protetta e prezzi custom usati dal mapping AI
 - [ ] Zero riferimenti a Mongo nel codice a fine Fase 2
-- [ ] Endpoint `/api/tenant/config` espone solo campi brand (whitelist verificata da test)
+- [x] Endpoint `/api/tenant/config` espone solo campi brand; privilegi anon sensibili negati da test locale
 
 ---
 
-**IN ATTESA DI CONFERMA** — procedo con Fase 0?
+**PROSSIMO GATE** — deploy controllato della migration di hardening, run CI remoto,
+smoke staging e acquisizione dei 10 casi ground-truth reali.

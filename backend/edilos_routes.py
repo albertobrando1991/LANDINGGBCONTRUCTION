@@ -9,8 +9,11 @@ from pydantic import BaseModel, Field
 
 import auth as authlib
 import boq_service
+import db as db_pg
+import lead_bridge
 import mapping_engine
 import prezzario_service
+import tenancy
 from engines.metriche import estrai_metriche
 from preventivo_pdf import genera_pdf_preventivo
 
@@ -31,6 +34,7 @@ async def _user(request: Request, db) -> dict:
 # ---------- Prezzario ----------
 class DuplicaBody(BaseModel):
     nome: str
+    rendi_default: bool = True
 
 
 class WizardBody(BaseModel):
@@ -85,6 +89,22 @@ class ValidaAiBody(BaseModel):
 def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     """Monta le route su un APIRouter esistente (prefix /api)."""
 
+    @api.get("/tenant/config")
+    async def tenant_config(request: Request):
+        slug = tenancy.extract_tenant_slug(request)
+        async with db_pg.public_conn() as conn:
+            row = await conn.fetchrow(
+                """
+                select slug, ragione_sociale, theme, contatti
+                from public.tenants
+                where slug = $1 and attivo = true
+                """,
+                slug,
+            )
+        if not row:
+            raise HTTPException(status_code=404, detail="Tenant non trovato")
+        return tenancy.public_tenant_config(row)
+
     @api.get("/prezzario")
     async def lista_prezzari(request: Request):
         user = await _user(request, db)
@@ -96,7 +116,19 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             return await prezzario_service.duplica_prezzario(
-                conn, tenant["id"], prezzario_id, body.nome
+                conn,
+                tenant["id"],
+                prezzario_id,
+                body.nome,
+                rendi_default=body.rendi_default,
+            )
+
+    @api.post("/prezzario/{prezzario_id}/default")
+    async def prezzario_default(request: Request, prezzario_id: str):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            return await prezzario_service.imposta_default(
+                conn, tenant["id"], prezzario_id
             )
 
     @api.get("/prezzario/{prezzario_id}/voci")
@@ -155,10 +187,13 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     async def crea_computo(request: Request, body: CreaComputoBody):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
+            lead_id = await lead_bridge.resolve_lead_id(
+                conn, db, tenant["id"], body.lead_id
+            )
             return await boq_service.crea_computo(
                 conn,
                 tenant["id"],
-                lead_id=body.lead_id,
+                lead_id=lead_id,
                 cantiere_id=body.cantiere_id,
                 prezzario_id=body.prezzario_id,
                 tipo=body.tipo,
@@ -226,11 +261,14 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     async def da_ai(request: Request, body: GeneraDaAiBody):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
+            lead_id = await lead_bridge.resolve_lead_id(
+                conn, db, tenant["id"], body.lead_id
+            )
             return await mapping_engine.genera_computo_da_ai(
                 conn,
                 tenant["id"],
                 analisi_ai=body.analisi_ai,
-                lead_id=body.lead_id,
+                lead_id=lead_id,
                 config_lead=body.config_lead,
                 prezzario_id=body.prezzario_id,
             )

@@ -11,6 +11,7 @@ from fastapi import HTTPException, Request
 BASE_DOMAIN = os.environ.get("APP_BASE_DOMAIN", "alantis.it")
 DEFAULT_TENANT_SLUG = os.environ.get("DEFAULT_TENANT_SLUG", "gbconstruction")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$")
+PUBLIC_TENANT_FIELDS = ("slug", "ragione_sociale", "theme", "contatti")
 
 
 def extract_tenant_slug(request: Request) -> Optional[str]:
@@ -48,6 +49,12 @@ def tenants_from_user(user: dict) -> list[dict]:
             if tid:
                 out.append({"tenant_id": str(tid), "role": str(role)})
     return out
+
+
+def public_tenant_config(row: Any) -> dict:
+    """Serializza soltanto i campi brand consentiti dall'endpoint pubblico."""
+    source = dict(row or {})
+    return {key: source.get(key) for key in PUBLIC_TENANT_FIELDS}
 
 
 async def current_tenant(request: Request, user: dict, conn=None) -> dict:

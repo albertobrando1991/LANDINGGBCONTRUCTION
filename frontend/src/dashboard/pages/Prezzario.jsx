@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Copy, RefreshCw, Upload } from "lucide-react";
+import { Copy, RefreshCw, Star, Upload } from "lucide-react";
 import client from "@/lib/api";
 import { toast } from "sonner";
 
@@ -26,12 +26,30 @@ export default function Prezzario() {
 
   const duplica = useMutation({
     mutationFn: async (id) =>
-      (await client.post(`/prezzario/${id}/duplica`, { nome: "Listino personalizzato" })).data,
-    onSuccess: () => {
-      toast.success("Prezzario duplicato");
+      (
+        await client.post(`/prezzario/${id}/duplica`, {
+          nome: "Listino personalizzato",
+          rendi_default: true,
+        })
+      ).data,
+    onSuccess: (data) => {
+      toast.success("Prezzario duplicato e impostato come predefinito");
+      setSelected(data.id);
       qc.invalidateQueries({ queryKey: ["prezzari"] });
     },
     onError: (e) => toast.error(e?.response?.data?.detail || "Errore duplicazione"),
+  });
+
+  const impostaDefault = useMutation({
+    mutationFn: async (id) =>
+      (await client.post(`/prezzario/${id}/default`)).data,
+    onSuccess: (data) => {
+      toast.success("Prezzario predefinito aggiornato");
+      setSelected(data.id);
+      qc.invalidateQueries({ queryKey: ["prezzari"] });
+    },
+    onError: (e) =>
+      toast.error(e?.response?.data?.detail || "Errore aggiornamento predefinito"),
   });
 
   const ripristina = useMutation({
@@ -67,6 +85,15 @@ export default function Prezzario() {
               >
                 <Copy className="w-4 h-4" /> Duplica
               </button>
+              {!active.is_default && (
+                <button
+                  type="button"
+                  onClick={() => impostaDefault.mutate(active.id)}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-surface-2 border border-stroke text-xs font-display uppercase tracking-wider text-ink hover:border-brand"
+                >
+                  <Star className="w-4 h-4" /> Usa come default
+                </button>
+              )}
               {!active.is_sistema && (
                 <button
                   type="button"

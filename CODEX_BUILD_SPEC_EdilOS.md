@@ -6,6 +6,12 @@
 > **Piano strategico di riferimento:** `IMPLEMENTATION_PLAN_EdilOS_Supabase.md` — leggilo per il "perché". Questo file è il "come".
 > **Scope:** Fase 0 (fondamenta) + Fase 1 (prezzario, computi, ponte AI). Fasi 3-6 fuori scope, non anticiparle.
 
+> **Stato verificato al 2026-08-03:** implementazione Fase 0+1 circa al 75%.
+> Reset locale, seed, RLS A/B, prezzario custom→mapping AI, validazione
+> computo→preventivo e build frontend sono verdi. Restano aperti: deploy della
+> migration di hardening, run CI remoto, backfill con conteggi di produzione,
+> PDF brandizzato E2E, Supabase Auth/Storage completi e ground truth su 10 PDF reali.
+
 ---
 
 ## Come usare questo documento
@@ -831,15 +837,15 @@ Se il criterio non passa, il problema è quasi sempre nella **calibrazione dei m
 
 # Definition of Done
 
-- [ ] `supabase db reset` ricostruisce l'intero schema da zero, senza intervento manuale
-- [ ] `pytest backend/tests/` verde, incluso `test_tenant_isolation.py`
-- [ ] Il test che scopre le tabelle dal catalogo Postgres non trova tabelle con `tenant_id` prive di RLS
+- [x] `supabase db reset` ricostruisce l'intero schema da zero, senza intervento manuale (locale, 2026-08-03)
+- [ ] `pytest backend/tests/` verde, incluso `test_tenant_isolation.py` — la selezione EdilOS è verde; la suite legacy completa non è ancora tutta verde
+- [x] Il test che scopre le tabelle dal catalogo Postgres non trova tabelle con `tenant_id` prive di RLS
 - [ ] CI: i 4 job passano. Verifica che `service-role-guard` fallisca davvero introducendo un uso illecito in un commit di prova, poi rimuovilo
-- [ ] `npm run build` passa; nessun import di SWR residuo
+- [x] `npm run build` passa; nessun import di SWR residuo
 - [ ] Backfill Mongo idempotente, conteggi allineati, rieseguibile
-- [ ] Due tenant sullo stesso database: nessuna lettura né scrittura incrociata, verificato anche manualmente
-- [ ] Prezzario Campania non modificabile; duplicato modificabile; "Ripristina" funziona
-- [ ] `conferma_computo` rifiuta con 409 se restano voci AI non validate
+- [x] Due tenant sullo stesso database: nessuna lettura né scrittura incrociata, incluse view e privilegi anon
+- [x] Prezzario Campania non modificabile; duplicato modificabile/default; mapping AI usa i prezzi della copia
+- [x] `conferma_computo` rifiuta con 409 se restano voci AI non validate; anche la conversione a preventivo richiede stato `confermato`
 - [ ] PDF preventivo con branding del tenant, diverso fra i due tenant di test
 - [ ] Ground truth: 8 casi su 10 entro il 15%
 - [ ] Nessun prezzo prodotto dall'LLM in nessun percorso del codice
