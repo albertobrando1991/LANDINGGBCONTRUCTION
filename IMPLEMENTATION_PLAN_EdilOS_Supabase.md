@@ -24,7 +24,7 @@ preventivi, ma non ha ancora superato tutti i gate per una release SaaS.
 | CI | **Verde** | Run `30891017246` sul commit `6332869`: build, test Supabase/RLS, `rls-guard` e `service-role-guard` completati con successo |
 | Ground truth | **Bloccante release** | Esistono 10 casi sintetici, ma manca il set di 10 planimetrie PDF reali con preventivi storici per provare il gate 8/10 entro 15% |
 | Auth frontend | **Dual-mode implementato** | Il browser usa Supabase Auth quando configurato e conserva il login legacy come fallback temporaneo; il Bearer JWT prevale sul cookie legacy |
-| Storage frontend | **Parziale** | Bucket privati e policy esistono; i flussi applicativi con URL firmati restano da chiudere |
+| Storage frontend | **Primo flusso implementato** | I documenti di cantiere usano bucket privato, path tenant-scoped, limiti MIME/dimensione e download con URL firmato di 5 minuti; restano da migrare gli asset AI legacy |
 
 La migration `20260803175957_edilos_release_hardening.sql` è stata applicata e
 testata sia sul Supabase locale sia sul progetto EdilOS remoto. Il deploy
@@ -518,10 +518,12 @@ Regole permanenti:
 | `backend/system_jobs/` | CREATE | Unico luogo autorizzato all'uso di `service_role` |
 | `backend/tests/test_tenant_isolation.py` | CREATE | Gate di sicurezza, cresce a ogni tabella |
 | `frontend/src/lib/supabase.js` | CREATE | Client browser con sessione Auth |
+| `frontend/src/lib/storage.js` | CREATE | Upload/lista e URL firmati per bucket privati tenant-scoped |
 | `frontend/src/lib/database.types.ts` | CREATE | Generato, non editato a mano |
 | `frontend/src/context/TenantContext.jsx` | CREATE | Risoluzione tenant + theming |
 | `frontend/src/dashboard/pages/Prezzario.jsx` | CREATE | Gestione listino + wizard |
 | `frontend/src/dashboard/pages/Computi.jsx` | CREATE | Editor computo metrico |
+| `frontend/src/dashboard/CantiereDocuments.jsx` | CREATE | Archivio documenti privato per cantiere |
 | `frontend/src/dashboard/pages/AIArchitectReview.jsx` | UPDATE | Aggiunge revisione bozza computo generata |
 
 ---

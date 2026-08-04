@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import client, { formatApiErrorDetail } from "@/lib/api";
 import { formatEuro } from "@/lib/format";
+import CantiereDocuments from "@/dashboard/CantiereDocuments";
 
 const DEFAULT_FASI = [
   { nome: "Demolizioni", stato: "da_iniziare" },
@@ -327,6 +328,8 @@ function CantiereCard({ cantiere, staffNames, onSave, onComplete, saving }) {
           />
         </label>
       </div>
+
+      <CantiereDocuments cantiereId={cantiere.id} />
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="font-body text-xs text-fog flex flex-wrap items-center gap-x-3 gap-y-1">

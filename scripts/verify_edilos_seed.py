@@ -76,6 +76,37 @@ async def main():
         where n.nspname = 'public' and c.relname = 'computi_totali'
         """)
     assert view_options and "security_invoker=true" in view_options, view_options
+
+    buckets = await c.fetch(
+        """
+        select id, public, file_size_limit, allowed_mime_types
+        from storage.buckets
+        where id in ('planimetrie','render','foto-cantiere','documenti')
+        """
+    )
+    assert len(buckets) == 4, buckets
+    assert all(not row["public"] for row in buckets), buckets
+    assert all(int(row["file_size_limit"] or 0) > 0 for row in buckets), buckets
+    assert all(row["allowed_mime_types"] for row in buckets), buckets
+
+    storage_policies = await c.fetch(
+        """
+        select policyname, cmd, roles, qual, with_check
+        from pg_policies
+        where schemaname = 'storage'
+          and tablename = 'objects'
+          and policyname in (
+            'storage_tenant_read', 'storage_tenant_write',
+            'storage_tenant_update', 'storage_tenant_delete'
+          )
+        """
+    )
+    assert len(storage_policies) == 4, storage_policies
+    for policy in storage_policies:
+        expression = f"{policy['qual'] or ''} {policy['with_check'] or ''}"
+        assert "has_role" in expression, policy
+        assert "client" not in expression, policy
+        assert "authenticated" in policy["roles"], policy
     await c.close()
     print("OK")
 
