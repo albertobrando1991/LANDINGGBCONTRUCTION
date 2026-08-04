@@ -57,3 +57,10 @@ def test_header_tenant_valido_ha_priorita_sulla_query():
 def test_slug_non_valido_non_viene_propagato():
     request = _request(host="localhost", query="tenant=../demo")
     assert tenancy.extract_tenant_slug(request) == "gbconstruction"
+
+
+def test_claim_tenant_senza_ruolo_usa_il_minimo_privilegio():
+    memberships = tenancy.tenants_from_user(
+        {"app_tenants": [{"t": "tenant-id"}]}
+    )
+    assert memberships == [{"tenant_id": "tenant-id", "role": "client"}]

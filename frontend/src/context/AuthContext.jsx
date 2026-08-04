@@ -1,5 +1,12 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import client from "@/lib/api";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
+import client, { setApiAccessToken } from "@/lib/api";
+import { supabase, supabaseConfigured } from "@/lib/supabase";
 
 const AuthContext = createContext(null);
 
@@ -19,26 +26,95 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    check();
+    let active = true;
+    let subscription;
+
+    const initialize = async () => {
+      if (supabaseConfigured) {
+        try {
+          const { data } = await supabase.auth.getSession();
+          if (!active) return;
+          setApiAccessToken(data.session?.access_token);
+
+          const listener = supabase.auth.onAuthStateChange(
+            (_event, session) => {
+              setApiAccessToken(session?.access_token);
+            },
+          );
+          subscription = listener.data.subscription;
+        } catch {
+          setApiAccessToken(null);
+        }
+      }
+      if (active) await check();
+    };
+
+    initialize();
+    return () => {
+      active = false;
+      subscription?.unsubscribe();
+    };
   }, [check]);
 
+  const clearSupabaseSession = async () => {
+    setApiAccessToken(null);
+    if (!supabaseConfigured) return;
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      /* la sessione locale viene comunque ignorata dal client API */
+    }
+  };
+
   const login = async (email, password) => {
-    const { data } = await client.post("/auth/login", { email, password });
-    setUser(data);
-    return data;
+    let supabaseVerificationError = null;
+
+    if (supabaseConfigured) {
+      try {
+        const result = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (!result.error && result.data.session?.access_token) {
+          setApiAccessToken(result.data.session.access_token);
+          try {
+            const { data } = await client.get("/auth/me");
+            setUser(data);
+            return data;
+          } catch (error) {
+            supabaseVerificationError = error;
+          }
+        }
+      } catch {
+        // Se Supabase non e raggiungibile, il login legacy resta operativo.
+      }
+      await clearSupabaseSession();
+    }
+
+    try {
+      const { data } = await client.post("/auth/login", { email, password });
+      setUser(data);
+      return data;
+    } catch (error) {
+      throw supabaseVerificationError || error;
+    }
   };
 
   const logout = async () => {
+    setApiAccessToken(null);
     try {
       await client.post("/auth/logout");
     } catch {
       /* ignore */
     }
+    await clearSupabaseSession();
     setUser(false);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh: check }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, logout, refresh: check }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -37,7 +37,7 @@ def tenants_from_user(user: dict) -> list[dict]:
     for item in raw:
         if isinstance(item, dict):
             tid = item.get("t") or item.get("tenant_id") or item.get("id")
-            role = item.get("r") or item.get("role") or "staff"
+            role = item.get("r") or item.get("role") or "client"
             if tid:
                 out.append({"tenant_id": str(tid), "role": str(role)})
     return out

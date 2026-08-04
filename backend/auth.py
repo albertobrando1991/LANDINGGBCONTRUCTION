@@ -117,12 +117,12 @@ def clear_auth_cookies(response):
 
 
 def _extract_token(request: Request) -> str | None:
-    token = request.cookies.get("access_token")
-    if not token:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-    return token
+    # Il bearer Supabase esplicito deve prevalere sull'eventuale cookie legacy:
+    # durante la migrazione dual-mode i due tipi di sessione possono coesistere.
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer ") and auth_header[7:].strip():
+        return auth_header[7:].strip()
+    return request.cookies.get("access_token")
 
 
 def _looks_like_supabase_jwt(token: str) -> bool:
@@ -143,6 +143,19 @@ def _looks_like_supabase_jwt(token: str) -> bool:
 
 _jwks_cache: dict | None = None
 _jwks_fetched_at: float = 0.0
+
+
+def _supabase_memberships(payload: dict) -> list[dict]:
+    """Accetta soltanto membership tenant complete emesse dall'access-token hook."""
+    raw = payload.get("app_tenants") or []
+    if not isinstance(raw, list):
+        return []
+    return [
+        item
+        for item in raw
+        if isinstance(item, dict)
+        and (item.get("t") or item.get("tenant_id") or item.get("id"))
+    ]
 
 
 async def _fetch_jwks() -> dict:
@@ -205,10 +218,10 @@ async def _verify_supabase(token: str) -> dict:
 
     user_id = payload.get("sub")
     email = payload.get("email") or (payload.get("user_metadata") or {}).get("email")
-    app_tenants = payload.get("app_tenants") or []
-    role = "staff"
-    if app_tenants and isinstance(app_tenants, list) and isinstance(app_tenants[0], dict):
-        role = app_tenants[0].get("r") or app_tenants[0].get("role") or "staff"
+    app_tenants = _supabase_memberships(payload)
+    if not app_tenants:
+        raise HTTPException(status_code=403, detail="Nessun tenant associato all'utente")
+    role = app_tenants[0].get("r") or app_tenants[0].get("role") or "client"
     return {
         "id": user_id,
         "sub": user_id,

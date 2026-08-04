@@ -23,7 +23,8 @@ preventivi, ma non ha ancora superato tutti i gate per una release SaaS.
 | Tenant branding | **Implementato sul dominio corrente** | `/api/tenant/config` usa whitelist e privilegi per colonna; `TenantContext` carica tema/meta. Il dominio non seleziona il tenant e non è richiesto alcun wildcard DNS |
 | CI | **Verde** | Run `30891017246` sul commit `6332869`: build, test Supabase/RLS, `rls-guard` e `service-role-guard` completati con successo |
 | Ground truth | **Bloccante release** | Esistono 10 casi sintetici, ma manca il set di 10 planimetrie PDF reali con preventivi storici per provare il gate 8/10 entro 15% |
-| Auth/Storage frontend | **Parziale** | Dual-mode backend presente; migrazione completa a Supabase Auth e flussi Storage firmati restano da chiudere |
+| Auth frontend | **Dual-mode implementato** | Il browser usa Supabase Auth quando configurato e conserva il login legacy come fallback temporaneo; il Bearer JWT prevale sul cookie legacy |
+| Storage frontend | **Parziale** | Bucket privati e policy esistono; i flussi applicativi con URL firmati restano da chiudere |
 
 La migration `20260803175957_edilos_release_hardening.sql` è stata applicata e
 testata sia sul Supabase locale sia sul progetto EdilOS remoto. Il deploy
@@ -560,7 +561,7 @@ Regole permanenti:
 
 - [x] `supabase db reset` ricostruisce l'intero schema da zero (verificato in locale il 2026-08-03)
 - [x] Test di isolamento tenant verde, con dati A/B su ogni tabella di dominio e sulla view aggregata
-- [ ] Nessun `service_role` fuori da `backend/system_jobs/` (verificato in CI)
+- [x] Nessun `service_role` fuori da `backend/system_jobs/` (verificato in CI)
 - [ ] Bozza computo da planimetria entro 15% dal preventivo storico su 8/10 casi ground-truth
 - [ ] Flusso GB end-to-end su `gbconstruction.it` e `api.gbconstruction.it`, senza dipendenze da domini tenant o wildcard DNS
 - [x] Slug di sistema (`app`, `api`, `www`, …) rifiutati dal constraint

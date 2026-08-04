@@ -3,6 +3,7 @@ import asyncio
 import jwt
 import pytest
 import auth as authlib
+from starlette.requests import Request
 
 
 def test_looks_like_supabase_rs256():
@@ -21,6 +22,51 @@ def test_looks_like_legacy_hs():
     token = jwt.encode(payload, "secret", algorithm="HS256")
     # no supabase iss
     assert authlib._looks_like_supabase_jwt(token) is False
+
+
+def _request(*, authorization=None, cookie=None):
+    headers = []
+    if authorization:
+        headers.append((b"authorization", authorization.encode("utf-8")))
+    if cookie:
+        headers.append((b"cookie", cookie.encode("utf-8")))
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": headers,
+            "query_string": b"",
+            "scheme": "https",
+            "server": ("api.gbconstruction.it", 443),
+            "client": ("127.0.0.1", 12345),
+        }
+    )
+
+
+def test_supabase_bearer_precedes_legacy_cookie():
+    request = _request(
+        authorization="Bearer supabase-session",
+        cookie="access_token=legacy-session",
+    )
+    assert authlib._extract_token(request) == "supabase-session"
+
+
+def test_legacy_cookie_remains_supported_without_bearer():
+    request = _request(cookie="access_token=legacy-session")
+    assert authlib._extract_token(request) == "legacy-session"
+
+
+def test_supabase_membership_requires_a_tenant_identifier():
+    assert authlib._supabase_memberships({}) == []
+    assert authlib._supabase_memberships({"app_tenants": [{"r": "admin"}]}) == []
+
+
+def test_supabase_membership_accepts_access_token_hook_claim():
+    memberships = authlib._supabase_memberships(
+        {"app_tenants": [{"t": "tenant-id", "r": "operations"}]}
+    )
+    assert memberships == [{"t": "tenant-id", "r": "operations"}]
 
 
 class _FakeUsers:

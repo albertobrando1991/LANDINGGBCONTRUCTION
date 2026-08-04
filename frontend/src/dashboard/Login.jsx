@@ -57,7 +57,7 @@ export default function Login() {
             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Accedi <ArrowRight className="w-4 h-4" /></>}
           </button>
           <p className="font-body text-xs text-fog text-center pt-2">
-            Demo admin: admin@gbconstruction.it · GBadmin2026!
+            Accesso riservato al personale autorizzato GB Construction.
           </p>
         </form>
       </div>

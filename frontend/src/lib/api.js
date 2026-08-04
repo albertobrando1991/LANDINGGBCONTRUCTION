@@ -1,5 +1,5 @@
 import axios from "axios";
-import { resolveTenantSlug } from "@/lib/tenant";
+import { resolveTenantSlug } from "./tenant";
 
 const PRODUCTION_BACKEND_URL = "https://api.gbconstruction.it";
 
@@ -20,8 +20,17 @@ const client = axios.create({
   withCredentials: true,
 });
 
+let apiAccessToken = null;
+
+export function setApiAccessToken(token) {
+  apiAccessToken = typeof token === "string" && token.trim() ? token : null;
+}
+
 client.interceptors.request.use((config) => {
   config.headers = config.headers || {};
+  if (apiAccessToken && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${apiAccessToken}`;
+  }
   if (!config.headers["X-Tenant-Slug"]) {
     config.headers["X-Tenant-Slug"] = resolveTenantSlug();
   }
