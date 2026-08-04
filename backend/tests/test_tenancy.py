@@ -26,7 +26,12 @@ def _request(*, host: str, query: str = "", tenant_header: str | None = None):
 
 
 def test_domini_produzione_usano_tenant_gb_default():
-    for host in ("gbconstruction.it", "www.gbconstruction.it", "api.gbconstruction.it"):
+    for host in (
+        "gbconstruction.it",
+        "www.gbconstruction.it",
+        "app.gbconstruction.it",
+        "api.gbconstruction.it",
+    ):
         assert tenancy.extract_tenant_slug(_request(host=host)) == "gbconstruction"
 
 

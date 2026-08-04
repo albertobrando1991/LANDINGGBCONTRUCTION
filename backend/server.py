@@ -84,7 +84,7 @@ DEFAULT_CORS_ORIGIN_REGEX = (
     r"172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|"
     r"192\.168\.\d{1,3}\.\d{1,3}"
     r"):3000"
-    r"|https://(?:www\.)?gbconstruction\.it"
+    r"|https://(?:(?:www|app)\.)?gbconstruction\.it"
 )
 
 AUTH_LOGIN_MAX_PER_15_MIN = max(1, int(os.getenv("AUTH_LOGIN_MAX_PER_15_MIN", "10")))

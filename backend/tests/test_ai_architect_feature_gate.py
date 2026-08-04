@@ -1,4 +1,5 @@
 import asyncio
+import re
 from types import SimpleNamespace
 
 from fastapi import HTTPException
@@ -78,3 +79,19 @@ def test_private_beta_does_not_gate_other_routes(monkeypatch):
     )
 
     assert response.status_code == 200
+
+
+def test_production_cors_accepts_only_gb_frontends():
+    for origin in (
+        "https://gbconstruction.it",
+        "https://www.gbconstruction.it",
+        "https://app.gbconstruction.it",
+    ):
+        assert re.fullmatch(server.DEFAULT_CORS_ORIGIN_REGEX, origin)
+
+    assert not re.fullmatch(
+        server.DEFAULT_CORS_ORIGIN_REGEX, "https://demo.alantis.it"
+    )
+    assert not re.fullmatch(
+        server.DEFAULT_CORS_ORIGIN_REGEX, "https://example.invalid"
+    )

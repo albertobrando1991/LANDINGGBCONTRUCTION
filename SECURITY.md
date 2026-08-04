@@ -2,7 +2,8 @@
 
 ## Perimetro di produzione
 
-- Frontend: `https://gbconstruction.it` e `https://www.gbconstruction.it`.
+- Sito pubblico: `https://gbconstruction.it` e `https://www.gbconstruction.it`.
+- Applicazione web: `https://app.gbconstruction.it`.
 - API: `https://api.gbconstruction.it`.
 - Nessun dominio o sottodominio `.alantis.it` è autorizzato per hosting, tenant routing o CORS.
 
@@ -13,6 +14,8 @@ In produzione il backend rifiuta l'avvio se `JWT_SECRET` non contiene almeno 32 
 Gli account generici creati dalle vecchie routine di seed (`staff@gbconstruction.it` e `operations@gbconstruction.it`) vengono disabilitati. Gli utenti operativi vanno creati dalla dashboard con credenziali personali.
 
 AI Architect viene distribuito in beta privata con `AI_ARCHITECT_PUBLIC_ENABLED=false` e `REACT_APP_AI_ARCHITECT_PUBLIC_ENABLED=false`. In questo stato il frontend pubblico non propone il caricamento della planimetria e il backend richiede una sessione staff per route, report e file AI. Le due flag possono diventare `true` solo dopo il verdetto GO del ground-truth su 10 planimetrie reali anonimizzate.
+
+In produzione `APP_PUBLIC_URL` deve puntare a `https://app.gbconstruction.it`, così i link dashboard nelle email restano nell'applicazione. `CORS_ORIGINS` deve includere sito pubblico, `www` e applicazione; `MAIL_LOGO_URL` deve usare l'asset servito dall'app.
 
 ## Verifiche automatiche
 
