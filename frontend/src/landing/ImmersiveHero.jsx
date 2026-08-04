@@ -142,14 +142,7 @@ async function loadBitmap(src) {
   });
 }
 
-export default function ImmersiveHero() {
-  const prefersReducedMotion = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    [],
-  );
-
+function AnimatedImmersiveHero({ prefersReducedMotion }) {
   const frameSettings = useMemo(() => {
     const isMobile = isMobileScrollViewport();
 
@@ -159,7 +152,7 @@ export default function ImmersiveHero() {
           step: 2,
           preferPngEndpoints: false,
           dprCap: 1.7,
-          initialBuffer: 14,
+          initialBuffer: 3,
           prefetchRadius: 5,
           maxDecodedFrames: 16,
           scrub: 0.35,
@@ -167,9 +160,9 @@ export default function ImmersiveHero() {
       : {
           basePath: `${PUBLIC_MEDIA_BASE}/frames_heron_uhd`,
           step: 1,
-          preferPngEndpoints: true,
+          preferPngEndpoints: false,
           dprCap: 2,
-          initialBuffer: 10,
+          initialBuffer: 3,
           prefetchRadius: 4,
           maxDecodedFrames: 14,
           scrub: 1.15,
@@ -476,13 +469,10 @@ export default function ImmersiveHero() {
 
   useEffect(() => {
     let cancelled = false;
-    const initialIndices = [
-      ...Array.from(
-        { length: Math.min(frameSettings.initialBuffer, frameSources.length) },
-        (_, i) => i,
-      ),
-      frameSources.length - 1,
-    ].filter((value, index, values) => values.indexOf(value) === index);
+    const initialIndices = Array.from(
+      { length: Math.min(frameSettings.initialBuffer, frameSources.length) },
+      (_, i) => i,
+    );
 
     setLoadProgress(0);
     setInitialBufferReady(false);
@@ -1108,5 +1098,76 @@ export default function ImmersiveHero() {
         </div>
       </div>
     </section>
+  );
+}
+
+function ReducedMotionHero() {
+  const scrollToConfig = () =>
+    scheduleSmoothScrollToElement(document.getElementById("configuratore"));
+
+  return (
+    <section
+      id="hero"
+      className="relative flex min-h-[100svh] items-center justify-center overflow-hidden bg-black px-5 py-28 text-center sm:px-6"
+    >
+      <picture className="absolute inset-0">
+        <source
+          media="(max-width: 768px)"
+          srcSet={`${PUBLIC_MEDIA_BASE}/frames_heron_mobile/frame_0001.jpg`}
+        />
+        <img
+          src={`${PUBLIC_MEDIA_BASE}/frames_heron_uhd/frame_0001.jpg`}
+          alt="Interno da ristrutturare seguito da GB Construction"
+          className="h-full w-full object-cover"
+          loading="eager"
+          fetchPriority="high"
+          decoding="async"
+        />
+      </picture>
+      <div className="absolute inset-0 bg-black/65" aria-hidden />
+      <div
+        className="absolute inset-0 bg-gradient-to-t from-bg via-transparent to-black/40"
+        aria-hidden
+      />
+
+      <div className="relative z-10 max-w-5xl">
+        <p className="mb-6 font-display text-xs font-semibold uppercase tracking-[0.24em] text-brand">
+          Preventivo smart GB - Napoli &amp; Campania
+        </p>
+        <h1 className="font-display text-[clamp(2.4rem,10vw,6rem)] font-bold uppercase leading-[0.94] text-ink">
+          Questo costa <span className="text-brand">ristrutturare</span> casa
+          tua.
+        </h1>
+        <p className="mx-auto mt-7 max-w-2xl font-body text-sm font-semibold text-white/90 sm:text-base md:text-lg">
+          Compila pochi dati sul tuo immobile. Ricevi una stima personalizzata
+          su 3 livelli, un'anteprima visiva e una proposta di sopralluogo
+          gratuito.
+        </p>
+        <button
+          type="button"
+          data-testid="hero-cta-stima"
+          onClick={scrollToConfig}
+          className="mt-9 inline-flex items-center gap-3 rounded-full bg-brand px-7 py-4 font-display text-sm font-semibold uppercase tracking-wider text-white md:px-12 md:py-5 md:text-lg"
+        >
+          Avvia stima gratuita
+          <ArrowRight className="h-5 w-5" aria-hidden />
+        </button>
+        <p className="mt-7 font-display text-xs font-normal uppercase tracking-[0.2em] text-fog">
+          +200 cantieri - +15 anni in Campania - Sopralluogo sempre gratuito
+        </p>
+      </div>
+    </section>
+  );
+}
+
+export default function ImmersiveHero() {
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  return prefersReducedMotion ? (
+    <ReducedMotionHero />
+  ) : (
+    <AnimatedImmersiveHero prefersReducedMotion={false} />
   );
 }
