@@ -91,3 +91,4 @@ jobs:
           npm ci --legacy-peer-deps
           npm run build
           npm run check:release
+          npm run audit:runtime
