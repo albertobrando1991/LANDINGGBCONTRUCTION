@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import base64
 import html
 import logging
 import os
 import smtplib
 import ssl
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.utils import formataddr, getaddresses
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+import requests
 
 logger = logging.getLogger("gb.email")
 
@@ -50,12 +53,36 @@ def _smtp_port() -> int:
         return 465
 
 
-def is_configured() -> bool:
+def _resend_api_key() -> str:
+    # API_RESEND e il nome usato nel .env storico; RESEND_API_KEY e il nome
+    # standard documentato e configurato nei runtime nuovi.
+    return _env("RESEND_API_KEY", _env("API_RESEND"))
+
+
+def _smtp_is_configured() -> bool:
     return bool(
         _env("SMTP_HOST")
         and _env("SMTP_USERNAME", _env("SMTP_USER"))
         and _env("SMTP_PASSWORD")
     )
+
+
+def transport_name() -> str:
+    """Trasporto email effettivo, in ordine di priorita sicuro.
+
+    La presenza della chiave Resend seleziona sempre HTTPS. Non ricadiamo su
+    SMTP dopo un errore Resend, per evitare duplicati quando una richiesta e
+    stata accettata ma la risposta non e arrivata al chiamante.
+    """
+    if _resend_api_key():
+        return "resend"
+    if _smtp_is_configured():
+        return "smtp"
+    return "none"
+
+
+def is_configured() -> bool:
+    return transport_name() != "none"
 
 
 def _sender_email() -> str:
@@ -351,7 +378,97 @@ def _build_message(
     return message
 
 
-def _send_message(message: EmailMessage) -> None:
+def _message_addresses(message: EmailMessage, header: str) -> list[str]:
+    values = message.get_all(header, [])
+    return [address for _, address in getaddresses(values) if address]
+
+
+def _message_body(message: EmailMessage, subtype: str) -> str:
+    part = message.get_body(preferencelist=(subtype,))
+    if not part:
+        return ""
+    try:
+        return part.get_content()
+    except (LookupError, UnicodeDecodeError):
+        payload = part.get_payload(decode=True) or b""
+        return payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+
+
+def _resend_attachments(message: EmailMessage) -> list[Dict[str, str]]:
+    attachments: list[Dict[str, str]] = []
+    for part in message.walk():
+        if part.is_multipart():
+            continue
+        disposition = part.get_content_disposition()
+        content_id = (part.get("Content-ID") or "").strip("<>")
+        content_type = part.get_content_type()
+        if disposition not in {"attachment", "inline"} and not content_id:
+            continue
+        content = part.get_payload(decode=True)
+        if not content:
+            continue
+        fallback_name = "gb-logo.png" if content_type == "image/png" else "allegato"
+        attachment = {
+            "filename": part.get_filename() or fallback_name,
+            "content": base64.b64encode(content).decode("ascii"),
+        }
+        if content_id:
+            attachment["content_id"] = content_id
+        attachments.append(attachment)
+    return attachments
+
+
+def _send_message_resend(message: EmailMessage) -> None:
+    recipients = _message_addresses(message, "To")
+    if not recipients:
+        raise RuntimeError("Destinatario email mancante")
+
+    payload: Dict[str, Any] = {
+        "from": str(message.get("From") or ""),
+        "to": recipients,
+        "subject": str(message.get("Subject") or "GB Construction"),
+        "text": _message_body(message, "plain"),
+        "html": _message_body(message, "html"),
+    }
+    reply_to = _message_addresses(message, "Reply-To")
+    if reply_to:
+        payload["reply_to"] = reply_to[0] if len(reply_to) == 1 else reply_to
+    attachments = _resend_attachments(message)
+    if attachments:
+        payload["attachments"] = attachments
+
+    try:
+        timeout = float(_env("RESEND_TIMEOUT_SECONDS", "20"))
+    except ValueError:
+        timeout = 20.0
+    response = requests.post(
+        _env("RESEND_API_URL", "https://api.resend.com/emails"),
+        headers={
+            "Authorization": f"Bearer {_resend_api_key()}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=timeout,
+    )
+    if response.status_code < 200 or response.status_code >= 300:
+        detail = ""
+        try:
+            body = response.json()
+            detail = str(body.get("message") or body.get("name") or "")[:300]
+        except (ValueError, AttributeError):
+            detail = ""
+        suffix = f": {detail}" if detail else ""
+        raise RuntimeError(f"Resend API HTTP {response.status_code}{suffix}")
+    try:
+        email_id = str(response.json().get("id") or "")
+    except (ValueError, AttributeError):
+        email_id = ""
+    if not email_id:
+        raise RuntimeError("Resend API non ha restituito l'ID dell'email")
+    logger.info("Email accepted by Resend (id=%s)", email_id)
+
+
+def _send_message_smtp(message: EmailMessage) -> None:
     host = _env("SMTP_HOST")
     port = _smtp_port()
     username = _env("SMTP_USERNAME", _env("SMTP_USER"))
@@ -374,6 +491,17 @@ def _send_message(message: EmailMessage) -> None:
         smtp.send_message(message)
 
 
+def _send_message(message: EmailMessage) -> None:
+    transport = transport_name()
+    if transport == "resend":
+        _send_message_resend(message)
+        return
+    if transport == "smtp":
+        _send_message_smtp(message)
+        return
+    raise RuntimeError("Servizio email non configurato")
+
+
 def send_custom_email(
     *,
     to_email: str,
@@ -382,12 +510,12 @@ def send_custom_email(
     attachments: Optional[list] = None,
     reply_to: Optional[str] = None,
 ) -> None:
-    """Invio email manuale dallo staff tramite l'email ufficiale (SMTP/Zimbra), con allegati.
+    """Invio email manuale dallo staff tramite l'email ufficiale, con allegati.
 
     attachments: lista di dict {"filename": str, "content": bytes, "mime": str}.
     """
     if not is_configured():
-        raise RuntimeError("SMTP/email ufficiale non configurato")
+        raise RuntimeError("Servizio email ufficiale non configurato")
     if not (to_email or "").strip():
         raise RuntimeError("Destinatario mancante")
     message = EmailMessage()
@@ -424,7 +552,7 @@ def send_custom_email(
 
 def send_lead_emails(lead: Dict[str, Any], kind: str = "lead") -> None:
     if not is_configured():
-        logger.warning("SMTP not configured: lead email notifications skipped")
+        logger.warning("Email transport not configured: lead notifications skipped")
         return
 
     lead = dict(lead)

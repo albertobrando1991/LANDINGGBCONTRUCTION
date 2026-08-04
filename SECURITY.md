@@ -17,6 +17,8 @@ AI Architect viene distribuito in beta privata con `AI_ARCHITECT_PUBLIC_ENABLED=
 
 In produzione `APP_PUBLIC_URL` deve puntare a `https://app.gbconstruction.it`, così i link dashboard nelle email restano nell'applicazione. `CORS_ORIGINS` deve includere sito pubblico, `www` e applicazione; `MAIL_LOGO_URL` deve usare l'asset servito dall'app.
 
+Sul piano Railway Hobby le email vengono inviate tramite API HTTPS Resend: configurare `RESEND_API_KEY` (oppure l'alias storico `API_RESEND`), `MAIL_FROM_EMAIL=info@gbconstruction.it` e `LEAD_NOTIFICATION_EMAIL=info@gbconstruction.it`. Il dominio mittente deve risultare verificato in Resend con SPF e DKIM. Quando la chiave Resend è presente, il backend usa esclusivamente Resend e non tenta SMTP dopo un errore, evitando possibili invii duplicati. SMTP cPanel resta disponibile come fallback per gli ambienti che ne consentono l'uscita.
+
 ## Verifiche automatiche
 
 ```bash

@@ -1311,7 +1311,10 @@ async def cleanup_test_leads(body: LeadsCleanupBody, user: dict = Depends(requir
 
 @api.get("/email/status")
 async def email_status(user: dict = Depends(current_user)):
-    return {"configured": email_service.is_configured()}
+    return {
+        "configured": email_service.is_configured(),
+        "transport": email_service.transport_name(),
+    }
 
 
 @api.post("/leads/{lead_id}/email")
@@ -1323,7 +1326,7 @@ async def send_lead_email(
     attachments: List[UploadFile] = File(default=[]),
     user: dict = Depends(current_user),
 ):
-    """Invio email manuale dallo staff al cliente dall'email ufficiale (SMTP/Zimbra), con allegati."""
+    """Invio email manuale dallo staff al cliente dall'email ufficiale, con allegati."""
     lead = await db.leads.find_one({"_id": object_id_or_400(lead_id, "Lead")})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead non trovato")
