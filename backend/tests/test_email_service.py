@@ -1,6 +1,19 @@
 import email_service
 
 
+def _assert_branded_logo(message, html_body):
+    if "cid:gblogo" in html_body:
+        images = [
+            part
+            for part in message.walk()
+            if part.get_content_maintype() == "image"
+            and part.get("Content-ID") == "<gblogo>"
+        ]
+        assert images, "Il logo CID dichiarato nell'HTML deve essere allegato"
+    else:
+        assert "https://gbconstruction.it/brand/gb-logo.png" in html_body
+
+
 def _lead():
     return {
         "id": "lead-123",
@@ -79,7 +92,7 @@ def test_email_service_sends_internal_and_customer_messages(monkeypatch):
     assert sent_messages[0]["Reply-To"] == "mario@example.com"
     assert sent_messages[1]["To"] == "mario@example.com"
     html_body = sent_messages[1].get_body(preferencelist=("html",)).get_content()
-    assert "https://gbconstruction.it/brand/gb-logo.png" in html_body
+    _assert_branded_logo(sent_messages[1], html_body)
     assert "#C62828" in html_body
     assert "Costruiamo valore. Trasformiamo spazi." in html_body
 
@@ -119,6 +132,6 @@ def test_custom_email_uses_branded_layout(monkeypatch):
 
     assert len(sent_messages) == 1
     html_body = sent_messages[0].get_body(preferencelist=("html",)).get_content()
-    assert "https://gbconstruction.it/brand/gb-logo.png" in html_body
+    _assert_branded_logo(sent_messages[0], html_body)
     assert "Aggiornamento cantiere" in html_body
     assert "Stato avanzamento: 45%" in html_body

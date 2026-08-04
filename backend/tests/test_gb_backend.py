@@ -4,7 +4,15 @@ import time
 import requests
 import pytest
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://api.gbconstruction.it").rstrip("/")
+pytestmark = [
+    pytest.mark.live_e2e,
+    pytest.mark.skipif(
+        os.environ.get("GB_LIVE_E2E") != "1",
+        reason="E2E live disabilitati: impostare GB_LIVE_E2E=1 esplicitamente",
+    ),
+]
+
+BASE_URL = os.environ.get("GB_E2E_BASE_URL", "").rstrip("/")
 API = f"{BASE_URL}/api"
 
 

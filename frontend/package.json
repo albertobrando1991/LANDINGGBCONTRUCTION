@@ -67,7 +67,7 @@
     "start": "craco start",
     "build": "craco build",
     "test": "craco test",
-    "db:types": "supabase gen types typescript --local > src/lib/database.types.ts"
+    "db:types": "supabase gen types typescript --local --workdir .. --schema public > src/lib/database.types.ts"
   },
   "browserslist": {
     "production": [
