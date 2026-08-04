@@ -6,11 +6,12 @@
 > **Piano strategico di riferimento:** `IMPLEMENTATION_PLAN_EdilOS_Supabase.md` — leggilo per il "perché". Questo file è il "come".
 > **Scope:** Fase 0 (fondamenta) + Fase 1 (prezzario, computi, ponte AI). Fasi 3-6 fuori scope, non anticiparle.
 
-> **Stato verificato al 2026-08-03:** implementazione Fase 0+1 circa al 75%.
+> **Stato verificato al 2026-08-04:** implementazione Fase 0+1 circa al 75%.
 > Reset locale, seed, RLS A/B, prezzario custom→mapping AI, validazione
-> computo→preventivo e build frontend sono verdi. Restano aperti: deploy della
-> migration di hardening, run CI remoto, backfill con conteggi di produzione,
-> PDF brandizzato E2E, Supabase Auth/Storage completi e ground truth su 10 PDF reali.
+> computo→preventivo, build frontend e CI remota sono verdi. La migration di
+> hardening è applicata e verificata sul progetto EdilOS remoto. Restano aperti:
+> deploy applicativo/smoke, backfill con conteggi di produzione, PDF brandizzato
+> E2E, Supabase Auth/Storage completi e ground truth su 10 PDF reali.
 
 ---
 

@@ -5,9 +5,9 @@
 **Prezzario base**: Regione Campania, duplicabile e personalizzabile per tenant
 **Metodo**: vibe-coding — migration SQL first, types generati, UI dopo
 **Complessità**: LARGE (~5 mesi, 1 sviluppatore)
-**Stato**: Fase 0 + Fase 1 in beta tecnica; hardening release verificato in locale
+**Stato**: Fase 0 + Fase 1 in beta tecnica; hardening verificato locale e remoto
 
-### Aggiornamento implementazione — 3 agosto 2026
+### Aggiornamento implementazione — 4 agosto 2026
 
 La roadmap completa è circa al **25%**: le Fasi 3-6 non sono iniziate. Lo scope
 Fase 0 + Fase 1 è circa al **75%** e produce già prezzari, computi, ponte AI e
@@ -15,19 +15,19 @@ preventivi, ma non ha ancora superato tutti i gate per una release SaaS.
 
 | Area | Stato verificato | Evidenza / limite attuale |
 |---|---|---|
-| Schema Supabase, seed, RLS | **Verde in locale** | `supabase db reset --local` ricostruisce 9 migration + seed; 10 tabelle tenant-scoped senza RLS mancanti |
+| Schema Supabase, seed, RLS | **Verde locale e remoto** | `supabase db reset --local` ricostruisce 9 migration + seed; la migration di hardening è applicata al progetto EdilOS remoto e le postcondizioni di sicurezza sono verificate |
 | Isolamento tenant | **Verde in locale** | Test transazionale A/B su lettura, scrittura e view `computi_totali`; ad `anon` sono negati P.IVA/piano/crediti |
 | Prezzario e ponte AI | **Verde in locale** | Il listino duplicato diventa default e le regole AI risolvono le voci personalizzate per codice, usando i prezzi calibrati |
 | Computo → preventivo | **Hardening completato** | Conversione consentita solo da computo `confermato`; voci AI non validate restano un blocco server-side |
 | Bridge Mongo → Postgres | **Transitorio implementato** | Gli ObjectId lead vengono sincronizzati on-demand in UUID tenant-scoped; Mongo resta comunque presente fino a Fase 2 |
-| Tenant branding | **Implementato, DNS assente** | `/api/tenant/config` usa whitelist e privilegi per colonna; `TenantContext` carica tema/meta. Wildcard DNS e deploy della patch non sono completati |
-| CI | **Rafforzata, run remoto pendente** | Workflow prepara Supabase locale, resetta il DB e lancia test RLS reali; serve ancora il run GitHub della patch |
+| Tenant branding | **Implementato, deploy/DNS assenti** | `/api/tenant/config` usa whitelist e privilegi per colonna; `TenantContext` carica tema/meta. Wildcard DNS e deploy applicativo della patch non sono completati |
+| CI | **Verde** | Run `30891017246` sul commit `6332869`: build, test Supabase/RLS, `rls-guard` e `service-role-guard` completati con successo |
 | Ground truth | **Bloccante release** | Esistono 10 casi sintetici, ma manca il set di 10 planimetrie PDF reali con preventivi storici per provare il gate 8/10 entro 15% |
 | Auth/Storage frontend | **Parziale** | Dual-mode backend presente; migrazione completa a Supabase Auth e flussi Storage firmati restano da chiudere |
 
 La migration `20260803175957_edilos_release_hardening.sql` è stata applicata e
-testata **solo sul Supabase locale**. Non è ancora stata distribuita al progetto
-remoto né sono stati configurati i record DNS `*.alantis.it`.
+testata sia sul Supabase locale sia sul progetto EdilOS remoto. Il deploy
+applicativo della patch e i record DNS `*.alantis.it` non sono ancora completati.
 
 ---
 
@@ -571,5 +571,5 @@ Regole permanenti:
 
 ---
 
-**PROSSIMO GATE** — deploy controllato della migration di hardening, run CI remoto,
-smoke staging e acquisizione dei 10 casi ground-truth reali.
+**PROSSIMO GATE** — deploy applicativo controllato, smoke staging, configurazione
+DNS e acquisizione dei 10 casi ground-truth reali.
