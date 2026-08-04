@@ -307,6 +307,39 @@ async def lista_computi(conn: asyncpg.Connection, tenant_id: str) -> list[dict]:
     return [_d(r) for r in rows]
 
 
+async def lista_preventivi(conn: asyncpg.Connection, tenant_id: str) -> list[dict]:
+    """Lista documenti EdilOS nel formato condiviso con la dashboard legacy."""
+    rows = await conn.fetch(
+        """
+        select p.id, p.computo_id, p.numero,
+               coalesce(l.nome, 'Cliente non associato') as cliente,
+               l.citta, l.telefono, l.email,
+               coalesce(l.config ->> 'livello', 'computo') as livello,
+               p.totale_documento as range_basso,
+               p.totale_documento as range_alto,
+               p.totale_documento,
+               case p.stato
+                 when 'bozza' then 'preventivo_preparazione'
+                 when 'inviato' then 'preventivo_inviato'
+                 when 'accettato' then 'chiuso_vinto'
+                 when 'rifiutato' then 'chiuso_perso'
+                 when 'scaduto' then 'chiuso_perso'
+               end as status,
+               p.stato as stato_documento,
+               0 as giorni_silenzio,
+               'edilos'::text as source,
+               p.created_at
+        from public.preventivi p
+        left join public.leads l
+          on l.id = p.lead_id and l.tenant_id = p.tenant_id
+        where p.tenant_id = $1::uuid
+        order by p.created_at desc
+        """,
+        tenant_id,
+    )
+    return [_d(r) for r in rows]
+
+
 async def computo_to_preventivo(
     conn: asyncpg.Connection,
     tenant_id: str,
@@ -316,8 +349,11 @@ async def computo_to_preventivo(
     iva: float = 10,
 ) -> dict:
     c = await get_computo(conn, tenant_id, computo_id)
-    if c["stato"] not in ("confermato", "bozza", "ai_da_revisionare"):
-        raise HTTPException(status_code=409, detail="Stato computo non valido per preventivo")
+    if c["stato"] != "confermato":
+        raise HTTPException(
+            status_code=409,
+            detail="Conferma il computo e valida tutte le voci AI prima di creare il preventivo",
+        )
 
     imponibile = float(c["totali"].get("totale") or 0)
     sconto = max(0.0, min(100.0, float(sconto)))
@@ -329,6 +365,13 @@ async def computo_to_preventivo(
     from datetime import datetime, timezone
 
     anno = datetime.now(timezone.utc).year
+    # Serializza la numerazione per tenant senza dipendere dalla policy UPDATE
+    # di tenants: anche staff/operations possono creare preventivi mantenendo
+    # un solo progressivo per transazione concorrente.
+    await conn.fetchval(
+        "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+        f"edilos:preventivo-progressivo:{tenant_id}",
+    )
     progressivo = await conn.fetchval(
         """
         select coalesce(max(progressivo), 0) + 1 from public.preventivi

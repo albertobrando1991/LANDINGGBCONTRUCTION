@@ -1,6 +1,9 @@
 """Test prezzario: wizard propagation logic (puro) + guard sistema."""
+import asyncio
 from decimal import Decimal
 from collections import defaultdict
+
+import prezzario_service
 
 
 def test_wizard_propagation_math():
@@ -50,3 +53,27 @@ def test_ventotto_wizard_codes():
     codes = {r[0] for r in VOCI_STANDARD}
     missing = wizard - codes
     assert not missing, f"codici wizard assenti da predictive_data: {missing}"
+
+
+def test_default_usa_lock_transazionale_tenant_scoped():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    prezzario_id = "b0000000-0000-4000-8000-000000000001"
+
+    class Conn:
+        async def fetchval(self, sql, *args):
+            assert "pg_advisory_xact_lock" in sql
+            assert args == (f"edilos:prezzario-default:{tenant_id}",)
+
+        async def fetchrow(self, sql, *args):
+            assert args == (prezzario_id, tenant_id)
+            return {"id": prezzario_id, "tenant_id": tenant_id, "is_default": True}
+
+        async def execute(self, sql, *args):
+            assert "set is_default = false" in sql
+            assert args == (tenant_id,)
+
+    row = asyncio.run(
+        prezzario_service.imposta_default(Conn(), tenant_id, prezzario_id)
+    )
+    assert row["id"] == prezzario_id
+    assert row["is_default"] is True

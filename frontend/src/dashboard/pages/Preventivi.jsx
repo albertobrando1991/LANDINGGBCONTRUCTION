@@ -17,6 +17,26 @@ export default function Preventivi() {
     refetchInterval: 30000,
   });
 
+  const openPreventivo = (p) => {
+    navigate(
+      p.source === "edilos"
+        ? `/dashboard/computi/${p.computo_id}`
+        : `/dashboard/lead/${p.id}`
+    );
+  };
+
+  const downloadPdf = async (p) => {
+    const response = await client.get(`/preventivi/${p.id}/pdf`, {
+      responseType: "blob",
+    });
+    const url = URL.createObjectURL(response.data);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${p.numero || "preventivo"}.pdf`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (isLoading) return <div className="text-fog font-display uppercase animate-pulse">Caricamento…</div>;
 
   return (
@@ -43,7 +63,7 @@ export default function Preventivi() {
           </thead>
           <tbody>
             {list.map((p) => (
-              <tr key={p.id} className="border-b border-stroke/60 hover:bg-surface-2/50 cursor-pointer" onClick={() => navigate(`/dashboard/lead/${p.id}`)}>
+              <tr key={`${p.source || "legacy"}-${p.id}`} className="border-b border-stroke/60 hover:bg-surface-2/50 cursor-pointer" onClick={() => openPreventivo(p)}>
                 <td className="px-4 py-3 font-display uppercase text-xs text-ink">{p.cliente}</td>
                 <td className="px-4 py-3 font-body text-xs text-fog">{p.citta}</td>
                 <td className="px-4 py-3 font-body text-xs text-fog capitalize">{p.livello}</td>
@@ -56,7 +76,11 @@ export default function Preventivi() {
                 </td>
                 <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-2 text-fog">
-                    <button onClick={() => navigate(`/dashboard/lead/${p.id}`)} className="hover:text-ink" title="Apri scheda"><FileText className="w-4 h-4" /></button>
+                    <button
+                      onClick={() => p.source === "edilos" ? downloadPdf(p) : openPreventivo(p)}
+                      className="hover:text-ink"
+                      title={p.source === "edilos" ? "Scarica PDF" : "Apri scheda"}
+                    ><FileText className="w-4 h-4" /></button>
                     {buildWhatsappUrl(p.telefono, p.cliente) ? (
                       <a href={buildWhatsappUrl(p.telefono, p.cliente)} target="_blank" rel="noreferrer" className="hover:text-success"><MessageCircle className="w-4 h-4" /></a>
                     ) : (

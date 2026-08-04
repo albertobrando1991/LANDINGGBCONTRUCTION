@@ -1,9 +1,13 @@
 """Test computo metrico: regole di conferma, snapshot prezzi, nessun prezzo AI."""
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi import HTTPException
 
+import boq_service
 from engines.metriche import MetricheComputo, assert_nessun_prezzo
 from mapping_engine import Regola, genera_voci
 
@@ -86,3 +90,23 @@ def test_metriche_non_contengono_prezzi():
     for k in m.model_dump():
         assert "prezzo" not in k.lower()
         assert "importo" not in k.lower()
+
+
+def test_preventivo_richiede_computo_realmente_confermato():
+    computo = {
+        "id": "10000000-0000-4000-8000-000000000001",
+        "stato": "ai_da_revisionare",
+        "totali": {"totale": 1000},
+        "voci": [],
+    }
+    with patch("boq_service.get_computo", new=AsyncMock(return_value=computo)):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                boq_service.computo_to_preventivo(
+                    None,
+                    "a0000000-0000-4000-8000-000000000001",
+                    computo["id"],
+                )
+            )
+    assert exc.value.status_code == 409
+    assert "Conferma il computo" in exc.value.detail

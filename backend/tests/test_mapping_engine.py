@@ -1,5 +1,7 @@
 """Test puri sul ponte metriche → voci (nessun DB, nessun LLM)."""
-from mapping_engine import Regola, genera_voci
+import asyncio
+
+from mapping_engine import Regola, carica_regole, genera_voci
 from engines.metriche import MetricheComputo, estrai_metriche, assert_nessun_prezzo
 import pytest
 
@@ -88,3 +90,34 @@ def test_salta_qta_zero():
     voci = genera_voci(m, regole, {})
     assert len(voci) == 1
     assert voci[0].metrica == "n_punti_luce"
+
+
+def test_listino_personalizzato_risolve_prezzo_per_codice():
+    class FakeConn:
+        async def fetch(self, sql, *args):
+            assert "left join lateral" in sql.lower()
+            assert args == ("tenant-a", "prezzario-custom")
+            return [
+                {
+                    "id": "regola-1",
+                    "metrica": "mq_pavimento",
+                    "prezzario_voce_id": "voce-custom",
+                    "moltiplicatore": 1,
+                    "condizione": None,
+                    "ordine": 10,
+                    "super_categoria": "Finiture",
+                    "categoria": "Pavimenti",
+                    "sub_categoria": None,
+                    "descrizione": "Gres personalizzato",
+                    "um": "mq",
+                    "tipo": "a_misura",
+                    "prezzo_unitario": 77,
+                }
+            ]
+
+    regole = asyncio.run(
+        carica_regole(FakeConn(), "tenant-a", "prezzario-custom")
+    )
+    assert len(regole) == 1
+    assert regole[0].prezzario_voce_id == "voce-custom"
+    assert regole[0].prezzo_unitario == 77

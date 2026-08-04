@@ -38,8 +38,47 @@ async def lista_prezzari(conn: asyncpg.Connection, tenant_id: str) -> list[dict]
     return [_d(r) for r in rows]
 
 
+async def imposta_default(
+    conn: asyncpg.Connection, tenant_id: str, prezzario_id: str
+) -> dict:
+    """Imposta un solo prezzario default serializzando gli update per tenant."""
+    # Il lock sulla riga tenants non e' affidabile per i membri non admin:
+    # la policy UPDATE puo' nascondere la riga a SELECT ... FOR UPDATE. Un
+    # advisory lock transazionale mantiene la serializzazione per ogni tenant
+    # senza ampliare i privilegi sulla tabella tenants.
+    await conn.fetchval(
+        "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+        f"edilos:prezzario-default:{tenant_id}",
+    )
+    target = await conn.fetchrow(
+        "select * from public.prezzari where id = $1::uuid and tenant_id = $2::uuid",
+        prezzario_id,
+        tenant_id,
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="Prezzario non trovato")
+
+    await conn.execute(
+        "update public.prezzari set is_default = false "
+        "where tenant_id = $1::uuid and is_default = true",
+        tenant_id,
+    )
+    row = await conn.fetchrow(
+        "update public.prezzari set is_default = true "
+        "where id = $1::uuid and tenant_id = $2::uuid returning *",
+        prezzario_id,
+        tenant_id,
+    )
+    return _d(row)
+
+
 async def duplica_prezzario(
-    conn: asyncpg.Connection, tenant_id: str, prezzario_id: str, nome: str
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    prezzario_id: str,
+    nome: str,
+    *,
+    rendi_default: bool = True,
 ) -> dict:
     src = await conn.fetchrow(
         "select * from public.prezzari where id = $1::uuid and tenant_id = $2::uuid",
@@ -74,7 +113,13 @@ async def duplica_prezzario(
         prezzario_id,
         tenant_id,
     )
-    row = await conn.fetchrow("select * from public.prezzari where id = $1", new_id)
+    if rendi_default:
+        return await imposta_default(conn, tenant_id, str(new_id))
+    row = await conn.fetchrow(
+        "select * from public.prezzari where id = $1::uuid and tenant_id = $2::uuid",
+        new_id,
+        tenant_id,
+    )
     return _d(row)
 
 

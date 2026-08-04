@@ -95,7 +95,13 @@ export default function ComputoEditor() {
           <button type="button" onClick={() => conferma.mutate()} className="px-3 py-2 rounded-xl bg-brand text-white text-xs font-display uppercase">
             Conferma
           </button>
-          <button type="button" onClick={() => toPrev.mutate()} className="px-3 py-2 rounded-xl border border-brand/40 text-brand text-xs font-display uppercase">
+          <button
+            type="button"
+            onClick={() => toPrev.mutate()}
+            disabled={computo.stato !== "confermato" || toPrev.isPending}
+            title={computo.stato !== "confermato" ? "Conferma prima il computo" : "Crea preventivo"}
+            className="px-3 py-2 rounded-xl border border-brand/40 text-brand text-xs font-display uppercase disabled:opacity-40 disabled:cursor-not-allowed"
+          >
             → Preventivo
           </button>
         </div>

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { resolveTenantSlug } from "@/lib/tenant";
 
 const PRODUCTION_BACKEND_URL = "https://api.gbconstruction.it";
 
@@ -19,14 +20,10 @@ const client = axios.create({
   withCredentials: true,
 });
 
-// Landing GB Construction: tenant fisso (no subdominio alantis su questo deploy)
-const DEFAULT_TENANT_SLUG =
-  process.env.REACT_APP_DEFAULT_TENANT_SLUG || "gbconstruction";
-
 client.interceptors.request.use((config) => {
   config.headers = config.headers || {};
   if (!config.headers["X-Tenant-Slug"]) {
-    config.headers["X-Tenant-Slug"] = DEFAULT_TENANT_SLUG;
+    config.headers["X-Tenant-Slug"] = resolveTenantSlug();
   }
   return config;
 });

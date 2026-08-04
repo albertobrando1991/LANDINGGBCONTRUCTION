@@ -31,6 +31,7 @@ import ai_architect_service
 import ai_credit_service
 import email_service
 import meta_leads_service
+import boq_service
 import db as db_pg
 import tenancy
 from edilos_routes import register_edilos_routes
@@ -1618,7 +1619,19 @@ async def create_preventivo(body: LeadCreate, user: dict = Depends(current_user)
 
 
 @api.get("/preventivi")
-async def preventivi(user: dict = Depends(current_user)):
+async def preventivi(request: Request, user: dict = Depends(current_user)):
+    pg_preventivi = []
+    tenant_slug = tenancy.DEFAULT_TENANT_SLUG
+    if db_pg.pool_ready():
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            tenant_slug = tenant["slug"]
+            pg_preventivi = await boq_service.lista_preventivi(conn, tenant["id"])
+
+    # Mongo è il datastore legacy della sola GB Construction. Per gli altri
+    # tenant mostrare quei record sarebbe una fuga dati cross-tenant.
+    if tenant_slug != tenancy.DEFAULT_TENANT_SLUG:
+        return pg_preventivi
+
     leads = await db.leads.find({"status": {"$in": [
         "preventivo_preparazione", "preventivo_inviato", "follow_up", "in_trattativa",
         "chiuso_vinto", "chiuso_perso"]}}).sort("status_changed_at", -1).to_list(500)
@@ -1632,7 +1645,7 @@ async def preventivi(user: dict = Depends(current_user)):
             "giorni_silenzio": _giorni_da(d.get("status_changed_at", d.get("created_at"))),
             "telefono": d.get("telefono"), "email": d.get("email"),
         })
-    return out
+    return pg_preventivi + out
 
 
 def _clean_text(value: Any) -> str:

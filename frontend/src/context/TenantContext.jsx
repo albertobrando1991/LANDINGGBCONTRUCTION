@@ -1,25 +1,12 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import client from "@/lib/api";
+import { resolveTenantSlug } from "@/lib/tenant";
 
 const TenantContext = createContext({
   slug: "gbconstruction",
   theme: {},
   setTenantMeta: () => {},
 });
-
-function slugFromLocation() {
-  if (typeof window === "undefined") return "gbconstruction";
-  const params = new URLSearchParams(window.location.search);
-  const q = (params.get("tenant") || "").toLowerCase();
-  if (q) return q;
-
-  const host = window.location.hostname.toLowerCase();
-  const base = (process.env.REACT_APP_BASE_DOMAIN || "alantis.it").toLowerCase();
-  if (host.endsWith("." + base)) {
-    const slug = host.slice(0, -(base.length + 1));
-    if (slug && !slug.includes(".")) return slug;
-  }
-  return "gbconstruction";
-}
 
 const DEFAULT_THEME = {
   primary: "#C41E3A",
@@ -30,15 +17,30 @@ const DEFAULT_THEME = {
 };
 
 export function TenantProvider({ children }) {
-  const [slug] = useState(() => slugFromLocation());
+  const [slug] = useState(() => resolveTenantSlug());
   const [theme, setTheme] = useState(DEFAULT_THEME);
   const [meta, setMeta] = useState({});
 
-  const setTenantMeta = (next) => {
+  const setTenantMeta = useCallback((next) => {
     if (!next) return;
     setMeta(next);
     if (next.theme) setTheme({ ...DEFAULT_THEME, ...next.theme });
-  };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    client
+      .get("/tenant/config", { params: { tenant: slug } })
+      .then(({ data }) => {
+        if (active) setTenantMeta(data);
+      })
+      .catch(() => {
+        // Il tema locale resta un fallback sicuro se il backend non è raggiungibile.
+      });
+    return () => {
+      active = false;
+    };
+  }, [slug, setTenantMeta]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -55,7 +57,7 @@ export function TenantProvider({ children }) {
 
   const value = useMemo(
     () => ({ slug, theme, meta, setTenantMeta }),
-    [slug, theme, meta]
+    [slug, theme, meta, setTenantMeta]
   );
 
   return <TenantContext.Provider value={value}>{children}</TenantContext.Provider>;

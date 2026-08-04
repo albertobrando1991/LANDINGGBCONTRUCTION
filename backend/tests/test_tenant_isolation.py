@@ -6,6 +6,7 @@ Il test catalogo RLS richiede Postgres; altrimenti si valida solo la lista tabel
 from __future__ import annotations
 
 import os
+import json
 
 import pytest
 
@@ -96,7 +97,7 @@ def test_ogni_tabella_con_tenant_id_ha_rls():
         finally:
             await conn.close()
 
-    asyncio.get_event_loop().run_until_complete(_run())
+    asyncio.run(_run())
 
 
 @pytest.mark.skipif(
@@ -124,4 +125,218 @@ def test_tabella_presente_nello_schema(tabella):
         finally:
             await conn.close()
 
-    asyncio.get_event_loop().run_until_complete(_run())
+    asyncio.run(_run())
+
+
+@pytest.mark.skipif(
+    os.environ.get("EDILOS_RLS_TESTS") != "1" or not _pg_dsn(),
+    reason="Test RLS distruttivo-isolato abilitato solo sul database locale CI",
+)
+def test_rls_isola_dati_reali_e_vista_aggregata():
+    """Popola entrambi i tenant in una transazione poi verifica letture/scritture A/B."""
+    import asyncio
+    import asyncpg
+    import mapping_engine
+    import prezzario_service
+
+    tenant_a = "a0000000-0000-4000-8000-000000000001"
+    tenant_b = "a0000000-0000-4000-8000-000000000002"
+    user_a = "f1000000-0000-4000-8000-000000000001"
+    staff_a = "f1000000-0000-4000-8000-000000000002"
+    user_b = "f2000000-0000-4000-8000-000000000001"
+
+    async def _claims(conn, user_id):
+        await conn.execute("set local role authenticated")
+        claims = json.dumps(
+            {"sub": user_id, "role": "authenticated", "aud": "authenticated"}
+        )
+        await conn.execute(
+            "select set_config('request.jwt.claims', $1, true)", claims
+        )
+        await conn.execute(
+            "select set_config('request.jwt.claim.sub', $1, true)", user_id
+        )
+        await conn.execute(
+            "select set_config('request.jwt.claim.role', 'authenticated', true)"
+        )
+
+    async def _insert_fixture(conn, tenant_id, suffix, prezzario_id, voce_id):
+        cliente_id = await conn.fetchval(
+            "insert into public.clienti (tenant_id, nome) values ($1::uuid, $2) returning id",
+            tenant_id,
+            f"Cliente {suffix}",
+        )
+        lead_id = await conn.fetchval(
+            """
+            insert into public.leads (
+              tenant_id, cliente_id, nome, email, telefono, legacy_mongo_id
+            ) values ($1::uuid, $2::uuid, $3, $4, $5, $6) returning id
+            """,
+            tenant_id,
+            cliente_id,
+            f"Lead {suffix}",
+            f"lead-{suffix.lower()}@example.test",
+            "+39000000000",
+            f"rls-fixture-{suffix.lower()}",
+        )
+        cantiere_id = await conn.fetchval(
+            """
+            insert into public.cantieri (tenant_id, lead_id, cliente_id, cliente)
+            values ($1::uuid, $2::uuid, $3::uuid, $4) returning id
+            """,
+            tenant_id,
+            lead_id,
+            cliente_id,
+            f"Cantiere {suffix}",
+        )
+        computo_id = await conn.fetchval(
+            """
+            insert into public.computi (
+              tenant_id, lead_id, cantiere_id, prezzario_id, stato
+            ) values ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'bozza') returning id
+            """,
+            tenant_id,
+            lead_id,
+            cantiere_id,
+            prezzario_id,
+        )
+        await conn.execute(
+            """
+            insert into public.computo_voci (
+              tenant_id, computo_id, origine_voce_id, super_categoria,
+              categoria, descrizione, um, qta, prezzo_unitario
+            ) values ($1::uuid, $2::uuid, $3::uuid, 'Test', 'Test', $4, 'cad', 1, 10)
+            """,
+            tenant_id,
+            computo_id,
+            voce_id,
+            f"Voce {suffix}",
+        )
+        await conn.execute(
+            """
+            insert into public.preventivi (
+              tenant_id, computo_id, lead_id, numero, anno, progressivo
+            ) values ($1::uuid, $2::uuid, $3::uuid, $4, 2099, 1)
+            """,
+            tenant_id,
+            computo_id,
+            lead_id,
+            f"RLS-{suffix}",
+        )
+
+    async def _run():
+        conn = await asyncpg.connect(_pg_dsn())
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await _insert_fixture(
+                conn,
+                tenant_a,
+                "A",
+                "b0000000-0000-4000-8000-000000000001",
+                "c0000000-0000-4000-8000-000000000001",
+            )
+            await _insert_fixture(
+                conn,
+                tenant_b,
+                "B",
+                "b0000000-0000-4000-8000-000000000002",
+                "d0000000-0000-4000-8000-000000000001",
+            )
+
+            for user_id, own_tenant, other_tenant in (
+                (user_a, tenant_a, tenant_b),
+                (user_b, tenant_b, tenant_a),
+            ):
+                await _claims(conn, user_id)
+                for table in TABELLE_TENANT:
+                    own = await conn.fetchval(
+                        f"select count(*) from public.{table} where tenant_id = $1::uuid",
+                        own_tenant,
+                    )
+                    other = await conn.fetchval(
+                        f"select count(*) from public.{table} where tenant_id = $1::uuid",
+                        other_tenant,
+                    )
+                    assert int(own) > 0, f"{table}: dati propri non leggibili"
+                    assert int(other) == 0, f"{table}: leak cross-tenant"
+
+                own_totals = await conn.fetchval(
+                    "select count(*) from public.computi_totali where tenant_id = $1::uuid",
+                    own_tenant,
+                )
+                other_totals = await conn.fetchval(
+                    "select count(*) from public.computi_totali where tenant_id = $1::uuid",
+                    other_tenant,
+                )
+                assert int(own_totals) > 0
+                assert int(other_totals) == 0, "computi_totali ignora RLS"
+                await conn.execute("reset role")
+
+            await _claims(conn, user_a)
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with conn.transaction():
+                    await conn.execute(
+                        "insert into public.clienti (tenant_id, nome) values ($1::uuid, 'Leak')",
+                        tenant_b,
+                    )
+            await conn.execute("reset role")
+
+            await _claims(conn, user_a)
+            custom = await prezzario_service.duplica_prezzario(
+                conn,
+                tenant_a,
+                "b0000000-0000-4000-8000-000000000001",
+                "Listino RLS test",
+            )
+            assert custom["is_default"] is True
+            custom_voce = await conn.fetchrow(
+                """
+                update public.prezzario_voci set prezzo_unitario = 77
+                where tenant_id = $1::uuid and prezzario_id = $2::uuid
+                  and codice = 'VS-035'
+                returning id
+                """,
+                tenant_a,
+                custom["id"],
+            )
+            regole = await mapping_engine.carica_regole(
+                conn, tenant_a, custom["id"]
+            )
+            pavimento = next(r for r in regole if r.metrica == "mq_pavimento")
+            assert pavimento.prezzario_voce_id == str(custom_voce["id"])
+            assert pavimento.prezzo_unitario == 77
+            with pytest.raises(asyncpg.RaiseError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        update public.prezzario_voci set prezzo_unitario = 999
+                        where id = 'c0000000-0000-4000-8000-000000000001'
+                        """
+                    )
+            await conn.execute("reset role")
+
+            # Il lock applicativo non deve dipendere dalla policy UPDATE di
+            # tenants: anche un membro staff autorizzato sui prezzari deve
+            # poter serializzare il cambio del listino predefinito.
+            await _claims(conn, staff_a)
+            selected = await prezzario_service.imposta_default(
+                conn, tenant_a, custom["id"]
+            )
+            assert selected["id"] == custom["id"]
+            await conn.execute("reset role")
+
+            await conn.execute("set local role anon")
+            public_rows = await conn.fetch(
+                "select slug, ragione_sociale, theme, contatti from public.tenants"
+            )
+            assert {row["slug"] for row in public_rows} >= {"gbconstruction", "demo"}
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with conn.transaction():
+                    await conn.fetch("select piva from public.tenants")
+            await conn.execute("reset role")
+        finally:
+            await tx.rollback()
+            await conn.close()
+
+    asyncio.run(_run())
