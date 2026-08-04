@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Any, Dict, Literal
 
 from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, Query, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -93,6 +93,16 @@ PUBLIC_BOOKING_MAX_PER_HOUR = max(1, int(os.getenv("PUBLIC_BOOKING_MAX_PER_HOUR"
 EMAIL_ADDRESS_ADAPTER = TypeAdapter(EmailStr)
 MAX_EMAIL_ATTACHMENT_BYTES = 15 * 1024 * 1024
 MAX_EMAIL_TOTAL_ATTACHMENT_BYTES = 25 * 1024 * 1024
+
+
+def ai_architect_public_enabled() -> bool:
+    """AI Architect resta staff-only finche il ground-truth non ottiene GO."""
+    return os.getenv("AI_ARCHITECT_PUBLIC_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 # ----------------------- Helpers -----------------------
@@ -501,7 +511,7 @@ async def projects():
 # Email con generazioni preventivo illimitate (bypass del limite "uno per email").
 QUOTE_UNLIMITED_EMAILS = {
     meta_leads_service.normalize_email(value)
-    for value in os.getenv("QUOTE_UNLIMITED_EMAILS", "info@alantis.it").split(",")
+    for value in os.getenv("QUOTE_UNLIMITED_EMAILS", "").split(",")
     if value.strip()
 }
 
@@ -1285,7 +1295,7 @@ async def cleanup_test_leads(body: LeadsCleanupBody, user: dict = Depends(requir
     Pensato per ripulire i lead di esempio/test lasciando solo i lead reali.
     """
     keep = {meta_leads_service.normalize_email(e) for e in body.keep_emails if e.strip()}
-    keep |= QUOTE_UNLIMITED_EMAILS  # info@alantis.it sempre conservata
+    keep |= QUOTE_UNLIMITED_EMAILS
     keep = {e for e in keep if e}
     kept_docs = await db.leads.find({"email_norm": {"$in": list(keep)}}).to_list(500)
     kept_ids = {str(d["_id"]) for d in kept_docs}
@@ -2178,6 +2188,28 @@ app.mount(
     StaticFiles(directory=str(ai_architect_service.STORAGE_DIR)),
     name="ai_architect_files",
 )
+
+
+@app.middleware("http")
+async def ai_architect_beta_access(request: Request, call_next):
+    is_ai_architect_path = request.url.path.startswith("/api/ai-architect/")
+    if (
+        is_ai_architect_path
+        and request.method.upper() != "OPTIONS"
+        and not ai_architect_public_enabled()
+    ):
+        try:
+            user = await current_user(request)
+            if user.get("role") not in {"admin", "staff", "operations"}:
+                raise HTTPException(status_code=403, detail="Accesso staff richiesto")
+        except HTTPException:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "detail": "AI Architect e attualmente disponibile solo in beta privata."
+                },
+            )
+    return await call_next(request)
 
 
 @app.middleware("http")

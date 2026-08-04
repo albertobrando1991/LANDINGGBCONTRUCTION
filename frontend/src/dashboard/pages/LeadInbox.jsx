@@ -82,7 +82,7 @@ export default function LeadInbox() {
             onClick={() => {
               if (
                 window.confirm(
-                  "Eliminare tutti i lead di test/esempio? Resteranno solo i lead reali (info@alantis.it).",
+                  "Eliminare tutti i lead di test/esempio? Verranno conservate soltanto le email esplicitamente protette dalla configurazione.",
                 )
               )
                 cleanupTest.mutate();

@@ -21,8 +21,11 @@ def test_base_pack_is_enabled_at_20_eur():
     assert credits.BASE_PACK_CREDITS == 20000
 
 
-def test_unlimited_email_is_enabled_for_alantis():
-    assert credits.email_has_unlimited_generations("INFO@ALANTIS.IT")
+def test_unlimited_email_requires_explicit_configuration(monkeypatch):
+    monkeypatch.setattr(
+        credits, "UNLIMITED_GENERATION_EMAILS", {"owner@gbconstruction.it"}
+    )
+    assert credits.email_has_unlimited_generations("OWNER@GBCONSTRUCTION.IT")
     assert not credits.email_has_unlimited_generations("cliente@example.com")
 
 
@@ -70,12 +73,15 @@ def test_unlimited_user_bypasses_credit_check(monkeypatch):
         raise HTTPException(status_code=402, detail="Crediti AI insufficienti")
 
     monkeypatch.setattr(credits, "require_available", blocked)
+    monkeypatch.setattr(
+        credits, "UNLIMITED_GENERATION_EMAILS", {"owner@gbconstruction.it"}
+    )
 
     asyncio.run(
         credits.require_available_for_generation(
             object(),
             credits.RATE_CARD["ai_architect_preliminary"]["credits"],
-            user={"email": "info@alantis.it"},
+            user={"email": "owner@gbconstruction.it"},
         )
     )
 

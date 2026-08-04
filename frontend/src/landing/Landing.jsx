@@ -8,7 +8,11 @@ import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 const SocialProof = lazy(() => import("@/landing/SocialProof"));
 const Packages = lazy(() => import("@/landing/Packages"));
 const Configurator = lazy(() => import("@/landing/Configurator"));
-const AIArchitect = lazy(() => import("@/landing/AIArchitect"));
+const PUBLIC_AI_ARCHITECT_ENABLED =
+  process.env.REACT_APP_AI_ARCHITECT_PUBLIC_ENABLED === "true";
+const AIArchitect = PUBLIC_AI_ARCHITECT_ENABLED
+  ? lazy(() => import("@/landing/AIArchitect"))
+  : null;
 const QuickDetails = lazy(() => import("@/landing/QuickDetails"));
 const ContactGate = lazy(() => import("@/landing/ContactGate"));
 const Output = lazy(() => import("@/landing/Output"));
@@ -132,19 +136,23 @@ export default function Landing() {
               estimate={result?.estimate}
               aiProject={config?.aiArchitect}
               onStartArchitect={
-                config?.aiArchitect ? undefined : handleStartArchitect
+                PUBLIC_AI_ARCHITECT_ENABLED && !config?.aiArchitect
+                  ? handleStartArchitect
+                  : undefined
               }
               bookingContext={config?.lead_contact}
             />
           )}
-          {phase === "architect" && (
-            <AIArchitect
-              baseConfig={config}
-              leadId={config?.lead_id}
-              onComplete={handleArchitectDone}
-              onSkip={handleArchitectSkip}
-            />
-          )}
+          {PUBLIC_AI_ARCHITECT_ENABLED &&
+            AIArchitect &&
+            phase === "architect" && (
+              <AIArchitect
+                baseConfig={config}
+                leadId={config?.lead_id}
+                onComplete={handleArchitectDone}
+                onSkip={handleArchitectSkip}
+              />
+            )}
         </Suspense>
       </div>
 

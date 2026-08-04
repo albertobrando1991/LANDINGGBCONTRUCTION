@@ -33,7 +33,7 @@ def _normalize_email(value: Any) -> str:
 
 UNLIMITED_GENERATION_EMAILS = {
     _normalize_email(value)
-    for value in os.getenv("AI_CREDITS_UNLIMITED_EMAILS", "info@alantis.it").split(",")
+    for value in os.getenv("AI_CREDITS_UNLIMITED_EMAILS", "").split(",")
     if value.strip()
 }
 
