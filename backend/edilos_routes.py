@@ -1,4 +1,4 @@
-"""API EdilOS Fase 1: prezzario, computi, mapping AI, preventivi."""
+"""API EdilOS: prezzario, computi, preventivi, libretto misure e SAL."""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ import lead_bridge
 import libretto_service
 import mapping_engine
 import prezzario_service
+import sal_service
 import tenancy
 from engines.metriche import estrai_metriche
 from preventivo_pdf import genera_pdf_preventivo
@@ -163,6 +164,15 @@ class CreaMisuraBody(BaseModel):
         return normalized
 
 
+class GeneraSalBody(BaseModel):
+    periodo_da: date
+    periodo_a: date
+
+
+class SalStatoBody(BaseModel):
+    stato: Literal["emesso", "approvato"]
+
+
 def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     """Monta le route su un APIRouter esistente (prefix /api)."""
 
@@ -174,6 +184,13 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             raise HTTPException(
                 status_code=403,
                 detail="Permessi insufficienti per il libretto di misura",
+            )
+
+    def require_sal_role(tenant: dict) -> None:
+        if tenant.get("role") not in sal_service.SAL_ROLES:
+            raise HTTPException(
+                status_code=403,
+                detail="Permessi insufficienti per la gestione SAL",
             )
 
     @api.get("/tenant/config")
@@ -455,6 +472,49 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             )
             response.status_code = 201 if created else 200
             return {"created": created, "misura": misura}
+
+    # ---------- SAL ----------
+    @api.get("/cantieri/{cantiere_id}/sal")
+    async def cantiere_sal(request: Request, cantiere_id: str):
+        user = await _user(request, db)
+        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_sal_role(tenant)
+            return await sal_service.lista_sal(conn, tenant["id"], cantiere_uuid)
+
+    @api.post("/cantieri/{cantiere_id}/sal", status_code=201)
+    async def genera_cantiere_sal(
+        request: Request, cantiere_id: str, body: GeneraSalBody
+    ):
+        user = await _user(request, db)
+        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_sal_role(tenant)
+            return await sal_service.genera_sal(
+                conn,
+                tenant["id"],
+                cantiere_uuid,
+                periodo_da=body.periodo_da,
+                periodo_a=body.periodo_a,
+            )
+
+    @api.get("/sal/{sal_id}")
+    async def sal_dettaglio(request: Request, sal_id: str):
+        user = await _user(request, db)
+        sal_uuid = str(tenancy.uuid_or_400(sal_id, "SAL"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_sal_role(tenant)
+            return await sal_service.get_sal(conn, tenant["id"], sal_uuid)
+
+    @api.patch("/sal/{sal_id}/stato")
+    async def sal_stato(request: Request, sal_id: str, body: SalStatoBody):
+        user = await _user(request, db)
+        sal_uuid = str(tenancy.uuid_or_400(sal_id, "SAL"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_sal_role(tenant)
+            return await sal_service.aggiorna_stato(
+                conn, tenant["id"], sal_uuid, body.stato
+            )
 
     @api.post("/metriche/estrai")
     async def metriche_estrai(request: Request, body: GeneraDaAiBody):

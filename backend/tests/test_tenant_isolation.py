@@ -165,6 +165,7 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
     import libretto_service
     import mapping_engine
     import prezzario_service
+    import sal_service
     from fastapi import HTTPException
 
     tenant_a = "a0000000-0000-4000-8000-000000000001"
@@ -379,6 +380,31 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 user_b,
                 "e2000000-0000-4000-8000-000000000001",
             )
+            computo_sal_a = await conn.fetchval(
+                """
+                insert into public.computi (tenant_id, cantiere_id, stato, numero)
+                values ($1::uuid, $2::uuid, 'bozza', 'SAL-RLS-A') returning id
+                """,
+                tenant_a,
+                cantiere_a,
+            )
+            voce_sal_a = await conn.fetchval(
+                """
+                insert into public.computo_voci (
+                  tenant_id, computo_id, super_categoria, categoria,
+                  descrizione, um, qta, prezzo_unitario
+                ) values (
+                  $1::uuid, $2::uuid, 'Test SAL', 'Test SAL',
+                  'Voce confermata SAL', 'mq', 2, 25
+                ) returning id
+                """,
+                tenant_a,
+                computo_sal_a,
+            )
+            await conn.execute(
+                "update public.computi set stato = 'confermato' where id = $1::uuid",
+                computo_sal_a,
+            )
 
             for user_id, own_tenant, other_tenant in (
                 (user_a, tenant_a, tenant_b),
@@ -476,7 +502,7 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             await _claims(conn, user_a)
             campo_a = await libretto_service.lista_cantieri_campo(conn, tenant_a)
             fixture_campo = next(row for row in campo_a if row["id"] == str(cantiere_a))
-            assert fixture_campo["voci"] == []
+            assert any(voce["id"] == str(voce_sal_a) for voce in fixture_campo["voci"])
             assert await libretto_service.lista_cantieri_campo(conn, tenant_b) == []
 
             nuova_misura, created = await libretto_service.registra_misura(
@@ -506,6 +532,69 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 conn, tenant_a, str(cantiere_a), limit=10
             )
             assert any(row["id"] == nuova_misura["id"] for row in misure)
+
+            misura_sal, misura_sal_created = await libretto_service.registra_misura(
+                conn,
+                tenant_a,
+                str(cantiere_a),
+                client_uuid="e1000000-0000-4000-8000-000000000003",
+                data_misura=date(2099, 2, 10),
+                qta=Decimal("3.000"),
+                computo_voce_id=str(voce_sal_a),
+                descrizione="Misura per generazione SAL",
+            )
+            assert misura_sal_created is True
+            assert misura_sal["qta"] == 3.0
+
+            sal_generato = await sal_service.genera_sal(
+                conn,
+                tenant_a,
+                str(cantiere_a),
+                periodo_da=date(2099, 2, 1),
+                periodo_a=date(2099, 2, 28),
+            )
+            assert sal_generato["numero"] == 2
+            assert sal_generato["stato"] == "bozza"
+            assert sal_generato["totale_periodo"] == 75.0
+            assert sal_generato["contiene_eccedenze"] is True
+            assert len(sal_generato["righe"]) == 1
+            riga_sal = sal_generato["righe"][0]
+            assert riga_sal["qta_periodo"] == 3.0
+            assert riga_sal["qta_progressiva"] == 3.0
+            assert riga_sal["qta_contrattuale"] == 2.0
+            assert riga_sal["eccedenza_qta"] == 1.0
+            assert riga_sal["in_eccedenza"] is True
+            assert riga_sal["proponi_variante"] is True
+            with pytest.raises(HTTPException) as exc:
+                await sal_service.genera_sal(
+                    conn,
+                    tenant_a,
+                    str(cantiere_a),
+                    periodo_da=date(2099, 2, 15),
+                    periodo_a=date(2099, 3, 15),
+                )
+            assert exc.value.status_code == 409
+            assert "sovrappone" in str(exc.value.detail)
+
+            elenco_sal = await sal_service.lista_sal(conn, tenant_a, str(cantiere_a))
+            assert [item["numero"] for item in elenco_sal] == [2, 1]
+            assert elenco_sal[0]["totale_periodo"] == 75.0
+            emesso = await sal_service.aggiorna_stato(
+                conn, tenant_a, sal_generato["id"], "emesso"
+            )
+            assert emesso["stato"] == "emesso"
+            approvato = await sal_service.aggiorna_stato(
+                conn, tenant_a, sal_generato["id"], "approvato"
+            )
+            assert approvato["stato"] == "approvato"
+            with pytest.raises(HTTPException) as exc:
+                await sal_service.aggiorna_stato(
+                    conn, tenant_a, sal_generato["id"], "approvato"
+                )
+            assert exc.value.status_code == 409
+            with pytest.raises(HTTPException) as exc:
+                await sal_service.get_sal(conn, tenant_b, sal_generato["id"])
+            assert exc.value.status_code == 404
 
             with pytest.raises(HTTPException) as exc:
                 await libretto_service.lista_misure(
@@ -595,9 +684,9 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             assert exc.value.status_code == 404
             await conn.execute("reset role")
             await conn.execute(
-                "delete from public.sal where tenant_id = $1::uuid and id = $2::uuid",
+                "delete from public.sal where tenant_id = $1::uuid and cantiere_id = $2::uuid",
                 tenant_a,
-                sal_a,
+                cantiere_a,
             )
             await _claims(conn, user_a)
             deleted = await boq_service.rimuovi_voce(
