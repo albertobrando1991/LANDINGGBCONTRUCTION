@@ -4,17 +4,35 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+from datetime import date
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from pydantic import BaseModel, EmailStr, Field, TypeAdapter, ValidationError
+from fastapi import (
+    APIRouter,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
+from pydantic import (
+    BaseModel,
+    EmailStr,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+)
 
 import auth as authlib
 import boq_service
 import db as db_pg
 import email_service
 import lead_bridge
+import libretto_service
 import mapping_engine
 import prezzario_service
 import tenancy
@@ -102,6 +120,48 @@ class ValidaAiBody(BaseModel):
     voce_ids: Optional[List[str]] = None
 
 
+class CreaMisuraBody(BaseModel):
+    client_uuid: UUID
+    data_misura: date
+    qta: Decimal = Field(max_digits=12, decimal_places=3)
+    computo_voce_id: Optional[UUID] = None
+    descrizione: Optional[str] = Field(default=None, max_length=1000)
+    parti: int = Field(default=1, ge=1)
+    lunghezza: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=10, decimal_places=3
+    )
+    larghezza: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=10, decimal_places=3
+    )
+    altezza: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=10, decimal_places=3
+    )
+    foto_paths: List[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("qta")
+    @classmethod
+    def qta_non_zero(cls, value: Decimal) -> Decimal:
+        if value == 0:
+            raise ValueError("La quantita non puo essere zero")
+        return value
+
+    @field_validator("descrizione")
+    @classmethod
+    def normalizza_descrizione(cls, value: Optional[str]) -> Optional[str]:
+        normalized = (value or "").strip()
+        return normalized or None
+
+    @field_validator("foto_paths")
+    @classmethod
+    def valida_foto_paths(cls, values: List[str]) -> List[str]:
+        normalized = [str(value).strip() for value in values]
+        if any(not value or len(value) > 500 for value in normalized):
+            raise ValueError("Percorso foto non valido")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("La stessa foto non puo essere indicata piu volte")
+        return normalized
+
+
 def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     """Monta le route su un APIRouter esistente (prefix /api)."""
 
@@ -112,6 +172,13 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             or user.get("email")
             or "staff"
         )
+
+    def require_libretto_role(tenant: dict) -> None:
+        if tenant.get("role") not in libretto_service.LIBRETTO_ROLES:
+            raise HTTPException(
+                status_code=403,
+                detail="Permessi insufficienti per il libretto di misura",
+            )
 
     @api.get("/tenant/config")
     async def tenant_config(request: Request):
@@ -309,6 +376,71 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 config_lead=body.config_lead,
                 prezzario_id=body.prezzario_id,
             )
+
+    # ---------- Libretto di misura ----------
+    @api.get("/cantieri/{cantiere_id}/libretto-misure")
+    async def libretto_misure(
+        request: Request,
+        cantiere_id: str,
+        data_da: Optional[date] = None,
+        data_a: Optional[date] = None,
+        computo_voce_id: Optional[str] = None,
+        limit: int = Query(default=100, ge=1, le=200),
+    ):
+        user = await _user(request, db)
+        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+        voce_uuid = (
+            str(tenancy.uuid_or_400(computo_voce_id, "Voce di computo"))
+            if computo_voce_id
+            else None
+        )
+        if data_da and data_a and data_da > data_a:
+            raise HTTPException(
+                status_code=400,
+                detail="La data iniziale non puo essere successiva alla data finale",
+            )
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_libretto_role(tenant)
+            return await libretto_service.lista_misure(
+                conn,
+                tenant["id"],
+                cantiere_uuid,
+                data_da=data_da,
+                data_a=data_a,
+                computo_voce_id=voce_uuid,
+                limit=limit,
+            )
+
+    @api.post("/cantieri/{cantiere_id}/libretto-misure", status_code=201)
+    async def crea_misura(
+        request: Request,
+        cantiere_id: str,
+        body: CreaMisuraBody,
+        response: Response,
+    ):
+        user = await _user(request, db)
+        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_libretto_role(tenant)
+            misura, created = await libretto_service.registra_misura(
+                conn,
+                tenant["id"],
+                cantiere_uuid,
+                client_uuid=str(body.client_uuid),
+                data_misura=body.data_misura,
+                qta=body.qta,
+                computo_voce_id=(
+                    str(body.computo_voce_id) if body.computo_voce_id else None
+                ),
+                descrizione=body.descrizione,
+                parti=body.parti,
+                lunghezza=body.lunghezza,
+                larghezza=body.larghezza,
+                altezza=body.altezza,
+                foto_paths=body.foto_paths,
+            )
+            response.status_code = 201 if created else 200
+            return {"created": created, "misura": misura}
 
     @api.post("/metriche/estrai")
     async def metriche_estrai(request: Request, body: GeneraDaAiBody):

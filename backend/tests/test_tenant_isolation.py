@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 import json
+from datetime import date
+from decimal import Decimal
 
 import pytest
 
@@ -157,6 +159,7 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
     import asyncio
     import asyncpg
     import boq_service
+    import libretto_service
     import mapping_engine
     import prezzario_service
     from fastapi import HTTPException
@@ -354,6 +357,40 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             await conn.execute("reset role")
 
             await _claims(conn, user_a)
+            nuova_misura, created = await libretto_service.registra_misura(
+                conn,
+                tenant_a,
+                str(cantiere_a),
+                client_uuid="e1000000-0000-4000-8000-000000000002",
+                data_misura=date(2099, 1, 2),
+                qta=Decimal("2.500"),
+                computo_voce_id=str(voce_computo_a),
+                descrizione="Misura API idempotente",
+            )
+            assert created is True
+            retry_misura, retry_created = await libretto_service.registra_misura(
+                conn,
+                tenant_a,
+                str(cantiere_a),
+                client_uuid="e1000000-0000-4000-8000-000000000002",
+                data_misura=date(2099, 1, 2),
+                qta=Decimal("2.500"),
+                computo_voce_id=str(voce_computo_a),
+                descrizione="Misura API idempotente",
+            )
+            assert retry_created is False
+            assert retry_misura["id"] == nuova_misura["id"]
+            misure = await libretto_service.lista_misure(
+                conn, tenant_a, str(cantiere_a), limit=10
+            )
+            assert any(row["id"] == nuova_misura["id"] for row in misure)
+
+            with pytest.raises(HTTPException) as exc:
+                await libretto_service.lista_misure(
+                    conn, tenant_b, str(cantiere_b), limit=10
+                )
+            assert exc.value.status_code == 404
+
             with pytest.raises(asyncpg.ForeignKeyViolationError):
                 async with conn.transaction():
                     await conn.execute(
