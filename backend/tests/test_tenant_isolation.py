@@ -152,8 +152,10 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
     """Popola entrambi i tenant in una transazione poi verifica letture/scritture A/B."""
     import asyncio
     import asyncpg
+    import boq_service
     import mapping_engine
     import prezzario_service
+    from fastapi import HTTPException
 
     tenant_a = "a0000000-0000-4000-8000-000000000001"
     tenant_b = "a0000000-0000-4000-8000-000000000002"
@@ -216,12 +218,13 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             cantiere_id,
             prezzario_id,
         )
-        await conn.execute(
+        computo_voce_id = await conn.fetchval(
             """
             insert into public.computo_voci (
               tenant_id, computo_id, origine_voce_id, super_categoria,
               categoria, descrizione, um, qta, prezzo_unitario
             ) values ($1::uuid, $2::uuid, $3::uuid, 'Test', 'Test', $4, 'cad', 1, 10)
+            returning id
             """,
             tenant_id,
             computo_id,
@@ -239,20 +242,21 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             lead_id,
             f"RLS-{suffix}",
         )
+        return computo_id, computo_voce_id
 
     async def _run():
         conn = await asyncpg.connect(_pg_dsn())
         tx = conn.transaction()
         await tx.start()
         try:
-            await _insert_fixture(
+            _, voce_computo_a = await _insert_fixture(
                 conn,
                 tenant_a,
                 "A",
                 "b0000000-0000-4000-8000-000000000001",
                 "c0000000-0000-4000-8000-000000000001",
             )
-            await _insert_fixture(
+            _, voce_computo_b = await _insert_fixture(
                 conn,
                 tenant_b,
                 "B",
@@ -297,6 +301,22 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                         tenant_b,
                     )
             await conn.execute("reset role")
+
+            await _claims(conn, user_a)
+            with pytest.raises(HTTPException) as exc:
+                await boq_service.rimuovi_voce(
+                    conn, tenant_b, str(voce_computo_b)
+                )
+            assert exc.value.status_code == 404
+            deleted = await boq_service.rimuovi_voce(
+                conn, tenant_a, str(voce_computo_a)
+            )
+            assert deleted["id"] == str(voce_computo_a)
+            await conn.execute("reset role")
+            assert await conn.fetchval(
+                "select exists(select 1 from public.computo_voci where id = $1::uuid)",
+                voce_computo_b,
+            )
 
             await _claims(conn, user_a)
             custom = await prezzario_service.duplica_prezzario(

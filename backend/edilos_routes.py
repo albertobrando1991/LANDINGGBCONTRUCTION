@@ -56,13 +56,13 @@ class CreaComputoBody(BaseModel):
 
 class AggiungiVoceBody(BaseModel):
     prezzario_voce_id: str
-    qta: float = 1
+    qta: float = Field(default=1, ge=0)
 
 
 class AggiornaVoceBody(BaseModel):
-    qta: Optional[float] = None
-    prezzo_unitario: Optional[float] = None
-    descrizione: Optional[str] = None
+    qta: Optional[float] = Field(default=None, ge=0)
+    prezzo_unitario: Optional[float] = Field(default=None, ge=0)
+    descrizione: Optional[str] = Field(default=None, min_length=1, max_length=500)
     validata_umano: Optional[bool] = None
 
 
@@ -222,6 +222,12 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             return await boq_service.aggiorna_voce(
                 conn, tenant["id"], voce_id, **body.model_dump(exclude_none=True)
             )
+
+    @api.delete("/computi/voci/{voce_id}")
+    async def delete_voce(request: Request, voce_id: str):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            return await boq_service.rimuovi_voce(conn, tenant["id"], voce_id)
 
     @api.post("/computi/{computo_id}/riordina")
     async def riordina(request: Request, computo_id: str, body: RiordinaBody):

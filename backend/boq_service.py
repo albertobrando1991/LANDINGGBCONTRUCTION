@@ -9,6 +9,9 @@ import asyncpg
 from fastapi import HTTPException
 
 
+LOCKED_COMPUTO_STATES = {"confermato", "archiviato"}
+
+
 def _d(row: asyncpg.Record | None) -> dict | None:
     if row is None:
         return None
@@ -19,6 +22,47 @@ def _d(row: asyncpg.Record | None) -> dict | None:
         elif isinstance(v, Decimal):
             out[k] = float(v)
     return out
+
+
+async def _assert_computo_editabile(
+    conn: asyncpg.Connection, tenant_id: str, computo_id: str
+) -> None:
+    stato = await conn.fetchval(
+        "select stato from public.computi where id = $1::uuid and tenant_id = $2::uuid",
+        computo_id,
+        tenant_id,
+    )
+    if stato is None:
+        raise HTTPException(status_code=404, detail="Computo non trovato")
+    if stato in LOCKED_COMPUTO_STATES:
+        raise HTTPException(
+            status_code=409,
+            detail="Computo confermato: crea una variante per modificarlo",
+        )
+
+
+async def _voce_computo_editabile(
+    conn: asyncpg.Connection, tenant_id: str, voce_id: str
+) -> str:
+    row = await conn.fetchrow(
+        """
+        select v.computo_id, c.stato
+        from public.computo_voci v
+        join public.computi c
+          on c.id = v.computo_id and c.tenant_id = v.tenant_id
+        where v.id = $1::uuid and v.tenant_id = $2::uuid
+        """,
+        voce_id,
+        tenant_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Voce di computo non trovata")
+    if row["stato"] in LOCKED_COMPUTO_STATES:
+        raise HTTPException(
+            status_code=409,
+            detail="Computo confermato: crea una variante per modificarlo",
+        )
+    return str(row["computo_id"])
 
 
 async def crea_computo(
@@ -58,17 +102,7 @@ async def aggiungi_voce(
     qta: float,
 ) -> dict:
     """SNAPSHOT: copia descrizione, um, categorie e prezzo dalla voce di prezzario."""
-    stato = await conn.fetchval(
-        "select stato from public.computi where id = $1::uuid and tenant_id = $2::uuid",
-        computo_id,
-        tenant_id,
-    )
-    if stato is None:
-        raise HTTPException(status_code=404, detail="Computo non trovato")
-    if stato in ("confermato", "archiviato"):
-        raise HTTPException(
-            status_code=409, detail="Computo confermato: crea una variante per modificarlo"
-        )
+    await _assert_computo_editabile(conn, tenant_id, computo_id)
 
     voce = await conn.fetchrow(
         """
@@ -116,6 +150,7 @@ async def aggiungi_voce(
 async def aggiorna_voce(
     conn: asyncpg.Connection, tenant_id: str, voce_id: str, **campi
 ) -> dict:
+    computo_id = await _voce_computo_editabile(conn, tenant_id, voce_id)
     allowed = {"qta", "prezzo_unitario", "descrizione", "ordine", "validata_umano"}
     sets = []
     args: list[Any] = []
@@ -126,12 +161,14 @@ async def aggiorna_voce(
         sets.append(f"{k} = ${len(args)}")
     if not sets:
         raise HTTPException(status_code=400, detail="Nessun campo da aggiornare")
-    args.extend([voce_id, tenant_id])
+    args.extend([voce_id, tenant_id, computo_id])
     row = await conn.fetchrow(
         f"""
         update public.computo_voci
         set {', '.join(sets)}
-        where id = ${len(args)-1}::uuid and tenant_id = ${len(args)}::uuid
+        where id = ${len(args)-2}::uuid
+          and tenant_id = ${len(args)-1}::uuid
+          and computo_id = ${len(args)}::uuid
         returning *
         """,
         *args,
@@ -141,9 +178,44 @@ async def aggiorna_voce(
     return _d(row)
 
 
+async def rimuovi_voce(
+    conn: asyncpg.Connection, tenant_id: str, voce_id: str
+) -> dict:
+    computo_id = await _voce_computo_editabile(conn, tenant_id, voce_id)
+    row = await conn.fetchrow(
+        """
+        delete from public.computo_voci
+        where id = $1::uuid and tenant_id = $2::uuid and computo_id = $3::uuid
+        returning id, computo_id
+        """,
+        voce_id,
+        tenant_id,
+        computo_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Voce di computo non trovata")
+    return _d(row)
+
+
 async def riordina_voci(
     conn: asyncpg.Connection, tenant_id: str, computo_id: str, ordine: list[str]
 ) -> None:
+    await _assert_computo_editabile(conn, tenant_id, computo_id)
+    rows = await conn.fetch(
+        """
+        select id from public.computo_voci
+        where computo_id = $1::uuid and tenant_id = $2::uuid
+        """,
+        computo_id,
+        tenant_id,
+    )
+    esistenti = {str(row["id"]) for row in rows}
+    richiesti = set(ordine)
+    if len(richiesti) != len(ordine) or richiesti != esistenti:
+        raise HTTPException(
+            status_code=400,
+            detail="L'ordine deve contenere tutte le voci del computo una sola volta",
+        )
     for i, vid in enumerate(ordine):
         await conn.execute(
             """
@@ -196,10 +268,12 @@ async def duplica_computo(
         select tenant_id, $1::uuid, origine_voce_id, ordine,
                super_categoria, categoria, sub_categoria, descrizione, um, tipo,
                qta, prezzo_unitario, generata_da_ai, validata_umano
-        from public.computo_voci where computo_id = $2::uuid
+        from public.computo_voci
+        where computo_id = $2::uuid and tenant_id = $3::uuid
         """,
         new_id,
         computo_id,
+        tenant_id,
     )
     row = await conn.fetchrow("select * from public.computi where id = $1", new_id)
     return _d(row)
@@ -242,6 +316,7 @@ async def valida_voci_ai(
     *,
     voce_ids: Optional[list[str]] = None,
 ) -> int:
+    await _assert_computo_editabile(conn, tenant_id, computo_id)
     if voce_ids:
         result = await conn.execute(
             """
@@ -279,9 +354,11 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
     voci = await conn.fetch(
         """
         select * from public.computo_voci
-        where computo_id = $1::uuid order by ordine, descrizione
+        where computo_id = $1::uuid and tenant_id = $2::uuid
+        order by ordine, descrizione
         """,
         computo_id,
+        tenant_id,
     )
     totali = await conn.fetchrow(
         "select * from public.computi_totali where computo_id = $1",

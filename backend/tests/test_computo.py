@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock, patch
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
@@ -110,3 +111,91 @@ def test_preventivo_richiede_computo_realmente_confermato():
             )
     assert exc.value.status_code == 409
     assert "Conferma il computo" in exc.value.detail
+
+
+def test_rimuovi_voce_filtra_tenant_e_computo():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    computo_id = UUID("10000000-0000-4000-8000-000000000001")
+    voce_id = "20000000-0000-4000-8000-000000000001"
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [
+        {"computo_id": computo_id, "stato": "bozza"},
+        {
+            "id": UUID(voce_id),
+            "computo_id": computo_id,
+        },
+    ]
+
+    deleted = asyncio.run(boq_service.rimuovi_voce(conn, tenant_id, voce_id))
+
+    assert deleted == {"id": voce_id, "computo_id": str(computo_id)}
+    delete_call = conn.fetchrow.await_args_list[1]
+    assert "tenant_id = $2::uuid" in delete_call.args[0]
+    assert delete_call.args[1:] == (voce_id, tenant_id, str(computo_id))
+
+
+def test_rimuovi_voce_blocca_computo_confermato():
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "computo_id": UUID("10000000-0000-4000-8000-000000000001"),
+        "stato": "confermato",
+    }
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            boq_service.rimuovi_voce(
+                conn,
+                "a0000000-0000-4000-8000-000000000001",
+                "20000000-0000-4000-8000-000000000001",
+            )
+        )
+
+    assert exc.value.status_code == 409
+    assert conn.fetchrow.await_count == 1
+
+
+def test_riordina_voci_richiede_elenco_completo_senza_duplicati():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    computo_id = "10000000-0000-4000-8000-000000000001"
+    first = UUID("20000000-0000-4000-8000-000000000001")
+    second = UUID("20000000-0000-4000-8000-000000000002")
+    conn = AsyncMock()
+    conn.fetchval.return_value = "bozza"
+    conn.fetch.return_value = [{"id": first}, {"id": second}]
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            boq_service.riordina_voci(
+                conn,
+                tenant_id,
+                computo_id,
+                [str(first), str(first)],
+            )
+        )
+
+    assert exc.value.status_code == 400
+    assert conn.execute.await_count == 0
+
+
+def test_riordina_voci_aggiorna_solo_righe_del_tenant():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    computo_id = "10000000-0000-4000-8000-000000000001"
+    first = UUID("20000000-0000-4000-8000-000000000001")
+    second = UUID("20000000-0000-4000-8000-000000000002")
+    conn = AsyncMock()
+    conn.fetchval.return_value = "bozza"
+    conn.fetch.return_value = [{"id": first}, {"id": second}]
+
+    asyncio.run(
+        boq_service.riordina_voci(
+            conn,
+            tenant_id,
+            computo_id,
+            [str(second), str(first)],
+        )
+    )
+
+    assert conn.execute.await_count == 2
+    first_update = conn.execute.await_args_list[0]
+    assert "tenant_id = $4::uuid" in first_update.args[0]
+    assert first_update.args[1:] == (0, str(second), computo_id, tenant_id)
