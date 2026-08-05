@@ -406,6 +406,7 @@ async def root():
 
 
 @api.get("/webhooks/meta")
+@app.get("/webhooks/meta")
 async def verify_meta_webhook(request: Request):
     verify_token = os.environ.get("META_VERIFY_TOKEN")
     if not verify_token:
@@ -419,6 +420,7 @@ async def verify_meta_webhook(request: Request):
 
 
 @api.post("/webhooks/meta")
+@app.post("/webhooks/meta")
 async def receive_meta_webhook(request: Request, background_tasks: BackgroundTasks):
     raw_body = await request.body()
     app_secret = os.environ.get("META_APP_SECRET")

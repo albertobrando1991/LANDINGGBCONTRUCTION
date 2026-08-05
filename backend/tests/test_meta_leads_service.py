@@ -1,13 +1,67 @@
 import hashlib
 import hmac
 import json
+import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
+from starlette.requests import Request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import meta_leads_service as meta
+import server
+
+
+def _request(query: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/webhooks/meta",
+            "query_string": query.encode("ascii"),
+            "headers": [],
+        }
+    )
+
+
+def test_meta_webhook_verification_is_registered_with_and_without_api_prefix():
+    paths = {
+        route.path
+        for route in server.app.routes
+        if "GET" in (getattr(route, "methods", None) or set())
+    }
+    assert "/api/webhooks/meta" in paths
+    assert "/webhooks/meta" in paths
+
+
+def test_meta_webhook_verification_returns_plain_challenge(monkeypatch):
+    monkeypatch.setenv("META_VERIFY_TOKEN", "test-verify-token")
+    response = asyncio.run(
+        server.verify_meta_webhook(
+            _request(
+                "hub.mode=subscribe&hub.verify_token=test-verify-token&hub.challenge=test123"
+            )
+        )
+    )
+    assert response.status_code == 200
+    assert response.body == b"test123"
+    assert response.media_type == "text/plain"
+
+
+def test_meta_webhook_verification_rejects_wrong_token(monkeypatch):
+    monkeypatch.setenv("META_VERIFY_TOKEN", "test-verify-token")
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            server.verify_meta_webhook(
+                _request(
+                    "hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=test123"
+                )
+            )
+        )
+    assert exc.value.status_code == 403
 
 
 def test_verify_meta_signature_accepts_valid_hmac():
@@ -21,30 +75,36 @@ def test_verify_meta_signature_accepts_valid_hmac():
 def test_extract_leadgen_events_from_meta_payload():
     payload = {
         "object": "page",
-        "entry": [{
-            "id": "page-1",
-            "changes": [{
-                "field": "leadgen",
-                "value": {
-                    "leadgen_id": "lead-123",
-                    "form_id": "form-1",
-                    "page_id": "page-1",
-                    "created_time": 1717000000,
-                },
-            }],
-        }],
+        "entry": [
+            {
+                "id": "page-1",
+                "changes": [
+                    {
+                        "field": "leadgen",
+                        "value": {
+                            "leadgen_id": "lead-123",
+                            "form_id": "form-1",
+                            "page_id": "page-1",
+                            "created_time": 1717000000,
+                        },
+                    }
+                ],
+            }
+        ],
     }
 
     events = meta.extract_leadgen_events(payload)
 
-    assert events == [{
-        "leadgen_id": "lead-123",
-        "form_id": "form-1",
-        "page_id": "page-1",
-        "ad_id": "",
-        "created_time": 1717000000,
-        "raw_value": payload["entry"][0]["changes"][0]["value"],
-    }]
+    assert events == [
+        {
+            "leadgen_id": "lead-123",
+            "form_id": "form-1",
+            "page_id": "page-1",
+            "ad_id": "",
+            "created_time": 1717000000,
+            "raw_value": payload["entry"][0]["changes"][0]["value"],
+        }
+    ]
 
 
 def test_build_meta_lead_doc_maps_standard_and_italian_fields():
