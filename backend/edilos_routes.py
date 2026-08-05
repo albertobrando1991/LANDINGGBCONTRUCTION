@@ -93,11 +93,13 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     async def tenant_config(request: Request):
         slug = tenancy.extract_tenant_slug(request)
         async with db_pg.public_conn() as conn:
+            # La policy RLS tenants_public_brand limita gia' la lettura ai
+            # tenant attivi; `anon` puo' selezionare soltanto queste colonne.
             row = await conn.fetchrow(
                 """
                 select slug, ragione_sociale, theme, contatti
                 from public.tenants
-                where slug = $1 and attivo = true
+                where slug = $1
                 """,
                 slug,
             )

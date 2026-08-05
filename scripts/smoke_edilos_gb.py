@@ -38,6 +38,10 @@ from legacy_tenant import GB_TENANT_ID, LEGACY_STAFF_MAP, claims_for_user
 from preventivo_pdf import genera_pdf_preventivo
 
 
+class _SmokeRollback(Exception):
+    """Segnale interno: lo smoke e' riuscito, ma i dati remoti vanno annullati."""
+
+
 async def main() -> int:
     await db_pg.init_pool()
     if not db_pg.pool_ready():
@@ -55,83 +59,87 @@ async def main() -> int:
     claims = claims_for_user(user)
     print("claims.sub =", claims["sub"])
 
-    async with db_pg.tenant_conn_claims(claims) as conn:
-        # membership
-        m = await conn.fetchrow(
-            "select role from public.tenant_members where tenant_id = $1::uuid and user_id = $2::uuid",
-            GB_TENANT_ID,
-            uid,
-        )
-        if not m:
-            print("FAIL: membership admin assente — esegui supabase db reset")
-            return 1
-        print("OK membership role =", m["role"])
-
-        prezzari = await prezzario_service.lista_prezzari(conn, GB_TENANT_ID)
-        print(f"OK prezzari = {len(prezzari)}")
-        assert prezzari, "nessun prezzario"
-        prezz_id = prezzari[0]["id"]
-        wizard = await prezzario_service.voci_wizard(conn, GB_TENANT_ID, prezz_id)
-        print(f"OK wizard voci = {len(wizard)}")
-        assert len(wizard) == 28
-
-        # sistema non modificabile
-        try:
-            await prezzario_service.applica_wizard(
-                conn, GB_TENANT_ID, prezz_id, {wizard[0]["id"]: wizard[0]["prezzo_unitario"]}
+    try:
+        async with db_pg.tenant_conn_claims(claims) as conn:
+            # membership
+            m = await conn.fetchrow(
+                "select role from public.tenant_members where tenant_id = $1::uuid and user_id = $2::uuid",
+                GB_TENANT_ID,
+                uid,
             )
-            print("FAIL: wizard su sistema doveva fallire")
-            return 1
-        except Exception as exc:
-            print("OK blocco prezzario sistema:", str(exc.detail if hasattr(exc, "detail") else exc)[:80])
+            assert m, "membership admin assente — esegui supabase db reset"
+            print("OK membership role =", m["role"])
 
-        # duplica
-        custom = await prezzario_service.duplica_prezzario(
-            conn, GB_TENANT_ID, prezz_id, "Listino GB operativo"
-        )
-        print("OK duplica prezzario", custom["id"])
+            prezzari = await prezzario_service.lista_prezzari(conn, GB_TENANT_ID)
+            print(f"OK prezzari = {len(prezzari)}")
+            sistema = next((p for p in prezzari if p.get("is_sistema")), None)
+            assert sistema, "prezzario di sistema assente"
+            prezz_id = sistema["id"]
+            wizard = await prezzario_service.voci_wizard(conn, GB_TENANT_ID, prezz_id)
+            print(f"OK wizard voci = {len(wizard)}")
+            assert len(wizard) == 28
 
-        metriche = estrai_metriche(
-            {
-                "mq": 85,
-                "bagni": 2,
-                "camere": 3,
-                "punti_luce": 40,
-                "mq_intonaco": 200,
-                "ml_tramezzi_demolire": 12,
-            }
-        )
-        bozza = await mapping_engine.genera_computo_da_ai(
-            conn,
-            GB_TENANT_ID,
-            metriche=metriche,
-            config_lead={"livello": "premium"},
-            prezzario_id=prezz_id,
-        )
-        print(
-            f"OK computo AI id={bozza['id']} voci={bozza['n_voci']} totale={bozza['totale']}"
-        )
-        assert bozza["n_voci"] > 0
+            # sistema non modificabile
+            try:
+                await prezzario_service.applica_wizard(
+                    conn, GB_TENANT_ID, prezz_id, {wizard[0]["id"]: wizard[0]["prezzo_unitario"]}
+                )
+            except Exception as exc:
+                print("OK blocco prezzario sistema:", str(exc.detail if hasattr(exc, "detail") else exc)[:80])
+            else:
+                raise AssertionError("wizard su sistema doveva fallire")
 
-        n = await boq_service.valida_voci_ai(conn, GB_TENANT_ID, bozza["id"])
-        print(f"OK validate AI = {n}")
-        conf = await boq_service.conferma_computo(conn, GB_TENANT_ID, bozza["id"])
-        print("OK conferma stato =", conf["stato"])
-        prev = await boq_service.computo_to_preventivo(
-            conn, GB_TENANT_ID, bozza["id"], sconto=0, iva=10
-        )
-        print("OK preventivo", prev["numero"], "totale", prev["totale_documento"])
+            # duplica
+            custom = await prezzario_service.duplica_prezzario(
+                conn, GB_TENANT_ID, prezz_id, "Listino GB operativo"
+            )
+            print("OK duplica prezzario", custom["id"])
 
-        tenant_row = await conn.fetchrow(
-            "select * from public.tenants where id = $1::uuid", GB_TENANT_ID
-        )
-        tenant = dict(tenant_row)
-        pdf = genera_pdf_preventivo(prev, tenant)
-        out = ROOT / "scripts" / "_smoke_preventivo_gb.pdf"
-        out.write_bytes(pdf)
-        print(f"OK PDF bytes={len(pdf)} → {out}")
+            metriche = estrai_metriche(
+                {
+                    "mq": 85,
+                    "bagni": 2,
+                    "camere": 3,
+                    "punti_luce": 40,
+                    "mq_intonaco": 200,
+                    "ml_tramezzi_demolire": 12,
+                }
+            )
+            bozza = await mapping_engine.genera_computo_da_ai(
+                conn,
+                GB_TENANT_ID,
+                metriche=metriche,
+                config_lead={"livello": "premium"},
+                prezzario_id=prezz_id,
+            )
+            print(
+                f"OK computo AI id={bozza['id']} voci={bozza['n_voci']} totale={bozza['totale']}"
+            )
+            assert bozza["n_voci"] > 0
 
-    await db_pg.close_pool()
+            n = await boq_service.valida_voci_ai(conn, GB_TENANT_ID, bozza["id"])
+            print(f"OK validate AI = {n}")
+            conf = await boq_service.conferma_computo(conn, GB_TENANT_ID, bozza["id"])
+            print("OK conferma stato =", conf["stato"])
+            prev = await boq_service.computo_to_preventivo(
+                conn, GB_TENANT_ID, bozza["id"], sconto=0, iva=10
+            )
+            print("OK preventivo", prev["numero"], "totale", prev["totale_documento"])
+
+            tenant_row = await conn.fetchrow(
+                "select * from public.tenants where id = $1::uuid", GB_TENANT_ID
+            )
+            tenant = dict(tenant_row)
+            pdf = genera_pdf_preventivo(prev, tenant)
+            out = ROOT / "scripts" / "_smoke_preventivo_gb.pdf"
+            out.write_bytes(pdf)
+            print(f"OK PDF bytes={len(pdf)} -> {out}")
+            raise _SmokeRollback()
+    except _SmokeRollback:
+        print("OK rollback dati smoke remoto")
+    finally:
+        await db_pg.close_pool()
+
     print("SMOKE GB OK")
     return 0
 

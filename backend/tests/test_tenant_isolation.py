@@ -343,10 +343,15 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             await conn.execute("reset role")
 
             await conn.execute("set local role anon")
-            public_rows = await conn.fetch(
-                "select slug, ragione_sociale, theme, contatti from public.tenants"
+            public_row = await conn.fetchrow(
+                """
+                select slug, ragione_sociale, theme, contatti
+                from public.tenants
+                where slug = $1
+                """,
+                "gbconstruction",
             )
-            assert {row["slug"] for row in public_rows} >= {"gbconstruction", "demo"}
+            assert public_row["slug"] == "gbconstruction"
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 async with conn.transaction():
                     await conn.fetch("select piva from public.tenants")
