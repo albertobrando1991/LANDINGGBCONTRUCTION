@@ -22,6 +22,7 @@ TABELLE_TENANT = [
     "mapping_regole",
     "preventivi",
     "preventivo_eventi",
+    "libretto_misure",
 ]
 
 
@@ -32,6 +33,7 @@ def test_tabelle_tenant_elencate():
     assert "computo_voci" in TABELLE_TENANT
     assert "preventivi" in TABELLE_TENANT
     assert "preventivo_eventi" in TABELLE_TENANT
+    assert "libretto_misure" in TABELLE_TENANT
 
 
 def _pg_dsn() -> str | None:
@@ -180,7 +182,15 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             "select set_config('request.jwt.claim.role', 'authenticated', true)"
         )
 
-    async def _insert_fixture(conn, tenant_id, suffix, prezzario_id, voce_id):
+    async def _insert_fixture(
+        conn,
+        tenant_id,
+        suffix,
+        prezzario_id,
+        voce_id,
+        user_id,
+        client_uuid,
+    ):
         cliente_id = await conn.fetchval(
             "insert into public.clienti (tenant_id, nome) values ($1::uuid, $2) returning id",
             tenant_id,
@@ -233,6 +243,24 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             voce_id,
             f"Voce {suffix}",
         )
+        libretto_misura_id = await conn.fetchval(
+            """
+            insert into public.libretto_misure (
+              tenant_id, cantiere_id, computo_voce_id, data_misura,
+              rilevata_da, descrizione, parti, lunghezza, larghezza, qta,
+              client_uuid
+            ) values (
+              $1::uuid, $2::uuid, $3::uuid, date '2099-01-01',
+              $4::uuid, $5, 1, 2, 3, 6, $6::uuid
+            ) returning id
+            """,
+            tenant_id,
+            cantiere_id,
+            computo_voce_id,
+            user_id,
+            f"Misura {suffix}",
+            client_uuid,
+        )
         preventivo_id = await conn.fetchval(
             """
             insert into public.preventivi (
@@ -255,26 +283,36 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             preventivo_id,
             f"Preventivo RLS {suffix} creato",
         )
-        return computo_id, computo_voce_id, preventivo_id
+        return (
+            cantiere_id,
+            computo_voce_id,
+            preventivo_id,
+            libretto_misura_id,
+        )
 
     async def _run():
         conn = await asyncpg.connect(_pg_dsn())
         tx = conn.transaction()
         await tx.start()
         try:
-            _, voce_computo_a, preventivo_a = await _insert_fixture(
+            fixture_a = await _insert_fixture(
                 conn,
                 tenant_a,
                 "A",
                 "b0000000-0000-4000-8000-000000000001",
                 "c0000000-0000-4000-8000-000000000001",
+                user_a,
+                "e1000000-0000-4000-8000-000000000001",
             )
-            _, voce_computo_b, preventivo_b = await _insert_fixture(
+            cantiere_a, voce_computo_a, preventivo_a, misura_a = fixture_a
+            cantiere_b, voce_computo_b, preventivo_b, _ = await _insert_fixture(
                 conn,
                 tenant_b,
                 "B",
                 "b0000000-0000-4000-8000-000000000002",
                 "d0000000-0000-4000-8000-000000000001",
+                user_b,
+                "e2000000-0000-4000-8000-000000000001",
             )
 
             for user_id, own_tenant, other_tenant in (
@@ -320,6 +358,59 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 async with conn.transaction():
                     await conn.execute(
                         """
+                        insert into public.libretto_misure (
+                          tenant_id, cantiere_id, computo_voce_id,
+                          descrizione, qta, client_uuid
+                        ) values ($1::uuid, $2::uuid, $3::uuid, $4, 1, $5::uuid)
+                        """,
+                        tenant_a,
+                        cantiere_b,
+                        voce_computo_a,
+                        "Misura cross tenant",
+                        "e3000000-0000-4000-8000-000000000001",
+                    )
+            with pytest.raises(asyncpg.UniqueViolationError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        insert into public.libretto_misure (
+                          tenant_id, cantiere_id, computo_voce_id,
+                          descrizione, qta, client_uuid
+                        ) values ($1::uuid, $2::uuid, $3::uuid, $4, 1, $5::uuid)
+                        """,
+                        tenant_a,
+                        cantiere_a,
+                        voce_computo_a,
+                        "Retry della stessa misura",
+                        "e1000000-0000-4000-8000-000000000001",
+                    )
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        update public.libretto_misure set qta = 99
+                        where id = $1::uuid and tenant_id = $2::uuid
+                        """,
+                        misura_a,
+                        tenant_a,
+                    )
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        delete from public.libretto_misure
+                        where id = $1::uuid and tenant_id = $2::uuid
+                        """,
+                        misura_a,
+                        tenant_a,
+                    )
+            await conn.execute("reset role")
+
+            await _claims(conn, user_a)
+            with pytest.raises(asyncpg.ForeignKeyViolationError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
                         insert into public.preventivo_eventi (
                           tenant_id, preventivo_id, tipo, dettaglio
                         ) values ($1::uuid, $2::uuid, 'stato', 'Cross tenant')
@@ -350,10 +441,28 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             )
             assert deleted["id"] == str(voce_computo_a)
             await conn.execute("reset role")
+            misura_dopo_delete_voce = await conn.fetchrow(
+                """
+                select computo_voce_id, qta
+                from public.libretto_misure
+                where id = $1::uuid and tenant_id = $2::uuid
+                """,
+                misura_a,
+                tenant_a,
+            )
+            assert misura_dopo_delete_voce["computo_voce_id"] is None
+            assert float(misura_dopo_delete_voce["qta"]) == 6
             assert await conn.fetchval(
                 "select exists(select 1 from public.computo_voci where id = $1::uuid)",
                 voce_computo_b,
             )
+
+            with pytest.raises(asyncpg.ForeignKeyViolationError):
+                async with conn.transaction():
+                    await conn.execute(
+                        "delete from public.cantieri where id = $1::uuid",
+                        cantiere_a,
+                    )
 
             await _claims(conn, user_a)
             custom = await prezzario_service.duplica_prezzario(
