@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -23,6 +24,59 @@ def _d(row: asyncpg.Record | dict | None) -> dict | None:
         elif isinstance(value, Decimal):
             out[key] = float(value)
     return out
+
+
+async def lista_cantieri_campo(conn: asyncpg.Connection, tenant_id: str) -> list[dict]:
+    """Restituisce i cantieri operativi e le voci confermate per il rilievo.
+
+    Il filtro tenant resta esplicito oltre alle policy RLS e la query aggregata
+    evita una lettura separata delle voci per ogni cantiere.
+    """
+    rows = await conn.fetch(
+        """
+        select c.id, c.cliente, c.indirizzo, c.stato, c.capocantiere,
+               coalesce(
+                 jsonb_agg(
+                   jsonb_build_object(
+                     'id', v.id,
+                     'computo_id', co.id,
+                     'computo_numero', co.numero,
+                     'computo_tipo', co.tipo,
+                     'descrizione', v.descrizione,
+                     'um', v.um,
+                     'qta_contrattuale', v.qta,
+                     'ordine', v.ordine
+                   )
+                   order by co.created_at desc, v.ordine, v.descrizione
+                 ) filter (where v.id is not null),
+                 '[]'::jsonb
+               ) as voci
+        from public.cantieri c
+        left join public.computi co
+          on co.cantiere_id = c.id
+         and co.tenant_id = c.tenant_id
+         and co.stato = 'confermato'
+        left join public.computo_voci v
+          on v.computo_id = co.id
+         and v.tenant_id = co.tenant_id
+        where c.tenant_id = $1::uuid
+          and c.stato in ('attivo', 'in_pausa')
+        group by c.id
+        order by case c.stato when 'attivo' then 0 else 1 end,
+                 c.cliente,
+                 c.id
+        """,
+        tenant_id,
+    )
+    result = []
+    for row in rows:
+        item = _d(row)
+        raw_voci = item.get("voci")
+        if isinstance(raw_voci, str):
+            raw_voci = json.loads(raw_voci)
+        item["voci"] = raw_voci or []
+        result.append(item)
+    return result
 
 
 async def _require_cantiere(

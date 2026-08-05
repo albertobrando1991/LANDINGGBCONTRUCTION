@@ -69,9 +69,47 @@ def _route(method: str):
     )
 
 
+def _campo_route():
+    api = APIRouter(prefix="/api")
+    edilos_routes.register_edilos_routes(api, object(), object())
+    return next(
+        route.endpoint
+        for route in api.routes
+        if route.path == "/api/campo/cantieri" and "GET" in (route.methods or set())
+    )
+
+
 def test_route_get_e_post_sono_registrate():
     assert callable(_route("GET"))
     assert callable(_route("POST"))
+    assert callable(_campo_route())
+
+
+def test_lista_cantieri_campo_filtra_tenant_e_aggrega_voci_confermate():
+    conn = AsyncMock()
+    conn.fetch.return_value = [
+        {
+            "id": UUID(CANTIERE_ID),
+            "cliente": "Condominio Aurora",
+            "indirizzo": "Via Roma 1",
+            "stato": "attivo",
+            "capocantiere": "Mario",
+            "voci": (
+                '[{"id":"20000000-0000-4000-8000-000000000001",'
+                '"descrizione":"Massetto","um":"mq"}]'
+            ),
+        }
+    ]
+
+    rows = asyncio.run(libretto_service.lista_cantieri_campo(conn, TENANT_ID))
+
+    assert rows[0]["id"] == CANTIERE_ID
+    assert rows[0]["voci"][0]["descrizione"] == "Massetto"
+    query_call = conn.fetch.await_args
+    assert "c.tenant_id = $1::uuid" in query_call.args[0]
+    assert "co.stato = 'confermato'" in query_call.args[0]
+    assert "jsonb_agg" in query_call.args[0]
+    assert query_call.args[1:] == (TENANT_ID,)
 
 
 def test_body_accetta_correzioni_negative_ma_non_quantita_zero():
@@ -299,4 +337,26 @@ def test_post_route_blocca_ruolo_client(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(endpoint(_request(), CANTIERE_ID, body, Response()))
+    assert exc.value.status_code == 403
+
+
+def test_campo_route_blocca_ruolo_client(monkeypatch):
+    async def fake_user(request, db):
+        return {"id": "user"}
+
+    @asynccontextmanager
+    async def tenant_conn(request, user):
+        yield AsyncMock(), {"id": TENANT_ID, "role": "client"}
+
+    monkeypatch.setattr(edilos_routes, "_user", fake_user)
+    api = APIRouter(prefix="/api")
+    edilos_routes.register_edilos_routes(api, object(), tenant_conn)
+    endpoint = next(
+        route.endpoint
+        for route in api.routes
+        if route.path == "/api/campo/cantieri" and "GET" in (route.methods or set())
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(endpoint(_request("GET")))
     assert exc.value.status_code == 403

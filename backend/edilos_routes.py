@@ -1,4 +1,5 @@
 """API EdilOS Fase 1: prezzario, computi, mapping AI, preventivi."""
+
 from __future__ import annotations
 
 import asyncio
@@ -166,12 +167,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     """Monta le route su un APIRouter esistente (prefix /api)."""
 
     def actor_name(user: dict) -> str:
-        return str(
-            user.get("name")
-            or user.get("nome")
-            or user.get("email")
-            or "staff"
-        )
+        return str(user.get("name") or user.get("nome") or user.get("email") or "staff")
 
     def require_libretto_role(tenant: dict) -> None:
         if tenant.get("role") not in libretto_service.LIBRETTO_ROLES:
@@ -225,7 +221,12 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             )
 
     @api.get("/prezzario/{prezzario_id}/voci")
-    async def voci(request: Request, prezzario_id: str, q: Optional[str] = None, categoria: Optional[str] = None):
+    async def voci(
+        request: Request,
+        prezzario_id: str,
+        q: Optional[str] = None,
+        categoria: Optional[str] = None,
+    ):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             return await prezzario_service.lista_voci(
@@ -261,7 +262,9 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             return {"ripristinate": n}
 
     @api.post("/prezzario/{prezzario_id}/importa-csv")
-    async def importa(request: Request, prezzario_id: str, file: UploadFile = File(...)):
+    async def importa(
+        request: Request, prezzario_id: str, file: UploadFile = File(...)
+    ):
         user = await _user(request, db)
         data = await file.read()
         async with get_tenant_conn(request, user) as (conn, tenant):
@@ -328,10 +331,14 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             return {"ok": True}
 
     @api.post("/computi/{computo_id}/duplica")
-    async def dup_computo(request: Request, computo_id: str, tipo: Optional[str] = None):
+    async def dup_computo(
+        request: Request, computo_id: str, tipo: Optional[str] = None
+    ):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
-            return await boq_service.duplica_computo(conn, tenant["id"], computo_id, tipo=tipo)
+            return await boq_service.duplica_computo(
+                conn, tenant["id"], computo_id, tipo=tipo
+            )
 
     @api.post("/computi/{computo_id}/valida-ai")
     async def valida_ai(request: Request, computo_id: str, body: ValidaAiBody):
@@ -378,6 +385,13 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             )
 
     # ---------- Libretto di misura ----------
+    @api.get("/campo/cantieri")
+    async def campo_cantieri(request: Request):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_libretto_role(tenant)
+            return await libretto_service.lista_cantieri_campo(conn, tenant["id"])
+
     @api.get("/cantieri/{cantiere_id}/libretto-misure")
     async def libretto_misure(
         request: Request,
@@ -524,9 +538,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 body.destinatario or (lead["email"] if lead else "") or ""
             ).strip()
             try:
-                destinatario = str(
-                    EMAIL_ADDRESS_ADAPTER.validate_python(raw_recipient)
-                )
+                destinatario = str(EMAIL_ADDRESS_ADAPTER.validate_python(raw_recipient))
             except ValidationError:
                 raise HTTPException(
                     status_code=400, detail="Email destinatario non valida"
@@ -535,24 +547,20 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             ragione_sociale = tenant.get("ragione_sociale") or "GB Construction"
             nome_cliente = str((lead["nome"] if lead else "") or "Cliente").strip()
             oggetto = (
-                (body.oggetto or "").strip()
-                or f"Preventivo {preventivo['numero']} - {ragione_sociale}"
-            )
-            messaggio = (
-                (body.messaggio or "").strip()
-                or (
-                    f"Gentile {nome_cliente},\n\n"
-                    f"in allegato trova il preventivo {preventivo['numero']} "
-                    f"preparato da {ragione_sociale}.\n\n"
-                    "Per qualsiasi chiarimento può rispondere direttamente a questa email.\n\n"
-                    f"Cordiali saluti,\n{ragione_sociale}"
-                )
+                body.oggetto or ""
+            ).strip() or f"Preventivo {preventivo['numero']} - {ragione_sociale}"
+            messaggio = (body.messaggio or "").strip() or (
+                f"Gentile {nome_cliente},\n\n"
+                f"in allegato trova il preventivo {preventivo['numero']} "
+                f"preparato da {ragione_sociale}.\n\n"
+                "Per qualsiasi chiarimento può rispondere direttamente a questa email.\n\n"
+                f"Cordiali saluti,\n{ragione_sociale}"
             )
             pdf_data = dict(preventivo)
             pdf_data["stato"] = "inviato"
             pdf = genera_pdf_preventivo(pdf_data, tenant)
-            idempotency_seed = (
-                f"{tenant['id']}:{preventivo_id}:invio-iniziale".encode("utf-8")
+            idempotency_seed = f"{tenant['id']}:{preventivo_id}:invio-iniziale".encode(
+                "utf-8"
             )
             idempotency_hash = hashlib.sha256(idempotency_seed).hexdigest()
             idempotency_key = f"preventivo-{idempotency_hash}"

@@ -1,0 +1,20 @@
+{
+  "short_name": "GB Campo",
+  "name": "GB Construction | Libretto di campo",
+  "description": "Rilievi e rettifiche del libretto di misura, anche offline.",
+  "id": "/campo",
+  "start_url": "/campo",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#0c0c0f",
+  "background_color": "#0c0c0f",
+  "lang": "it",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

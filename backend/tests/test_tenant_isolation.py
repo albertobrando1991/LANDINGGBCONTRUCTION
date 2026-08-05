@@ -3,6 +3,7 @@
 Quando SUPABASE_DB_URL non è configurato, i test di isolation live sono skippati.
 Il test catalogo RLS richiede Postgres; altrimenti si valida solo la lista tabelle attesa.
 """
+
 from __future__ import annotations
 
 import os
@@ -89,8 +90,7 @@ def test_ogni_tabella_con_tenant_id_ha_rls():
             dsn = dsn.split("?")[0]
         conn = await asyncpg.connect(dsn, **kwargs)
         try:
-            rows = await conn.fetch(
-                """
+            rows = await conn.fetch("""
                 select c.relname as table_name, c.relrowsecurity as rls
                 from pg_class c
                 join pg_namespace n on n.oid = c.relnamespace
@@ -99,8 +99,7 @@ def test_ogni_tabella_con_tenant_id_ha_rls():
                 where n.nspname = 'public'
                   and c.relkind = 'r'
                   and col.column_name = 'tenant_id'
-                """
-            )
+                """)
             missing = []
             for r in rows:
                 if not r["rls"]:
@@ -175,14 +174,45 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
         claims = json.dumps(
             {"sub": user_id, "role": "authenticated", "aud": "authenticated"}
         )
-        await conn.execute(
-            "select set_config('request.jwt.claims', $1, true)", claims
-        )
+        await conn.execute("select set_config('request.jwt.claims', $1, true)", claims)
         await conn.execute(
             "select set_config('request.jwt.claim.sub', $1, true)", user_id
         )
         await conn.execute(
             "select set_config('request.jwt.claim.role', 'authenticated', true)"
+        )
+
+    async def _ensure_test_actor(conn, tenant_id, user_id, role):
+        """Rende lo smoke self-contained anche senza il seed locale Auth."""
+        await conn.execute(
+            """
+            insert into auth.users (
+              instance_id, id, aud, role, email, encrypted_password,
+              email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+              created_at, updated_at, confirmation_token, recovery_token,
+              email_change_token_new, email_change
+            ) values (
+              '00000000-0000-0000-0000-000000000000', $1::uuid,
+              'authenticated', 'authenticated', $2,
+              crypt('rls-smoke-not-for-login', gen_salt('bf')), now(),
+              '{"provider":"email","providers":["email"]}'::jsonb,
+              '{"name":"RLS smoke actor"}'::jsonb,
+              now(), now(), '', '', '', ''
+            )
+            on conflict (id) do nothing
+            """,
+            user_id,
+            f"rls-{user_id}@example.test",
+        )
+        await conn.execute(
+            """
+            insert into public.tenant_members (tenant_id, user_id, role, nome)
+            values ($1::uuid, $2::uuid, $3::public.tenant_role, 'RLS smoke actor')
+            on conflict (tenant_id, user_id) do nothing
+            """,
+            tenant_id,
+            user_id,
+            role,
         )
 
     async def _insert_fixture(
@@ -298,6 +328,9 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
         tx = conn.transaction()
         await tx.start()
         try:
+            await _ensure_test_actor(conn, tenant_a, user_a, "owner")
+            await _ensure_test_actor(conn, tenant_a, staff_a, "staff")
+            await _ensure_test_actor(conn, tenant_b, user_b, "owner")
             fixture_a = await _insert_fixture(
                 conn,
                 tenant_a,
@@ -357,6 +390,11 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             await conn.execute("reset role")
 
             await _claims(conn, user_a)
+            campo_a = await libretto_service.lista_cantieri_campo(conn, tenant_a)
+            fixture_campo = next(row for row in campo_a if row["id"] == str(cantiere_a))
+            assert fixture_campo["voci"] == []
+            assert await libretto_service.lista_cantieri_campo(conn, tenant_b) == []
+
             nuova_misura, created = await libretto_service.registra_misura(
                 conn,
                 tenant_a,
@@ -469,9 +507,7 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
 
             await _claims(conn, user_a)
             with pytest.raises(HTTPException) as exc:
-                await boq_service.rimuovi_voce(
-                    conn, tenant_b, str(voce_computo_b)
-                )
+                await boq_service.rimuovi_voce(conn, tenant_b, str(voce_computo_b))
             assert exc.value.status_code == 404
             deleted = await boq_service.rimuovi_voce(
                 conn, tenant_a, str(voce_computo_a)
@@ -519,20 +555,16 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 tenant_a,
                 custom["id"],
             )
-            regole = await mapping_engine.carica_regole(
-                conn, tenant_a, custom["id"]
-            )
+            regole = await mapping_engine.carica_regole(conn, tenant_a, custom["id"])
             pavimento = next(r for r in regole if r.metrica == "mq_pavimento")
             assert pavimento.prezzario_voce_id == str(custom_voce["id"])
             assert pavimento.prezzo_unitario == 77
             with pytest.raises(asyncpg.RaiseError):
                 async with conn.transaction():
-                    await conn.execute(
-                        """
+                    await conn.execute("""
                         update public.prezzario_voci set prezzo_unitario = 999
                         where id = 'c0000000-0000-4000-8000-000000000001'
-                        """
-                    )
+                        """)
             await conn.execute("reset role")
 
             # Il lock applicativo non deve dipendere dalla policy UPDATE di

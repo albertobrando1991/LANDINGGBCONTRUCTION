@@ -31,6 +31,7 @@ const Prezzario = lazy(() => import("@/dashboard/pages/Prezzario"));
 const PrezzarioWizard = lazy(() => import("@/dashboard/pages/PrezzarioWizard"));
 const Computi = lazy(() => import("@/dashboard/pages/Computi"));
 const ComputoEditor = lazy(() => import("@/dashboard/pages/ComputoEditor"));
+const Campo = lazy(() => import("@/campo/Campo"));
 
 function RouteFallback() {
   return (
@@ -87,6 +88,14 @@ function App() {
               />
               <Route element={<AuthBoundary />}>
                 <Route path="/login" element={<Login />} />
+                <Route
+                  path="/campo"
+                  element={
+                    <ProtectedRoute>
+                      <Campo />
+                    </ProtectedRoute>
+                  }
+                />
                 <Route
                   path="/dashboard"
                   element={

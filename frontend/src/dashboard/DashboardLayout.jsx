@@ -18,6 +18,7 @@ import {
   Brain,
   Calculator,
   ListTree,
+  Smartphone,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/dashboard/Avatar";
@@ -41,6 +42,12 @@ const NAV = [
   { to: "/dashboard/prezzario", label: "Prezzario", Icon: Calculator },
   { to: "/dashboard/computi", label: "Computi", Icon: ListTree },
   { to: "/dashboard/cantieri", label: "Cantieri attivi", Icon: HardHat },
+  {
+    to: "/campo",
+    label: "Campo",
+    Icon: Smartphone,
+    roles: ["owner", "admin", "staff", "operations"],
+  },
   { to: "/dashboard/ai-architect", label: "AI Architect", Icon: Brain },
   { to: "/dashboard/report", label: "Report", Icon: BarChart3, admin: true },
   {
@@ -68,7 +75,11 @@ function SidebarContent({ user, onNav }) {
         className="flex-1 px-3 py-4 space-y-1 overflow-y-auto"
         aria-label="Navigazione dashboard"
       >
-        {NAV.filter((n) => !n.admin || user?.role === "admin").map((n) => (
+        {NAV.filter(
+          (n) =>
+            (!n.admin || user?.role === "admin") &&
+            (!n.roles || n.roles.includes(user?.role)),
+        ).map((n) => (
           <NavLink
             key={n.to}
             to={n.to}

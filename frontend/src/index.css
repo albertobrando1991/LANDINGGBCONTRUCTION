@@ -11,6 +11,8 @@
   --gb-surface-2: 240 3% 14%;
   --gb-text: 0 0% 96%;
   --gb-muted: 0 0% 53%;
+  --gb-ink: var(--gb-text);
+  --gb-fog: var(--gb-muted);
   --gb-stroke: 240 2% 18%;
   --gb-accent: 0 64% 47%;
   --gb-accent-dark: 0 64% 28%;
@@ -552,4 +554,654 @@ html.is-scroll-locked body {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* ---------- GB Campo PWA ---------- */
+.campo-shell {
+  --campo-positive: 142 70% 45%;
+  --campo-warning: 41 86% 56%;
+  background-image:
+    linear-gradient(hsla(0, 0%, 100%, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, hsla(0, 0%, 100%, 0.018) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.campo-header::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(hsl(var(--gb-gold)), hsl(var(--gb-accent)));
+}
+
+.campo-icon-button,
+.campo-install,
+.campo-sync-button {
+  display: inline-flex;
+  min-width: 48px;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid hsl(var(--gb-stroke));
+  color: hsl(var(--gb-ink));
+}
+
+.campo-icon-button {
+  border-radius: 999px;
+  background: hsl(var(--gb-surface));
+}
+
+.campo-icon-button svg,
+.campo-sync-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.campo-install {
+  gap: 8px;
+  border-radius: 10px;
+  padding: 0 14px;
+  background: hsl(var(--gb-surface));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.campo-install svg {
+  width: 16px;
+  height: 16px;
+}
+
+.campo-sync-rail {
+  position: relative;
+  overflow: hidden;
+  border-top: 1px solid hsl(var(--gb-stroke));
+  background: hsl(var(--gb-surface));
+}
+
+.campo-sync-rail::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 9px;
+  background: repeating-linear-gradient(
+    -45deg,
+    hsl(var(--campo-positive)) 0 4px,
+    transparent 4px 8px
+  );
+}
+
+.campo-sync-rail.is-offline::before {
+  background: repeating-linear-gradient(
+    -45deg,
+    hsl(var(--campo-warning)) 0 4px,
+    transparent 4px 8px
+  );
+}
+
+.campo-sync-rail.is-online > div > div:first-child > svg {
+  color: hsl(var(--campo-positive));
+}
+
+.campo-sync-rail.is-offline > div > div:first-child > svg {
+  color: hsl(var(--campo-warning));
+}
+
+.campo-sync-rail svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.campo-sync-button {
+  min-width: 48px;
+  min-height: 48px;
+  border: 0;
+  border-radius: 8px;
+  background: hsl(var(--gb-surface-2));
+}
+
+.campo-sync-button:disabled {
+  opacity: 0.35;
+}
+
+.campo-panel {
+  border: 1px solid hsl(var(--gb-stroke));
+  border-radius: 16px;
+  background: hsla(240, 7%, 7%, 0.94);
+  padding: 18px;
+  box-shadow: 0 24px 70px hsla(0, 0%, 0%, 0.18);
+}
+
+.campo-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid hsl(var(--gb-stroke));
+}
+
+.campo-panel-heading.compact {
+  margin-bottom: 8px;
+}
+
+.campo-panel-heading h2 {
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.campo-panel-heading > svg {
+  width: 28px;
+  height: 28px;
+  color: hsl(var(--gb-gold));
+}
+
+.campo-panel-heading > span:not(.campo-cache-tag) {
+  display: grid;
+  min-width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 999px;
+  background: hsl(var(--gb-accent));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-weight: 700;
+}
+
+.campo-eyebrow {
+  margin-bottom: 6px;
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+}
+
+.campo-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.campo-field > span,
+.campo-legend {
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.campo-field em {
+  font-family: var(--font-body), "Montserrat", sans-serif;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.campo-field input,
+.campo-field select,
+.campo-field textarea {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid hsl(var(--gb-stroke));
+  border-radius: 10px;
+  outline: 0;
+  background: hsl(var(--gb-surface-2));
+  padding: 0 14px;
+  color: hsl(var(--gb-ink));
+  font-family: var(--font-body), "Montserrat", sans-serif;
+  font-size: 16px;
+}
+
+.campo-field textarea {
+  min-height: 94px;
+  padding-block: 13px;
+  resize: vertical;
+}
+
+.campo-field input:focus,
+.campo-field select:focus,
+.campo-field textarea:focus {
+  border-color: hsl(var(--gb-gold));
+  box-shadow: 0 0 0 3px hsla(41, 56%, 52%, 0.13);
+}
+
+.campo-field small {
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-body), "Montserrat", sans-serif;
+  font-size: 10px;
+}
+
+.campo-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.campo-mode-grid button {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid hsl(var(--gb-stroke));
+  border-radius: 10px;
+  background: hsl(var(--gb-surface-2));
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.campo-mode-grid button.is-active {
+  border-color: hsl(var(--campo-positive));
+  background: hsla(142, 70%, 45%, 0.12);
+  color: hsl(var(--gb-ink));
+}
+
+.campo-mode-grid button.is-negative {
+  border-color: hsl(var(--gb-accent));
+  background: hsla(0, 64%, 47%, 0.14);
+}
+
+.campo-mode-grid svg {
+  width: 18px;
+  height: 18px;
+}
+
+.campo-measure-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(140px, 0.75fr);
+  gap: 12px;
+}
+
+.campo-quantity > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 70px;
+  border: 1px solid hsl(var(--gb-stroke));
+  border-radius: 10px;
+  background: hsl(var(--gb-surface-2));
+  padding-inline: 14px;
+}
+
+.campo-quantity > div:focus-within {
+  border-color: hsl(var(--gb-gold));
+  box-shadow: 0 0 0 3px hsla(41, 56%, 52%, 0.13);
+}
+
+.campo-quantity > div > span {
+  color: hsl(var(--gb-gold));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.campo-quantity input {
+  min-height: 68px;
+  border: 0;
+  background: transparent;
+  padding: 0 8px;
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.campo-quantity input:focus {
+  box-shadow: none;
+}
+
+.campo-quantity b {
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.campo-photo-field {
+  display: grid;
+  gap: 10px;
+  border: 1px dashed hsl(var(--gb-stroke));
+  border-radius: 12px;
+  background: hsla(240, 3%, 14%, 0.5);
+  padding: 14px;
+}
+
+.campo-photo-field > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.campo-photo-field > div:first-child > span {
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.campo-photo-field em {
+  font-family: var(--font-body), "Montserrat", sans-serif;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+.campo-photo-field small {
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-body), "Montserrat", sans-serif;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.campo-photo-field > input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.campo-photo-button {
+  display: inline-flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid hsl(var(--gb-gold));
+  border-radius: 10px;
+  background: hsla(41, 56%, 52%, 0.09);
+  color: hsl(var(--gb-ink));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.campo-photo-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.campo-photo-button svg {
+  width: 18px;
+  height: 18px;
+  color: hsl(var(--gb-gold));
+}
+
+.campo-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.campo-photo-preview {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border: 1px solid hsl(var(--gb-stroke));
+  border-radius: 9px;
+  background: hsl(var(--gb-surface-2));
+}
+
+.campo-photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.campo-photo-preview button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid hsla(0, 0%, 100%, 0.35);
+  border-radius: 999px;
+  background: hsla(0, 0%, 0%, 0.78);
+  color: white;
+}
+
+.campo-photo-preview svg {
+  width: 15px;
+  height: 15px;
+}
+
+.campo-details {
+  border-top: 1px solid hsl(var(--gb-stroke));
+  border-bottom: 1px solid hsl(var(--gb-stroke));
+  padding-block: 12px;
+}
+
+.campo-details summary {
+  min-height: 38px;
+  cursor: pointer;
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.campo-dimensions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 10px;
+}
+
+.campo-submit {
+  display: flex;
+  width: 100%;
+  min-height: 58px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid hsl(var(--gb-gold));
+  border-radius: 10px;
+  background: linear-gradient(135deg, hsl(var(--gb-accent)), hsl(0 67% 36%));
+  color: white;
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  box-shadow: 0 12px 30px hsla(0, 64%, 47%, 0.2);
+}
+
+.campo-submit:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.campo-submit svg {
+  width: 19px;
+  height: 19px;
+}
+
+.campo-list {
+  display: grid;
+}
+
+.campo-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border-bottom: 1px solid hsl(var(--gb-stroke));
+  padding: 15px 0;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+
+.campo-list-row:last-child {
+  border-bottom: 0;
+}
+
+.campo-list-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.campo-list-row strong {
+  overflow-wrap: anywhere;
+  font-family: var(--font-body), "Montserrat", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.campo-list-row span {
+  overflow-wrap: anywhere;
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-body), "Montserrat", sans-serif;
+  font-size: 10px;
+}
+
+.campo-list-row > b {
+  color: hsl(var(--campo-positive));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.campo-list-row > b.is-negative {
+  color: hsl(var(--gb-accent));
+}
+
+.campo-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: hsl(var(--gb-fog));
+  text-align: center;
+  font-family: var(--font-body), "Montserrat", sans-serif;
+  font-size: 12px;
+}
+
+.campo-empty.compact {
+  min-height: 140px;
+}
+
+.campo-empty svg {
+  width: 28px;
+  height: 28px;
+  color: hsl(var(--gb-gold));
+}
+
+.campo-empty strong {
+  color: hsl(var(--gb-ink));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 16px;
+  text-transform: uppercase;
+}
+
+.campo-alert {
+  display: flex;
+  gap: 12px;
+  border: 1px solid hsla(0, 64%, 47%, 0.5);
+  border-radius: 10px;
+  background: hsla(0, 64%, 47%, 0.1);
+  padding: 14px;
+  font-family: var(--font-body), "Montserrat", sans-serif;
+  font-size: 12px;
+}
+
+.campo-alert svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  color: hsl(var(--gb-accent));
+}
+
+.campo-alert strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.campo-cache-tag {
+  border: 1px solid hsl(var(--gb-stroke));
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-display), "Oswald", sans-serif;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.campo-offline-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: hsl(var(--gb-fog));
+  font-family: var(--font-body), "Montserrat", sans-serif;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.campo-offline-note svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: hsl(var(--campo-warning));
+}
+
+@media (max-width: 639px) {
+  .campo-panel {
+    padding: 16px;
+  }
+
+  .campo-measure-row {
+    grid-template-columns: 1fr;
+  }
+
+  .campo-install span {
+    display: none;
+  }
+
+  .campo-install {
+    padding: 0;
+  }
+
+  .campo-photo-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .campo-shell *,
+  .campo-shell *::before,
+  .campo-shell *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
