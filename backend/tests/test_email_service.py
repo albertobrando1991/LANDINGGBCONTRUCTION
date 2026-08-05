@@ -132,13 +132,16 @@ def test_custom_email_uses_branded_layout(monkeypatch):
     monkeypatch.setenv("APP_PUBLIC_URL", "https://gbconstruction.it")
     monkeypatch.setattr(email_service.smtplib, "SMTP_SSL", FakeSMTP)
 
-    email_service.send_custom_email(
+    delivery = email_service.send_custom_email(
         to_email="cliente@example.com",
         subject="Aggiornamento cantiere",
         body_text="Stato avanzamento: 45%",
+        idempotency_key="preventivo/tenant/123/invio-iniziale",
     )
 
     assert len(sent_messages) == 1
+    assert delivery == {"transport": "smtp", "message_id": ""}
+    assert sent_messages[0]["Resend-Idempotency-Key"] is None
     html_body = sent_messages[0].get_body(preferencelist=("html",)).get_content()
     _assert_branded_logo(sent_messages[0], html_body)
     assert "Aggiornamento cantiere" in html_body
@@ -189,6 +192,57 @@ def test_resend_has_priority_and_preserves_brand_reply_to_and_inline_logo(monkey
             attachment.get("content_id") == "gblogo"
             for attachment in requests_sent[1]["json"].get("attachments", [])
         )
+
+
+def test_resend_custom_email_usa_idempotency_key_e_restituisce_id(monkeypatch):
+    requests_sent = []
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"id": "resend-preventivo-123"}
+
+    def fake_post(url, *, headers, json, timeout):
+        requests_sent.append(
+            {"url": url, "headers": headers, "json": json, "timeout": timeout}
+        )
+        return FakeResponse()
+
+    monkeypatch.setenv("API_RESEND", "re_test_secret")
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    monkeypatch.setenv("MAIL_FROM_EMAIL", "info@gbconstruction.it")
+    monkeypatch.setattr(email_service.requests, "post", fake_post)
+
+    delivery = email_service.send_custom_email(
+        to_email="cliente@example.com",
+        subject="Preventivo GB-2026-001",
+        body_text="Preventivo in allegato",
+        attachments=[
+            {
+                "filename": "GB-2026-001.pdf",
+                "content": b"%PDF-test",
+                "mime": "application/pdf",
+            }
+        ],
+        idempotency_key="preventivo/tenant/123/invio-iniziale",
+    )
+
+    assert delivery == {
+        "transport": "resend",
+        "message_id": "resend-preventivo-123",
+    }
+    assert len(requests_sent) == 1
+    assert (
+        requests_sent[0]["headers"]["Idempotency-Key"]
+        == "preventivo/tenant/123/invio-iniziale"
+    )
+    assert requests_sent[0]["json"]["to"] == ["cliente@example.com"]
+    assert any(
+        attachment["filename"] == "GB-2026-001.pdf"
+        for attachment in requests_sent[0]["json"]["attachments"]
+    )
 
 
 def test_resend_error_is_reported_without_falling_back_to_smtp(monkeypatch):

@@ -1,15 +1,19 @@
 """API EdilOS Fase 1: prezzario, computi, mapping AI, preventivi."""
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import logging
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, TypeAdapter, ValidationError
 
 import auth as authlib
 import boq_service
 import db as db_pg
+import email_service
 import lead_bridge
 import mapping_engine
 import prezzario_service
@@ -18,6 +22,8 @@ from engines.metriche import estrai_metriche
 from preventivo_pdf import genera_pdf_preventivo
 
 router = APIRouter(tags=["edilos"])
+logger = logging.getLogger("gb.edilos")
+EMAIL_ADDRESS_ADAPTER = TypeAdapter(EmailStr)
 
 
 def _token(request: Request) -> str:
@@ -75,6 +81,16 @@ class PreventivoBody(BaseModel):
     iva: float = 10
 
 
+class PreventivoStatoBody(BaseModel):
+    stato: Literal["accettato", "rifiutato", "scaduto"]
+
+
+class PreventivoInviaBody(BaseModel):
+    destinatario: Optional[EmailStr] = None
+    oggetto: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    messaggio: Optional[str] = Field(default=None, min_length=1, max_length=5000)
+
+
 class GeneraDaAiBody(BaseModel):
     lead_id: Optional[str] = None
     prezzario_id: Optional[str] = None
@@ -88,6 +104,14 @@ class ValidaAiBody(BaseModel):
 
 def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     """Monta le route su un APIRouter esistente (prefix /api)."""
+
+    def actor_name(user: dict) -> str:
+        return str(
+            user.get("name")
+            or user.get("nome")
+            or user.get("email")
+            or "staff"
+        )
 
     @api.get("/tenant/config")
     async def tenant_config(request: Request):
@@ -262,7 +286,12 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             return await boq_service.computo_to_preventivo(
-                conn, tenant["id"], computo_id, sconto=body.sconto, iva=body.iva
+                conn,
+                tenant["id"],
+                computo_id,
+                sconto=body.sconto,
+                iva=body.iva,
+                autore=actor_name(user),
             )
 
     @api.post("/computi/da-ai")
@@ -312,3 +341,127 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                     "Content-Disposition": f'inline; filename="{prev.get("numero") or "preventivo"}.pdf"'
                 },
             )
+
+    @api.get("/preventivi/{preventivo_id}/eventi")
+    async def preventivo_eventi(request: Request, preventivo_id: str):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            return await boq_service.lista_eventi_preventivo(
+                conn, tenant["id"], preventivo_id
+            )
+
+    @api.patch("/preventivi/{preventivo_id}/stato")
+    async def preventivo_stato(
+        request: Request, preventivo_id: str, body: PreventivoStatoBody
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            return await boq_service.aggiorna_stato_preventivo(
+                conn,
+                tenant["id"],
+                preventivo_id,
+                body.stato,
+                autore=actor_name(user),
+            )
+
+    @api.post("/preventivi/{preventivo_id}/invia")
+    async def preventivo_invia(
+        request: Request, preventivo_id: str, body: PreventivoInviaBody
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            preventivo = await boq_service.get_preventivo(
+                conn, tenant["id"], preventivo_id, for_update=True
+            )
+            if preventivo["stato"] != "bozza":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Puoi inviare soltanto un preventivo in bozza",
+                )
+            lead = None
+            if preventivo.get("lead_id"):
+                lead = await conn.fetchrow(
+                    """
+                    select nome, email from public.leads
+                    where id = $1::uuid and tenant_id = $2::uuid
+                    """,
+                    preventivo["lead_id"],
+                    tenant["id"],
+                )
+            raw_recipient = str(
+                body.destinatario or (lead["email"] if lead else "") or ""
+            ).strip()
+            try:
+                destinatario = str(
+                    EMAIL_ADDRESS_ADAPTER.validate_python(raw_recipient)
+                )
+            except ValidationError:
+                raise HTTPException(
+                    status_code=400, detail="Email destinatario non valida"
+                )
+
+            ragione_sociale = tenant.get("ragione_sociale") or "GB Construction"
+            nome_cliente = str((lead["nome"] if lead else "") or "Cliente").strip()
+            oggetto = (
+                (body.oggetto or "").strip()
+                or f"Preventivo {preventivo['numero']} - {ragione_sociale}"
+            )
+            messaggio = (
+                (body.messaggio or "").strip()
+                or (
+                    f"Gentile {nome_cliente},\n\n"
+                    f"in allegato trova il preventivo {preventivo['numero']} "
+                    f"preparato da {ragione_sociale}.\n\n"
+                    "Per qualsiasi chiarimento può rispondere direttamente a questa email.\n\n"
+                    f"Cordiali saluti,\n{ragione_sociale}"
+                )
+            )
+            pdf_data = dict(preventivo)
+            pdf_data["stato"] = "inviato"
+            pdf = genera_pdf_preventivo(pdf_data, tenant)
+            idempotency_seed = (
+                f"{tenant['id']}:{preventivo_id}:invio-iniziale".encode("utf-8")
+            )
+            idempotency_hash = hashlib.sha256(idempotency_seed).hexdigest()
+            idempotency_key = f"preventivo-{idempotency_hash}"
+            try:
+                delivery = await asyncio.to_thread(
+                    email_service.send_custom_email,
+                    to_email=destinatario,
+                    subject=oggetto,
+                    body_text=messaggio,
+                    attachments=[
+                        {
+                            "filename": f"{preventivo['numero']}.pdf",
+                            "content": pdf,
+                            "mime": "application/pdf",
+                        }
+                    ],
+                    reply_to=email_service._notification_email(),
+                    idempotency_key=idempotency_key,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Invio preventivo %s non riuscito: %s", preventivo_id, exc
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail="Invio preventivo non riuscito. Riprova più tardi.",
+                )
+            updated = await boq_service.registra_invio_preventivo(
+                conn,
+                tenant["id"],
+                preventivo,
+                destinatario=destinatario,
+                oggetto=oggetto,
+                provider=delivery["transport"],
+                provider_message_id=delivery.get("message_id") or "",
+                idempotency_key=idempotency_key,
+                autore=actor_name(user),
+            )
+            return {
+                "ok": True,
+                "preventivo": updated,
+                "destinatario": destinatario,
+                "provider": delivery["transport"],
+            }

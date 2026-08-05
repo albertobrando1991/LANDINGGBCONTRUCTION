@@ -418,7 +418,9 @@ def _resend_attachments(message: EmailMessage) -> list[Dict[str, str]]:
     return attachments
 
 
-def _send_message_resend(message: EmailMessage) -> None:
+def _send_message_resend(
+    message: EmailMessage, *, idempotency_key: Optional[str] = None
+) -> str:
     recipients = _message_addresses(message, "To")
     if not recipients:
         raise RuntimeError("Destinatario email mancante")
@@ -441,12 +443,15 @@ def _send_message_resend(message: EmailMessage) -> None:
         timeout = float(_env("RESEND_TIMEOUT_SECONDS", "20"))
     except ValueError:
         timeout = 20.0
+    headers = {
+        "Authorization": f"Bearer {_resend_api_key()}",
+        "Content-Type": "application/json",
+    }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     response = requests.post(
         _env("RESEND_API_URL", "https://api.resend.com/emails"),
-        headers={
-            "Authorization": f"Bearer {_resend_api_key()}",
-            "Content-Type": "application/json",
-        },
+        headers=headers,
         json=payload,
         timeout=timeout,
     )
@@ -466,9 +471,10 @@ def _send_message_resend(message: EmailMessage) -> None:
     if not email_id:
         raise RuntimeError("Resend API non ha restituito l'ID dell'email")
     logger.info("Email accepted by Resend (id=%s)", email_id)
+    return email_id
 
 
-def _send_message_smtp(message: EmailMessage) -> None:
+def _send_message_smtp(message: EmailMessage) -> str:
     host = _env("SMTP_HOST")
     port = _smtp_port()
     username = _env("SMTP_USERNAME", _env("SMTP_USER"))
@@ -476,29 +482,33 @@ def _send_message_smtp(message: EmailMessage) -> None:
     timeout = float(_env("SMTP_TIMEOUT_SECONDS", "15"))
     use_ssl = _env_bool("SMTP_USE_SSL", port == 465)
     use_starttls = _env_bool("SMTP_USE_STARTTLS", not use_ssl)
-
     if use_ssl:
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL(host, port, timeout=timeout, context=context) as smtp:
             smtp.login(username, password)
-            smtp.send_message(message)
-        return
+            refused = smtp.send_message(message)
+        if refused:
+            raise RuntimeError("Il server SMTP ha rifiutato uno o più destinatari")
+        return ""
 
     with smtplib.SMTP(host, port, timeout=timeout) as smtp:
         if use_starttls:
             smtp.starttls(context=ssl.create_default_context())
         smtp.login(username, password)
-        smtp.send_message(message)
+        refused = smtp.send_message(message)
+    if refused:
+        raise RuntimeError("Il server SMTP ha rifiutato uno o più destinatari")
+    return ""
 
 
-def _send_message(message: EmailMessage) -> None:
+def _send_message(
+    message: EmailMessage, *, idempotency_key: Optional[str] = None
+) -> str:
     transport = transport_name()
     if transport == "resend":
-        _send_message_resend(message)
-        return
+        return _send_message_resend(message, idempotency_key=idempotency_key)
     if transport == "smtp":
-        _send_message_smtp(message)
-        return
+        return _send_message_smtp(message)
     raise RuntimeError("Servizio email non configurato")
 
 
@@ -509,7 +519,8 @@ def send_custom_email(
     body_text: str,
     attachments: Optional[list] = None,
     reply_to: Optional[str] = None,
-) -> None:
+    idempotency_key: Optional[str] = None,
+) -> Dict[str, str]:
     """Invio email manuale dallo staff tramite l'email ufficiale, con allegati.
 
     attachments: lista di dict {"filename": str, "content": bytes, "mime": str}.
@@ -547,7 +558,8 @@ def send_custom_email(
             subtype=subtype or "octet-stream",
             filename=att.get("filename") or "allegato",
         )
-    _send_message(message)
+    message_id = _send_message(message, idempotency_key=idempotency_key)
+    return {"transport": transport_name(), "message_id": message_id}
 
 
 def send_lead_emails(lead: Dict[str, Any], kind: str = "lead") -> None:

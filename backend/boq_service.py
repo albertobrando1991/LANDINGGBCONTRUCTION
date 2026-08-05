@@ -1,6 +1,8 @@
 """Computo metrico (BOQ): CRUD voci con snapshot prezzi e conferma con validazione AI."""
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
@@ -10,6 +12,21 @@ from fastapi import HTTPException
 
 
 LOCKED_COMPUTO_STATES = {"confermato", "archiviato"}
+PREVENTIVO_TRANSITIONS = {
+    "inviato": {"accettato", "rifiutato", "scaduto"},
+}
+LEAD_STATUS_BY_PREVENTIVO = {
+    "inviato": "preventivo_inviato",
+    "accettato": "chiuso_vinto",
+    "rifiutato": "chiuso_perso",
+    "scaduto": "chiuso_perso",
+}
+LEAD_NEXT_ACTION_BY_PREVENTIVO = {
+    "inviato": "Effettuare il follow-up del preventivo entro 5 giorni",
+    "accettato": "Pianificare avvio lavori e documentazione contrattuale",
+    "rifiutato": "Registrare il motivo del rifiuto e valutare un follow-up",
+    "scaduto": "Contattare il cliente e valutare il rinnovo del preventivo",
+}
 
 
 def _d(row: asyncpg.Record | None) -> dict | None:
@@ -403,7 +420,21 @@ async def lista_preventivi(conn: asyncpg.Connection, tenant_id: str) -> list[dic
                  when 'scaduto' then 'chiuso_perso'
                end as status,
                p.stato as stato_documento,
-               0 as giorni_silenzio,
+               p.validita_giorni,
+               p.inviato_at,
+               p.accettato_at,
+               p.rifiutato_at,
+               p.scaduto_at,
+               p.ultimo_destinatario,
+               p.ultimo_email_provider,
+               p.ultimo_email_id,
+               greatest(
+                 0,
+                 floor(
+                   extract(epoch from (now() - coalesce(p.inviato_at, p.created_at)))
+                   / 86400
+                 )
+               )::int as giorni_silenzio,
                'edilos'::text as source,
                p.created_at
         from public.preventivi p
@@ -417,6 +448,215 @@ async def lista_preventivi(conn: asyncpg.Connection, tenant_id: str) -> list[dic
     return [_d(r) for r in rows]
 
 
+async def get_preventivo(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    preventivo_id: str,
+    *,
+    for_update: bool = False,
+) -> dict:
+    suffix = " for update" if for_update else ""
+    row = await conn.fetchrow(
+        f"""
+        select * from public.preventivi
+        where id = $1::uuid and tenant_id = $2::uuid{suffix}
+        """,
+        preventivo_id,
+        tenant_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Preventivo non trovato")
+    return _d(row)
+
+
+async def lista_eventi_preventivo(
+    conn: asyncpg.Connection, tenant_id: str, preventivo_id: str
+) -> list[dict]:
+    await get_preventivo(conn, tenant_id, preventivo_id)
+    rows = await conn.fetch(
+        """
+        select * from public.preventivo_eventi
+        where preventivo_id = $1::uuid and tenant_id = $2::uuid
+        order by created_at desc, id desc
+        """,
+        preventivo_id,
+        tenant_id,
+    )
+    return [_d(row) for row in rows]
+
+
+async def _aggiorna_lead_da_preventivo(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    preventivo: dict,
+    nuovo_stato: str,
+    *,
+    autore: str,
+    dettaglio: str,
+) -> None:
+    lead_id = preventivo.get("lead_id")
+    lead_status = LEAD_STATUS_BY_PREVENTIVO.get(nuovo_stato)
+    if not lead_id or not lead_status:
+        return
+    event = {
+        "id": f"prev-{preventivo['id']}-{nuovo_stato}",
+        "tipo": "preventivo",
+        "testo": dettaglio,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "autore": autore,
+    }
+    await conn.execute(
+        """
+        update public.leads
+        set status = $1,
+            prossima_azione = $2,
+            timeline = jsonb_build_array($3::jsonb) || coalesce(timeline, '[]'::jsonb)
+        where id = $4::uuid and tenant_id = $5::uuid
+        """,
+        lead_status,
+        LEAD_NEXT_ACTION_BY_PREVENTIVO[nuovo_stato],
+        json.dumps(event, ensure_ascii=False),
+        lead_id,
+        tenant_id,
+    )
+
+
+async def registra_invio_preventivo(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    preventivo: dict,
+    *,
+    destinatario: str,
+    oggetto: str,
+    provider: str,
+    provider_message_id: str,
+    idempotency_key: str,
+    autore: str,
+) -> dict:
+    row = await conn.fetchrow(
+        """
+        update public.preventivi
+        set stato = 'inviato',
+            inviato_at = coalesce(inviato_at, now()),
+            ultimo_destinatario = $1,
+            ultimo_email_provider = $2,
+            ultimo_email_id = nullif($3, '')
+        where id = $4::uuid and tenant_id = $5::uuid and stato = 'bozza'
+        returning *
+        """,
+        destinatario,
+        provider,
+        provider_message_id,
+        preventivo["id"],
+        tenant_id,
+    )
+    if not row:
+        raise HTTPException(
+            status_code=409,
+            detail="Il preventivo non è più in bozza e non può essere inviato",
+        )
+    await conn.execute(
+        """
+        insert into public.preventivo_eventi (
+          tenant_id, preventivo_id, tipo, stato_precedente, stato_successivo,
+          destinatario, oggetto, provider, provider_message_id,
+          idempotency_key, dettaglio, autore
+        ) values (
+          $1::uuid, $2::uuid, 'email_inviata', 'bozza', 'inviato',
+          $3, $4, $5, nullif($6, ''), $7, $8, $9
+        )
+        """,
+        tenant_id,
+        preventivo["id"],
+        destinatario,
+        oggetto,
+        provider,
+        provider_message_id,
+        idempotency_key,
+        f"Preventivo {preventivo['numero']} inviato a {destinatario}",
+        autore,
+    )
+    updated = _d(row)
+    await _aggiorna_lead_da_preventivo(
+        conn,
+        tenant_id,
+        updated,
+        "inviato",
+        autore=autore,
+        dettaglio=f"Preventivo {preventivo['numero']} inviato via email",
+    )
+    return updated
+
+
+async def aggiorna_stato_preventivo(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    preventivo_id: str,
+    nuovo_stato: str,
+    *,
+    autore: str,
+) -> dict:
+    preventivo = await get_preventivo(
+        conn, tenant_id, preventivo_id, for_update=True
+    )
+    stato_corrente = preventivo["stato"]
+    if nuovo_stato == "inviato":
+        raise HTTPException(
+            status_code=400,
+            detail="Per impostare lo stato inviato usa l'azione Invia preventivo",
+        )
+    if nuovo_stato not in PREVENTIVO_TRANSITIONS.get(stato_corrente, set()):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Transizione non consentita: {stato_corrente} → {nuovo_stato}",
+        )
+    row = await conn.fetchrow(
+        """
+        update public.preventivi
+        set stato = $1,
+            accettato_at = case when $1 = 'accettato' then now() else accettato_at end,
+            rifiutato_at = case when $1 = 'rifiutato' then now() else rifiutato_at end,
+            scaduto_at = case when $1 = 'scaduto' then now() else scaduto_at end
+        where id = $2::uuid and tenant_id = $3::uuid and stato = $4
+        returning *
+        """,
+        nuovo_stato,
+        preventivo_id,
+        tenant_id,
+        stato_corrente,
+    )
+    if not row:
+        raise HTTPException(
+            status_code=409,
+            detail="Il preventivo è stato modificato da un altro operatore",
+        )
+    dettaglio = f"Preventivo {preventivo['numero']}: {stato_corrente} → {nuovo_stato}"
+    await conn.execute(
+        """
+        insert into public.preventivo_eventi (
+          tenant_id, preventivo_id, tipo, stato_precedente, stato_successivo,
+          dettaglio, autore
+        ) values ($1::uuid, $2::uuid, 'stato', $3, $4, $5, $6)
+        """,
+        tenant_id,
+        preventivo_id,
+        stato_corrente,
+        nuovo_stato,
+        dettaglio,
+        autore,
+    )
+    updated = _d(row)
+    await _aggiorna_lead_da_preventivo(
+        conn,
+        tenant_id,
+        updated,
+        nuovo_stato,
+        autore=autore,
+        dettaglio=dettaglio,
+    )
+    return updated
+
+
 async def computo_to_preventivo(
     conn: asyncpg.Connection,
     tenant_id: str,
@@ -424,6 +664,7 @@ async def computo_to_preventivo(
     *,
     sconto: float = 0,
     iva: float = 10,
+    autore: Optional[str] = None,
 ) -> dict:
     c = await get_computo(conn, tenant_id, computo_id)
     if c["stato"] != "confermato":
@@ -438,8 +679,6 @@ async def computo_to_preventivo(
     netto = imponibile * (1 - sconto / 100)
     iva_importo = round(netto * iva / 100, 2)
     totale = round(netto + iva_importo, 2)
-
-    from datetime import datetime, timezone
 
     anno = datetime.now(timezone.utc).year
     # Serializza la numerazione per tenant senza dipendere dalla policy UPDATE
@@ -481,6 +720,17 @@ async def computo_to_preventivo(
         iva,
         iva_importo,
         totale,
-        __import__("json").dumps(snapshot, default=str),
+        json.dumps(snapshot, default=str),
+    )
+    await conn.execute(
+        """
+        insert into public.preventivo_eventi (
+          tenant_id, preventivo_id, tipo, stato_successivo, dettaglio, autore
+        ) values ($1::uuid, $2::uuid, 'creato', 'bozza', $3, $4)
+        """,
+        tenant_id,
+        row["id"],
+        f"Preventivo {numero} creato dal computo {computo_id}",
+        autore or "sistema",
     )
     return _d(row)

@@ -21,6 +21,7 @@ TABELLE_TENANT = [
     "computo_voci",
     "mapping_regole",
     "preventivi",
+    "preventivo_eventi",
 ]
 
 
@@ -30,6 +31,7 @@ def test_tabelle_tenant_elencate():
     assert "prezzario_voci" in TABELLE_TENANT
     assert "computo_voci" in TABELLE_TENANT
     assert "preventivi" in TABELLE_TENANT
+    assert "preventivo_eventi" in TABELLE_TENANT
 
 
 def _pg_dsn() -> str | None:
@@ -231,32 +233,43 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             voce_id,
             f"Voce {suffix}",
         )
-        await conn.execute(
+        preventivo_id = await conn.fetchval(
             """
             insert into public.preventivi (
               tenant_id, computo_id, lead_id, numero, anno, progressivo
             ) values ($1::uuid, $2::uuid, $3::uuid, $4, 2099, 1)
+            returning id
             """,
             tenant_id,
             computo_id,
             lead_id,
             f"RLS-{suffix}",
         )
-        return computo_id, computo_voce_id
+        await conn.execute(
+            """
+            insert into public.preventivo_eventi (
+              tenant_id, preventivo_id, tipo, stato_successivo, dettaglio, autore
+            ) values ($1::uuid, $2::uuid, 'creato', 'bozza', $3, 'test RLS')
+            """,
+            tenant_id,
+            preventivo_id,
+            f"Preventivo RLS {suffix} creato",
+        )
+        return computo_id, computo_voce_id, preventivo_id
 
     async def _run():
         conn = await asyncpg.connect(_pg_dsn())
         tx = conn.transaction()
         await tx.start()
         try:
-            _, voce_computo_a = await _insert_fixture(
+            _, voce_computo_a, preventivo_a = await _insert_fixture(
                 conn,
                 tenant_a,
                 "A",
                 "b0000000-0000-4000-8000-000000000001",
                 "c0000000-0000-4000-8000-000000000001",
             )
-            _, voce_computo_b = await _insert_fixture(
+            _, voce_computo_b, preventivo_b = await _insert_fixture(
                 conn,
                 tenant_b,
                 "B",
@@ -299,6 +312,30 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                     await conn.execute(
                         "insert into public.clienti (tenant_id, nome) values ($1::uuid, 'Leak')",
                         tenant_b,
+                    )
+            await conn.execute("reset role")
+
+            await _claims(conn, user_a)
+            with pytest.raises(asyncpg.ForeignKeyViolationError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        insert into public.preventivo_eventi (
+                          tenant_id, preventivo_id, tipo, dettaglio
+                        ) values ($1::uuid, $2::uuid, 'stato', 'Cross tenant')
+                        """,
+                        tenant_a,
+                        preventivo_b,
+                    )
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        update public.preventivo_eventi set dettaglio = 'Alterato'
+                        where tenant_id = $1::uuid and preventivo_id = $2::uuid
+                        """,
+                        tenant_a,
+                        preventivo_a,
                     )
             await conn.execute("reset role")
 

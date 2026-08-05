@@ -199,3 +199,125 @@ def test_riordina_voci_aggiorna_solo_righe_del_tenant():
     first_update = conn.execute.await_args_list[0]
     assert "tenant_id = $4::uuid" in first_update.args[0]
     assert first_update.args[1:] == (0, str(second), computo_id, tenant_id)
+
+
+def test_aggiorna_stato_preventivo_registra_evento_e_aggiorna_lead():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    preventivo_id = "30000000-0000-4000-8000-000000000001"
+    lead_id = UUID("40000000-0000-4000-8000-000000000001")
+    preventivo = {
+        "id": UUID(preventivo_id),
+        "lead_id": lead_id,
+        "numero": "GB-2026-001",
+        "stato": "inviato",
+    }
+    aggiornato = {**preventivo, "stato": "accettato"}
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [preventivo, aggiornato]
+
+    result = asyncio.run(
+        boq_service.aggiorna_stato_preventivo(
+            conn,
+            tenant_id,
+            preventivo_id,
+            "accettato",
+            autore="Mario Staff",
+        )
+    )
+
+    assert result["stato"] == "accettato"
+    update_call = conn.fetchrow.await_args_list[1]
+    assert "tenant_id = $3::uuid" in update_call.args[0]
+    assert update_call.args[1:] == (
+        "accettato",
+        preventivo_id,
+        tenant_id,
+        "inviato",
+    )
+    assert conn.execute.await_count == 2
+    history_call = conn.execute.await_args_list[0]
+    assert "insert into public.preventivo_eventi" in history_call.args[0]
+    assert history_call.args[1:5] == (
+        tenant_id,
+        preventivo_id,
+        "inviato",
+        "accettato",
+    )
+    lead_call = conn.execute.await_args_list[1]
+    assert "update public.leads" in lead_call.args[0]
+    assert lead_call.args[1] == "chiuso_vinto"
+    assert lead_call.args[-2:] == (str(lead_id), tenant_id)
+
+
+def test_aggiorna_stato_preventivo_blocca_transizione_da_bozza():
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "id": UUID("30000000-0000-4000-8000-000000000001"),
+        "lead_id": None,
+        "numero": "GB-2026-001",
+        "stato": "bozza",
+    }
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            boq_service.aggiorna_stato_preventivo(
+                conn,
+                "a0000000-0000-4000-8000-000000000001",
+                "30000000-0000-4000-8000-000000000001",
+                "accettato",
+                autore="Mario Staff",
+            )
+        )
+
+    assert exc.value.status_code == 409
+    assert "Transizione non consentita" in exc.value.detail
+    assert conn.execute.await_count == 0
+
+
+def test_registra_invio_preventivo_salva_metadati_e_storico():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    preventivo_id = UUID("30000000-0000-4000-8000-000000000001")
+    preventivo = {
+        "id": preventivo_id,
+        "lead_id": None,
+        "numero": "GB-2026-001",
+        "stato": "bozza",
+    }
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        **preventivo,
+        "stato": "inviato",
+        "ultimo_destinatario": "cliente@example.com",
+        "ultimo_email_provider": "resend",
+        "ultimo_email_id": "email-123",
+    }
+
+    result = asyncio.run(
+        boq_service.registra_invio_preventivo(
+            conn,
+            tenant_id,
+            preventivo,
+            destinatario="cliente@example.com",
+            oggetto="Preventivo GB-2026-001",
+            provider="resend",
+            provider_message_id="email-123",
+            idempotency_key="preventivo/tenant/id/invio-iniziale",
+            autore="Mario Staff",
+        )
+    )
+
+    assert result["stato"] == "inviato"
+    update_call = conn.fetchrow.await_args
+    assert "stato = 'inviato'" in update_call.args[0]
+    assert update_call.args[1:4] == (
+        "cliente@example.com",
+        "resend",
+        "email-123",
+    )
+    assert update_call.args[-1] == tenant_id
+    assert conn.execute.await_count == 1
+    history_call = conn.execute.await_args
+    assert "'email_inviata'" in history_call.args[0]
+    assert history_call.args[1] == tenant_id
+    assert history_call.args[2] == preventivo_id
+    assert history_call.args[7] == "preventivo/tenant/id/invio-iniziale"
