@@ -33,11 +33,27 @@ def test_tabelle_tenant_elencate():
 
 
 def _pg_dsn() -> str | None:
-    for key in ("CONNECTION_STRING_SUPABASE", "SUPABASE_DB_URL", "DATABASE_URL"):
+    # SUPABASE_DB_URL viene impostata esplicitamente da CI e dagli smoke locali.
+    # Deve prevalere sulla connessione remota eventualmente caricata dalla .env
+    # quando altri moduli della suite importano l'applicazione.
+    for key in ("SUPABASE_DB_URL", "CONNECTION_STRING_SUPABASE", "DATABASE_URL"):
         val = (os.environ.get(key) or "").strip()
         if val:
             return val
     return None
+
+
+def test_dsn_rls_preferisce_override_locale(monkeypatch):
+    monkeypatch.setenv(
+        "CONNECTION_STRING_SUPABASE",
+        "postgresql://postgres:secret@remote.example.test/postgres",
+    )
+    monkeypatch.setenv(
+        "SUPABASE_DB_URL",
+        "postgresql://postgres:postgres@127.0.0.1:55432/postgres",
+    )
+
+    assert _pg_dsn() == "postgresql://postgres:postgres@127.0.0.1:55432/postgres"
 
 
 @pytest.mark.skipif(
