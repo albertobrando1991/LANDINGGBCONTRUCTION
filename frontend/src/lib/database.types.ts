@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -423,6 +423,82 @@ export type Database = {
           },
         ]
       }
+      libretto_misure: {
+        Row: {
+          altezza: number | null
+          cantiere_id: string
+          client_uuid: string
+          computo_voce_id: string | null
+          created_at: string
+          data_misura: string
+          descrizione: string | null
+          foto_paths: string[]
+          id: string
+          larghezza: number | null
+          lunghezza: number | null
+          parti: number
+          qta: number
+          rilevata_da: string | null
+          tenant_id: string
+        }
+        Insert: {
+          altezza?: number | null
+          cantiere_id: string
+          client_uuid: string
+          computo_voce_id?: string | null
+          created_at?: string
+          data_misura?: string
+          descrizione?: string | null
+          foto_paths?: string[]
+          id?: string
+          larghezza?: number | null
+          lunghezza?: number | null
+          parti?: number
+          qta: number
+          rilevata_da?: string | null
+          tenant_id: string
+        }
+        Update: {
+          altezza?: number | null
+          cantiere_id?: string
+          client_uuid?: string
+          computo_voce_id?: string | null
+          created_at?: string
+          data_misura?: string
+          descrizione?: string | null
+          foto_paths?: string[]
+          id?: string
+          larghezza?: number | null
+          lunghezza?: number | null
+          parti?: number
+          qta?: number
+          rilevata_da?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "libretto_misure_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "cantieri"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "libretto_misure_computo_voce_tenant_fk"
+            columns: ["tenant_id", "computo_voce_id"]
+            isOneToOne: false
+            referencedRelation: "computo_voci"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "libretto_misure_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mapping_regole: {
         Row: {
           attiva: boolean
@@ -489,6 +565,8 @@ export type Database = {
           numero: string
           pdf_path: string | null
           progressivo: number
+          rifiutato_at: string | null
+          scaduto_at: string | null
           sconto_percentuale: number
           snapshot_voci: Json
           stato: string
@@ -496,6 +574,9 @@ export type Database = {
           totale_documento: number
           totale_imponibile: number
           totale_iva: number
+          ultimo_destinatario: string | null
+          ultimo_email_id: string | null
+          ultimo_email_provider: string | null
           updated_at: string
           validita_giorni: number
         }
@@ -513,6 +594,8 @@ export type Database = {
           numero: string
           pdf_path?: string | null
           progressivo: number
+          rifiutato_at?: string | null
+          scaduto_at?: string | null
           sconto_percentuale?: number
           snapshot_voci?: Json
           stato?: string
@@ -520,6 +603,9 @@ export type Database = {
           totale_documento?: number
           totale_imponibile?: number
           totale_iva?: number
+          ultimo_destinatario?: string | null
+          ultimo_email_id?: string | null
+          ultimo_email_provider?: string | null
           updated_at?: string
           validita_giorni?: number
         }
@@ -537,6 +623,8 @@ export type Database = {
           numero?: string
           pdf_path?: string | null
           progressivo?: number
+          rifiutato_at?: string | null
+          scaduto_at?: string | null
           sconto_percentuale?: number
           snapshot_voci?: Json
           stato?: string
@@ -544,6 +632,9 @@ export type Database = {
           totale_documento?: number
           totale_imponibile?: number
           totale_iva?: number
+          ultimo_destinatario?: string | null
+          ultimo_email_id?: string | null
+          ultimo_email_provider?: string | null
           updated_at?: string
           validita_giorni?: number
         }
@@ -578,6 +669,72 @@ export type Database = {
           },
           {
             foreignKeyName: "preventivi_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      preventivo_eventi: {
+        Row: {
+          autore: string | null
+          created_at: string
+          destinatario: string | null
+          dettaglio: string | null
+          id: string
+          idempotency_key: string | null
+          oggetto: string | null
+          preventivo_id: string
+          provider: string | null
+          provider_message_id: string | null
+          stato_precedente: string | null
+          stato_successivo: string | null
+          tenant_id: string
+          tipo: string
+        }
+        Insert: {
+          autore?: string | null
+          created_at?: string
+          destinatario?: string | null
+          dettaglio?: string | null
+          id?: string
+          idempotency_key?: string | null
+          oggetto?: string | null
+          preventivo_id: string
+          provider?: string | null
+          provider_message_id?: string | null
+          stato_precedente?: string | null
+          stato_successivo?: string | null
+          tenant_id: string
+          tipo: string
+        }
+        Update: {
+          autore?: string | null
+          created_at?: string
+          destinatario?: string | null
+          dettaglio?: string | null
+          id?: string
+          idempotency_key?: string | null
+          oggetto?: string | null
+          preventivo_id?: string
+          provider?: string | null
+          provider_message_id?: string | null
+          stato_precedente?: string | null
+          stato_successivo?: string | null
+          tenant_id?: string
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "preventivo_eventi_preventivo_tenant_fk"
+            columns: ["tenant_id", "preventivo_id"]
+            isOneToOne: false
+            referencedRelation: "preventivi"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "preventivo_eventi_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -691,6 +848,124 @@ export type Database = {
           },
           {
             foreignKeyName: "prezzario_voci_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sal: {
+        Row: {
+          cantiere_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          numero: number
+          periodo_a: string
+          periodo_da: string
+          stato: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          cantiere_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          numero: number
+          periodo_a: string
+          periodo_da: string
+          stato?: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          cantiere_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          numero?: number
+          periodo_a?: string
+          periodo_da?: string
+          stato?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sal_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "cantieri"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "sal_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sal_righe: {
+        Row: {
+          computo_voce_id: string
+          created_at: string
+          descrizione: string
+          id: string
+          importo_periodo: number | null
+          prezzo_unitario: number
+          qta_periodo: number
+          qta_progressiva: number
+          sal_id: string
+          tenant_id: string
+          um: string
+        }
+        Insert: {
+          computo_voce_id: string
+          created_at?: string
+          descrizione: string
+          id?: string
+          importo_periodo?: number | null
+          prezzo_unitario: number
+          qta_periodo: number
+          qta_progressiva: number
+          sal_id: string
+          tenant_id: string
+          um: string
+        }
+        Update: {
+          computo_voce_id?: string
+          created_at?: string
+          descrizione?: string
+          id?: string
+          importo_periodo?: number | null
+          prezzo_unitario?: number
+          qta_periodo?: number
+          qta_progressiva?: number
+          sal_id?: string
+          tenant_id?: string
+          um?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sal_righe_computo_voce_tenant_fk"
+            columns: ["tenant_id", "computo_voce_id"]
+            isOneToOne: false
+            referencedRelation: "computo_voci"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "sal_righe_sal_tenant_fk"
+            columns: ["tenant_id", "sal_id"]
+            isOneToOne: false
+            referencedRelation: "sal"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "sal_righe_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"

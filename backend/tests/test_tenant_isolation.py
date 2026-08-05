@@ -26,6 +26,8 @@ TABELLE_TENANT = [
     "preventivi",
     "preventivo_eventi",
     "libretto_misure",
+    "sal",
+    "sal_righe",
 ]
 
 
@@ -37,6 +39,8 @@ def test_tabelle_tenant_elencate():
     assert "preventivi" in TABELLE_TENANT
     assert "preventivo_eventi" in TABELLE_TENANT
     assert "libretto_misure" in TABELLE_TENANT
+    assert "sal" in TABELLE_TENANT
+    assert "sal_righe" in TABELLE_TENANT
 
 
 def _pg_dsn() -> str | None:
@@ -294,6 +298,30 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             f"Misura {suffix}",
             client_uuid,
         )
+        sal_id = await conn.fetchval(
+            """
+            insert into public.sal (
+              tenant_id, cantiere_id, numero, periodo_da, periodo_a, created_by
+            ) values (
+              $1::uuid, $2::uuid, 1, date '2099-01-01', date '2099-01-31', $3::uuid
+            ) returning id
+            """,
+            tenant_id,
+            cantiere_id,
+            user_id,
+        )
+        await conn.execute(
+            """
+            insert into public.sal_righe (
+              tenant_id, sal_id, computo_voce_id, descrizione, um,
+              qta_periodo, qta_progressiva, prezzo_unitario
+            ) values ($1::uuid, $2::uuid, $3::uuid, $4, 'cad', 1, 1, 10)
+            """,
+            tenant_id,
+            sal_id,
+            computo_voce_id,
+            f"Voce SAL {suffix}",
+        )
         preventivo_id = await conn.fetchval(
             """
             insert into public.preventivi (
@@ -321,6 +349,7 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             computo_voce_id,
             preventivo_id,
             libretto_misura_id,
+            sal_id,
         )
 
     async def _run():
@@ -340,8 +369,8 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 user_a,
                 "e1000000-0000-4000-8000-000000000001",
             )
-            cantiere_a, voce_computo_a, preventivo_a, misura_a = fixture_a
-            cantiere_b, voce_computo_b, preventivo_b, _ = await _insert_fixture(
+            cantiere_a, voce_computo_a, preventivo_a, misura_a, sal_a = fixture_a
+            cantiere_b, voce_computo_b, preventivo_b, _, sal_b = await _insert_fixture(
                 conn,
                 tenant_b,
                 "B",
@@ -386,6 +415,61 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                     await conn.execute(
                         "insert into public.clienti (tenant_id, nome) values ($1::uuid, 'Leak')",
                         tenant_b,
+                    )
+            await conn.execute("reset role")
+
+            await _claims(conn, user_a)
+            with pytest.raises(asyncpg.ForeignKeyViolationError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        insert into public.sal_righe (
+                          tenant_id, sal_id, computo_voce_id, descrizione, um,
+                          qta_periodo, qta_progressiva, prezzo_unitario
+                        ) values ($1::uuid, $2::uuid, $3::uuid, 'Cross tenant', 'cad', 1, 1, 10)
+                        """,
+                        tenant_a,
+                        sal_b,
+                        voce_computo_a,
+                    )
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        update public.sal_righe set qta_periodo = 99
+                        where tenant_id = $1::uuid and sal_id = $2::uuid
+                        """,
+                        tenant_a,
+                        sal_a,
+                    )
+            importo_sal = await conn.fetchval(
+                """
+                select importo_periodo from public.sal_righe
+                where tenant_id = $1::uuid and sal_id = $2::uuid
+                """,
+                tenant_a,
+                sal_a,
+            )
+            assert importo_sal == Decimal("10.00")
+            await conn.execute(
+                "update public.sal set stato = 'emesso' where id = $1::uuid",
+                sal_a,
+            )
+            await conn.execute(
+                "update public.sal set stato = 'approvato' where id = $1::uuid",
+                sal_a,
+            )
+            with pytest.raises(asyncpg.RaiseError):
+                async with conn.transaction():
+                    await conn.execute(
+                        "update public.sal set stato = 'bozza' where id = $1::uuid",
+                        sal_a,
+                    )
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with conn.transaction():
+                    await conn.execute(
+                        "update public.sal set periodo_a = date '2099-02-28' where id = $1::uuid",
+                        sal_a,
                     )
             await conn.execute("reset role")
 
@@ -509,6 +593,13 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             with pytest.raises(HTTPException) as exc:
                 await boq_service.rimuovi_voce(conn, tenant_b, str(voce_computo_b))
             assert exc.value.status_code == 404
+            await conn.execute("reset role")
+            await conn.execute(
+                "delete from public.sal where tenant_id = $1::uuid and id = $2::uuid",
+                tenant_a,
+                sal_a,
+            )
+            await _claims(conn, user_a)
             deleted = await boq_service.rimuovi_voce(
                 conn, tenant_a, str(voce_computo_a)
             )
