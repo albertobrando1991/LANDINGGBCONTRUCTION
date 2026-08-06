@@ -20,6 +20,7 @@ import {
   ListTree,
   FileCheck2,
   Smartphone,
+  Landmark,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/dashboard/Avatar";
@@ -48,6 +49,12 @@ const NAV = [
     label: "SAL",
     Icon: FileCheck2,
     roles: ["owner", "admin", "staff", "operations"],
+  },
+  {
+    to: "/dashboard/economics",
+    label: "Economics",
+    Icon: Landmark,
+    roles: ["owner", "admin"],
   },
   {
     to: "/campo",

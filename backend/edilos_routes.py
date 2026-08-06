@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
@@ -32,6 +32,7 @@ import auth as authlib
 import boq_service
 import db as db_pg
 import email_service
+import economics_service
 import lead_bridge
 import libretto_service
 import mapping_engine
@@ -174,6 +175,93 @@ class SalStatoBody(BaseModel):
     stato: Literal["emesso", "approvato"]
 
 
+class FornitoreCreateBody(BaseModel):
+    ragione_sociale: str = Field(min_length=2, max_length=200)
+    piva: Optional[str] = Field(default=None, max_length=32)
+    codice_fiscale: Optional[str] = Field(default=None, max_length=32)
+    email: Optional[EmailStr] = None
+    telefono: Optional[str] = Field(default=None, max_length=40)
+    indirizzo: Optional[str] = Field(default=None, max_length=300)
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class FornitorePatchBody(BaseModel):
+    ragione_sociale: Optional[str] = Field(default=None, min_length=2, max_length=200)
+    piva: Optional[str] = Field(default=None, max_length=32)
+    codice_fiscale: Optional[str] = Field(default=None, max_length=32)
+    email: Optional[EmailStr] = None
+    telefono: Optional[str] = Field(default=None, max_length=40)
+    indirizzo: Optional[str] = Field(default=None, max_length=300)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    attivo: Optional[bool] = None
+
+
+class SpesaCreateBody(BaseModel):
+    cantiere_id: UUID
+    fornitore_id: Optional[UUID] = None
+    categoria: Literal[
+        "materiali",
+        "manodopera",
+        "subappalto",
+        "noleggio",
+        "trasporto",
+        "utenze",
+        "professionisti",
+        "altro",
+    ] = "altro"
+    descrizione: str = Field(min_length=2, max_length=500)
+    numero_documento: Optional[str] = Field(default=None, max_length=100)
+    data_documento: date = Field(default_factory=date.today)
+    imponibile: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    iva_percentuale: Decimal = Field(default=Decimal("22"), ge=0, le=100)
+    stato: Literal["registrata", "pagata", "annullata"] = "registrata"
+    data_pagamento: Optional[date] = None
+    allegato_path: Optional[str] = Field(default=None, max_length=1000)
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SpesaPatchBody(BaseModel):
+    stato: Optional[Literal["registrata", "pagata", "annullata"]] = None
+    data_pagamento: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class IncassoCreateBody(BaseModel):
+    cantiere_id: UUID
+    sal_id: Optional[UUID] = None
+    descrizione: str = Field(min_length=2, max_length=500)
+    importo: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    data_prevista: date
+    data_incasso: Optional[date] = None
+    stato: Literal["previsto", "incassato", "annullato"] = "previsto"
+    metodo: Optional[str] = Field(default=None, max_length=100)
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class IncassoPatchBody(BaseModel):
+    stato: Optional[Literal["previsto", "incassato", "annullato"]] = None
+    data_incasso: Optional[date] = None
+    metodo: Optional[str] = Field(default=None, max_length=100)
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class ScadenzaCreateBody(BaseModel):
+    cantiere_id: UUID
+    spesa_id: Optional[UUID] = None
+    incasso_id: Optional[UUID] = None
+    tipo: Literal["incasso", "pagamento", "adempimento"]
+    titolo: str = Field(min_length=2, max_length=300)
+    importo: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    data_scadenza: date
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class ScadenzaPatchBody(BaseModel):
+    stato: Optional[Literal["aperta", "completata", "annullata"]] = None
+    completata_at: Optional[datetime] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
 def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     """Monta le route su un APIRouter esistente (prefix /api)."""
 
@@ -192,6 +280,13 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             raise HTTPException(
                 status_code=403,
                 detail="Permessi insufficienti per la gestione SAL",
+            )
+
+    def require_economics_role(tenant: dict) -> None:
+        if tenant.get("role") not in economics_service.ECONOMICS_ROLES:
+            raise HTTPException(
+                status_code=403,
+                detail="Permessi insufficienti per i dati economici",
             )
 
     @api.get("/tenant/config")
@@ -554,6 +649,146 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             require_sal_role(tenant)
             return await sal_service.aggiorna_stato(
                 conn, tenant["id"], sal_uuid, body.stato
+            )
+
+    # ---------- Economics cantiere ----------
+    @api.get("/economics")
+    async def economics_dashboard(
+        request: Request, cantiere_id: Optional[str] = None
+    ):
+        user = await _user(request, db)
+        cantiere_uuid = (
+            str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+            if cantiere_id
+            else None
+        )
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.get_dashboard(
+                conn, tenant["id"], cantiere_id=cantiere_uuid
+            )
+
+    @api.post("/economics/fornitori", status_code=201)
+    async def economics_crea_fornitore(
+        request: Request, body: FornitoreCreateBody
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.crea_fornitore(
+                conn, tenant["id"], body.model_dump()
+            )
+
+    @api.patch("/economics/fornitori/{fornitore_id}")
+    async def economics_aggiorna_fornitore(
+        request: Request, fornitore_id: str, body: FornitorePatchBody
+    ):
+        user = await _user(request, db)
+        item_id = str(tenancy.uuid_or_400(fornitore_id, "Fornitore"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.aggiorna_fornitore(
+                conn,
+                tenant["id"],
+                item_id,
+                body.model_dump(exclude_unset=True),
+            )
+
+    @api.post("/economics/spese", status_code=201)
+    async def economics_crea_spesa(request: Request, body: SpesaCreateBody):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.crea_spesa(
+                conn, tenant["id"], body.model_dump()
+            )
+
+    @api.patch("/economics/spese/{spesa_id}")
+    async def economics_aggiorna_spesa(
+        request: Request, spesa_id: str, body: SpesaPatchBody
+    ):
+        user = await _user(request, db)
+        item_id = str(tenancy.uuid_or_400(spesa_id, "Spesa"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.aggiorna_spesa(
+                conn,
+                tenant["id"],
+                item_id,
+                body.model_dump(exclude_unset=True),
+            )
+
+    @api.post("/economics/incassi", status_code=201)
+    async def economics_crea_incasso(request: Request, body: IncassoCreateBody):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.crea_incasso(
+                conn, tenant["id"], body.model_dump()
+            )
+
+    @api.patch("/economics/incassi/{incasso_id}")
+    async def economics_aggiorna_incasso(
+        request: Request, incasso_id: str, body: IncassoPatchBody
+    ):
+        user = await _user(request, db)
+        item_id = str(tenancy.uuid_or_400(incasso_id, "Incasso"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.aggiorna_incasso(
+                conn,
+                tenant["id"],
+                item_id,
+                body.model_dump(exclude_unset=True),
+            )
+
+    @api.post("/economics/scadenze", status_code=201)
+    async def economics_crea_scadenza(
+        request: Request, body: ScadenzaCreateBody
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.crea_scadenza(
+                conn, tenant["id"], body.model_dump()
+            )
+
+    @api.patch("/economics/scadenze/{scadenza_id}")
+    async def economics_aggiorna_scadenza(
+        request: Request, scadenza_id: str, body: ScadenzaPatchBody
+    ):
+        user = await _user(request, db)
+        item_id = str(tenancy.uuid_or_400(scadenza_id, "Scadenza"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.aggiorna_scadenza(
+                conn,
+                tenant["id"],
+                item_id,
+                body.model_dump(exclude_unset=True),
+            )
+
+    @api.get("/economics/export.csv")
+    async def economics_export_csv(
+        request: Request, cantiere_id: Optional[str] = None
+    ):
+        user = await _user(request, db)
+        cantiere_uuid = (
+            str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+            if cantiere_id
+            else None
+        )
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            content = await economics_service.export_csv(
+                conn, tenant["id"], cantiere_id=cantiere_uuid
+            )
+            return Response(
+                content=content,
+                media_type="text/csv; charset=utf-8",
+                headers={
+                    "Content-Disposition": 'attachment; filename="economics-cantieri.csv"'
+                },
             )
 
     @api.post("/metriche/estrai")

@@ -205,6 +205,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "computi_cantiere_id_fkey"
+            columns: ["cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["cantiere_id"]
+          },
+          {
             foreignKeyName: "computi_lead_id_fkey"
             columns: ["lead_id"]
             isOneToOne: false
@@ -344,6 +351,139 @@ export type Database = {
           },
           {
             foreignKeyName: "computo_voci_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fornitori: {
+        Row: {
+          attivo: boolean
+          codice_fiscale: string | null
+          created_at: string
+          email: string | null
+          id: string
+          indirizzo: string | null
+          note: string | null
+          piva: string | null
+          ragione_sociale: string
+          telefono: string | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          attivo?: boolean
+          codice_fiscale?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          indirizzo?: string | null
+          note?: string | null
+          piva?: string | null
+          ragione_sociale: string
+          telefono?: string | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          attivo?: boolean
+          codice_fiscale?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          indirizzo?: string | null
+          note?: string | null
+          piva?: string | null
+          ragione_sociale?: string
+          telefono?: string | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fornitori_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incassi: {
+        Row: {
+          cantiere_id: string
+          created_at: string
+          created_by: string | null
+          data_incasso: string | null
+          data_prevista: string
+          descrizione: string
+          id: string
+          importo: number
+          metodo: string | null
+          note: string | null
+          sal_id: string | null
+          stato: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          cantiere_id: string
+          created_at?: string
+          created_by?: string | null
+          data_incasso?: string | null
+          data_prevista: string
+          descrizione: string
+          id?: string
+          importo: number
+          metodo?: string | null
+          note?: string | null
+          sal_id?: string | null
+          stato?: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          cantiere_id?: string
+          created_at?: string
+          created_by?: string | null
+          data_incasso?: string | null
+          data_prevista?: string
+          descrizione?: string
+          id?: string
+          importo?: number
+          metodo?: string | null
+          note?: string | null
+          sal_id?: string | null
+          stato?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incassi_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "cantieri"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "incassi_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "incassi_sal_tenant_fk"
+            columns: ["tenant_id", "sal_id"]
+            isOneToOne: false
+            referencedRelation: "sal"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "incassi_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -506,6 +646,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "cantieri"
             referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "libretto_misure_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["tenant_id", "cantiere_id"]
           },
           {
             foreignKeyName: "libretto_misure_computo_voce_tenant_fk"
@@ -925,6 +1072,13 @@ export type Database = {
             referencedColumns: ["tenant_id", "id"]
           },
           {
+            foreignKeyName: "sal_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
             foreignKeyName: "sal_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
@@ -990,6 +1144,191 @@ export type Database = {
           },
           {
             foreignKeyName: "sal_righe_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scadenze: {
+        Row: {
+          cantiere_id: string
+          completata_at: string | null
+          created_at: string
+          created_by: string | null
+          data_scadenza: string
+          id: string
+          importo: number | null
+          incasso_id: string | null
+          note: string | null
+          spesa_id: string | null
+          stato: string
+          tenant_id: string
+          tipo: string
+          titolo: string
+          updated_at: string
+        }
+        Insert: {
+          cantiere_id: string
+          completata_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          data_scadenza: string
+          id?: string
+          importo?: number | null
+          incasso_id?: string | null
+          note?: string | null
+          spesa_id?: string | null
+          stato?: string
+          tenant_id: string
+          tipo: string
+          titolo: string
+          updated_at?: string
+        }
+        Update: {
+          cantiere_id?: string
+          completata_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          data_scadenza?: string
+          id?: string
+          importo?: number | null
+          incasso_id?: string | null
+          note?: string | null
+          spesa_id?: string | null
+          stato?: string
+          tenant_id?: string
+          tipo?: string
+          titolo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scadenze_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "cantieri"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "scadenze_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "scadenze_incasso_tenant_fk"
+            columns: ["tenant_id", "incasso_id"]
+            isOneToOne: false
+            referencedRelation: "incassi"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "scadenze_spesa_tenant_fk"
+            columns: ["tenant_id", "spesa_id"]
+            isOneToOne: false
+            referencedRelation: "spese"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "scadenze_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      spese: {
+        Row: {
+          allegato_path: string | null
+          cantiere_id: string
+          categoria: string
+          created_at: string
+          created_by: string | null
+          data_documento: string
+          data_pagamento: string | null
+          descrizione: string
+          fornitore_id: string | null
+          id: string
+          imponibile: number
+          iva_importo: number | null
+          iva_percentuale: number
+          note: string | null
+          numero_documento: string | null
+          stato: string
+          tenant_id: string
+          totale: number | null
+          updated_at: string
+        }
+        Insert: {
+          allegato_path?: string | null
+          cantiere_id: string
+          categoria?: string
+          created_at?: string
+          created_by?: string | null
+          data_documento?: string
+          data_pagamento?: string | null
+          descrizione: string
+          fornitore_id?: string | null
+          id?: string
+          imponibile: number
+          iva_importo?: number | null
+          iva_percentuale?: number
+          note?: string | null
+          numero_documento?: string | null
+          stato?: string
+          tenant_id: string
+          totale?: number | null
+          updated_at?: string
+        }
+        Update: {
+          allegato_path?: string | null
+          cantiere_id?: string
+          categoria?: string
+          created_at?: string
+          created_by?: string | null
+          data_documento?: string
+          data_pagamento?: string | null
+          descrizione?: string
+          fornitore_id?: string | null
+          id?: string
+          imponibile?: number
+          iva_importo?: number | null
+          iva_percentuale?: number
+          note?: string | null
+          numero_documento?: string | null
+          stato?: string
+          tenant_id?: string
+          totale?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "spese_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "cantieri"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "spese_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "spese_fornitore_tenant_fk"
+            columns: ["tenant_id", "fornitore_id"]
+            isOneToOne: false
+            referencedRelation: "fornitori"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "spese_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -1122,6 +1461,33 @@ export type Database = {
           voce_variante_id: string | null
         }
         Relationships: []
+      }
+      marginalita_cantiere: {
+        Row: {
+          budget_contrattuale: number | null
+          cantiere_id: string | null
+          cliente: string | null
+          costi_pagati: number | null
+          costi_registrati: number | null
+          da_incassare: number | null
+          incassato: number | null
+          margine: number | null
+          margine_percentuale: number | null
+          ricavi_maturati: number | null
+          scadenze_aperte: number | null
+          scadenze_scadute: number | null
+          stato_cantiere: string | null
+          tenant_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cantieri_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Functions: {

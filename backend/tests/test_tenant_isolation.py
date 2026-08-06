@@ -28,6 +28,10 @@ TABELLE_TENANT = [
     "libretto_misure",
     "sal",
     "sal_righe",
+    "fornitori",
+    "spese",
+    "incassi",
+    "scadenze",
 ]
 
 
@@ -41,6 +45,10 @@ def test_tabelle_tenant_elencate():
     assert "libretto_misure" in TABELLE_TENANT
     assert "sal" in TABELLE_TENANT
     assert "sal_righe" in TABELLE_TENANT
+    assert "fornitori" in TABELLE_TENANT
+    assert "spese" in TABELLE_TENANT
+    assert "incassi" in TABELLE_TENANT
+    assert "scadenze" in TABELLE_TENANT
 
 
 def _pg_dsn() -> str | None:
@@ -345,6 +353,59 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             preventivo_id,
             f"Preventivo RLS {suffix} creato",
         )
+        fornitore_id = await conn.fetchval(
+            """
+            insert into public.fornitori (tenant_id, ragione_sociale, piva)
+            values ($1::uuid, $2, $3) returning id
+            """,
+            tenant_id,
+            f"Fornitore {suffix}",
+            f"IT0000000000{suffix}",
+        )
+        spesa_id = await conn.fetchval(
+            """
+            insert into public.spese (
+              tenant_id, cantiere_id, fornitore_id, categoria, descrizione,
+              imponibile, iva_percentuale, created_by
+            ) values ($1::uuid, $2::uuid, $3::uuid, 'materiali', $4, 100, 22, $5::uuid)
+            returning id
+            """,
+            tenant_id,
+            cantiere_id,
+            fornitore_id,
+            f"Materiali {suffix}",
+            user_id,
+        )
+        incasso_id = await conn.fetchval(
+            """
+            insert into public.incassi (
+              tenant_id, cantiere_id, sal_id, descrizione, importo,
+              data_prevista, created_by
+            ) values ($1::uuid, $2::uuid, $3::uuid, $4, 10, date '2099-02-15', $5::uuid)
+            returning id
+            """,
+            tenant_id,
+            cantiere_id,
+            sal_id,
+            f"Incasso {suffix}",
+            user_id,
+        )
+        await conn.execute(
+            """
+            insert into public.scadenze (
+              tenant_id, cantiere_id, spesa_id, tipo, titolo, importo,
+              data_scadenza, created_by
+            ) values (
+              $1::uuid, $2::uuid, $3::uuid, 'pagamento', $4, 122,
+              date '2099-02-28', $5::uuid
+            )
+            """,
+            tenant_id,
+            cantiere_id,
+            spesa_id,
+            f"Scadenza {suffix}",
+            user_id,
+        )
         return (
             cantiere_id,
             computo_voce_id,
@@ -433,7 +494,37 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 )
                 assert int(own_totals) > 0
                 assert int(other_totals) == 0, "computi_totali ignora RLS"
+                own_margin = await conn.fetchval(
+                    """
+                    select count(*) from public.marginalita_cantiere
+                    where tenant_id = $1::uuid
+                    """,
+                    own_tenant,
+                )
+                other_margin = await conn.fetchval(
+                    """
+                    select count(*) from public.marginalita_cantiere
+                    where tenant_id = $1::uuid
+                    """,
+                    other_tenant,
+                )
+                assert int(own_margin) > 0
+                assert int(other_margin) == 0, "marginalita_cantiere ignora RLS"
                 await conn.execute("reset role")
+
+            await _claims(conn, staff_a)
+            for table in ("fornitori", "spese", "incassi", "scadenze"):
+                visible = await conn.fetchval(
+                    f"select count(*) from public.{table} where tenant_id = $1::uuid",
+                    tenant_a,
+                )
+                assert int(visible) == 0, f"{table}: dati finanziari visibili allo staff"
+            staff_margin = await conn.fetchval(
+                "select count(*) from public.marginalita_cantiere where tenant_id = $1::uuid",
+                tenant_a,
+            )
+            assert int(staff_margin) == 0
+            await conn.execute("reset role")
 
             await _claims(conn, user_a)
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
@@ -497,6 +588,22 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                         "update public.sal set periodo_a = date '2099-02-28' where id = $1::uuid",
                         sal_a,
                     )
+            margine = await conn.fetchrow(
+                """
+                select ricavi_maturati, costi_registrati, margine,
+                       incassato, da_incassare
+                from public.marginalita_cantiere
+                where tenant_id = $1::uuid and cantiere_id = $2::uuid
+                """,
+                tenant_a,
+                cantiere_a,
+            )
+            assert margine is not None
+            assert margine["ricavi_maturati"] == Decimal("10.00")
+            assert margine["costi_registrati"] == Decimal("122.00")
+            assert margine["margine"] == Decimal("-112.00")
+            assert margine["incassato"] == Decimal("0.00")
+            assert margine["da_incassare"] == Decimal("10.00")
             await conn.execute("reset role")
 
             await _claims(conn, user_a)
