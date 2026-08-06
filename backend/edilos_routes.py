@@ -40,6 +40,7 @@ import sal_service
 import tenancy
 from engines.metriche import estrai_metriche
 from preventivo_pdf import genera_pdf_preventivo
+from sal_pdf import genera_pdf_sal
 
 router = APIRouter(tags=["edilos"])
 logger = logging.getLogger("gb.edilos")
@@ -505,6 +506,27 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_sal_role(tenant)
             return await sal_service.get_sal(conn, tenant["id"], sal_uuid)
+
+    @api.get("/sal/{sal_id}/pdf")
+    async def sal_pdf(request: Request, sal_id: str):
+        user = await _user(request, db)
+        sal_uuid = str(tenancy.uuid_or_400(sal_id, "SAL"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_sal_role(tenant)
+            documento = await sal_service.get_sal_documento(
+                conn, tenant["id"], sal_uuid
+            )
+            pdf = genera_pdf_sal(documento)
+            numero = int(documento["sal"].get("numero") or 0)
+            return Response(
+                content=pdf,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="SAL-{numero:02d}-con-libretto.pdf"'
+                    )
+                },
+            )
 
     @api.patch("/sal/{sal_id}/stato")
     async def sal_stato(request: Request, sal_id: str, body: SalStatoBody):

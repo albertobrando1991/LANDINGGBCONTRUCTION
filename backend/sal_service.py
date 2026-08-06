@@ -268,6 +268,62 @@ async def get_sal(
     return item
 
 
+async def get_sal_documento(
+    conn: asyncpg.Connection, tenant_id: str, sal_id: str
+) -> dict:
+    """Compone i dati tenant-safe necessari al PDF SAL e al suo libretto."""
+    sal = await get_sal(conn, tenant_id, sal_id)
+    cantiere = await conn.fetchrow(
+        """
+        select id, cliente, indirizzo, capocantiere, stato
+        from public.cantieri
+        where id = $1::uuid and tenant_id = $2::uuid
+        """,
+        sal["cantiere_id"],
+        tenant_id,
+    )
+    tenant = await conn.fetchrow(
+        """
+        select id, slug, ragione_sociale, piva, theme, contatti
+        from public.tenants
+        where id = $1::uuid
+        """,
+        tenant_id,
+    )
+    if not cantiere or not tenant:
+        raise HTTPException(status_code=404, detail="Dati documento SAL non trovati")
+    misure = await conn.fetch(
+        """
+        select m.id, m.data_misura, m.descrizione, m.parti,
+               m.lunghezza, m.larghezza, m.altezza, m.qta,
+               m.foto_paths, v.descrizione as computo_voce_descrizione,
+               v.um as computo_voce_um
+        from public.libretto_misure m
+        join public.sal_righe r
+          on r.computo_voce_id = m.computo_voce_id
+         and r.sal_id = $1::uuid
+         and r.tenant_id = m.tenant_id
+        join public.computo_voci v
+          on v.id = m.computo_voce_id and v.tenant_id = m.tenant_id
+        where m.tenant_id = $2::uuid
+          and m.cantiere_id = $3::uuid
+          and m.data_misura between $4::date and $5::date
+        order by m.data_misura, v.descrizione, m.created_at, m.id
+        """,
+        sal_id,
+        tenant_id,
+        sal["cantiere_id"],
+        sal["periodo_da"],
+        sal["periodo_a"],
+    )
+    return {
+        "sal": sal,
+        "cantiere": _d(cantiere),
+        "tenant": _d(tenant),
+        "misure": [_d(row) for row in misure],
+    }
+
+
 async def aggiorna_stato(
     conn: asyncpg.Connection,
     tenant_id: str,

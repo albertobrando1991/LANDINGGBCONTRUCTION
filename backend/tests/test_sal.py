@@ -49,7 +49,44 @@ def test_route_sal_complete_sono_registrate():
     assert callable(_endpoint("/api/cantieri/{cantiere_id}/sal", "GET"))
     assert callable(_endpoint("/api/cantieri/{cantiere_id}/sal", "POST"))
     assert callable(_endpoint("/api/sal/{sal_id}", "GET"))
+    assert callable(_endpoint("/api/sal/{sal_id}/pdf", "GET"))
     assert callable(_endpoint("/api/sal/{sal_id}/stato", "PATCH"))
+
+
+def test_route_pdf_sal_restituisce_allegato_autenticato(monkeypatch):
+    async def fake_user(request, db):
+        return {"id": "user"}
+
+    route_conn = AsyncMock()
+
+    @asynccontextmanager
+    async def tenant_conn(request, user):
+        yield route_conn, {"id": TENANT_ID, "role": "staff"}
+
+    documento = {
+        "sal": {"id": SAL_ID, "numero": 7, "stato": "emesso"},
+        "cantiere": {},
+        "tenant": {},
+        "misure": [],
+    }
+    get_documento = AsyncMock(return_value=documento)
+    monkeypatch.setattr(edilos_routes, "_user", fake_user)
+    monkeypatch.setattr(sal_service, "get_sal_documento", get_documento)
+    monkeypatch.setattr(edilos_routes, "genera_pdf_sal", lambda value: b"%PDF-test")
+    api = APIRouter(prefix="/api")
+    edilos_routes.register_edilos_routes(api, object(), tenant_conn)
+    endpoint = next(
+        route.endpoint for route in api.routes if route.path == "/api/sal/{sal_id}/pdf"
+    )
+
+    response = asyncio.run(endpoint(_request("GET"), SAL_ID))
+
+    assert response.body == b"%PDF-test"
+    assert response.media_type == "application/pdf"
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="SAL-07-con-libretto.pdf"'
+    )
+    get_documento.assert_awaited_once_with(route_conn, TENANT_ID, SAL_ID)
 
 
 def test_body_sal_valida_stati_esposti():
@@ -133,6 +170,39 @@ def test_aggiorna_stato_rifiuta_sal_gia_approvato():
     assert exc.value.status_code == 409
     assert "approvato -> approvato" in str(exc.value.detail)
     assert conn.fetchrow.await_count == 1
+
+
+def test_documento_sal_limita_cantiere_e_misure_al_tenant(monkeypatch):
+    sal = {
+        "id": SAL_ID,
+        "cantiere_id": CANTIERE_ID,
+        "numero": 2,
+        "periodo_da": date(2026, 8, 1),
+        "periodo_a": date(2026, 8, 31),
+        "righe": [],
+    }
+    monkeypatch.setattr(sal_service, "get_sal", AsyncMock(return_value=sal))
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [
+        {"id": UUID(CANTIERE_ID), "cliente": "Cliente tenant A"},
+        {"id": UUID(TENANT_ID), "slug": "tenant-a"},
+    ]
+    conn.fetch.return_value = [
+        {"id": UUID(VOCE_ID), "qta": Decimal("2.500"), "foto_paths": []}
+    ]
+
+    documento = asyncio.run(sal_service.get_sal_documento(conn, TENANT_ID, SAL_ID))
+
+    assert documento["cantiere"]["id"] == CANTIERE_ID
+    assert documento["tenant"]["id"] == TENANT_ID
+    assert documento["misure"][0]["qta"] == 2.5
+    cantiere_sql = conn.fetchrow.await_args_list[0].args[0]
+    tenant_sql = conn.fetchrow.await_args_list[1].args[0]
+    misure_sql = conn.fetch.await_args.args[0]
+    assert "tenant_id = $2::uuid" in cantiere_sql
+    assert "where id = $1::uuid" in tenant_sql
+    assert "m.tenant_id = $2::uuid" in misure_sql
+    assert "m.cantiere_id = $3::uuid" in misure_sql
 
 
 def test_post_route_genera_sal_per_staff(monkeypatch):

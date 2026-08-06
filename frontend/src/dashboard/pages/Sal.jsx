@@ -7,6 +7,7 @@ import {
   CalendarRange,
   CheckCircle2,
   ClipboardList,
+  Download,
   HardHat,
   Loader2,
   Plus,
@@ -143,7 +144,14 @@ function EmptyDetail() {
   );
 }
 
-function SalDetail({ sal, loading, onTransition, transitioning }) {
+function SalDetail({
+  sal,
+  loading,
+  onTransition,
+  transitioning,
+  onDownload,
+  downloading,
+}) {
   if (loading) {
     return (
       <div className="flex min-h-72 items-center justify-center rounded-2xl border border-stroke bg-surface">
@@ -180,6 +188,19 @@ function SalDetail({ sal, loading, onTransition, transitioning }) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill stato={sal.stato} />
+            <button
+              type="button"
+              onClick={onDownload}
+              disabled={downloading}
+              className="inline-flex items-center gap-2 rounded-xl border border-stroke bg-bg px-3.5 py-2 font-display text-[10px] uppercase tracking-wider text-ink hover:border-brand disabled:opacity-60"
+            >
+              {downloading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 text-brand" />
+              )}
+              PDF + libretto
+            </button>
             {action && (
               <button
                 type="button"
@@ -282,6 +303,7 @@ export default function Sal() {
   const qc = useQueryClient();
   const [cantiereId, setCantiereId] = useState("");
   const [salId, setSalId] = useState("");
+  const [pdfDownloading, setPdfDownloading] = useState(false);
   const [periodo, setPeriodo] = useState(() => periodoMensile());
 
   const cantieriQuery = useQuery({
@@ -373,6 +395,31 @@ export default function Sal() {
       return;
     }
     createSal.mutate();
+  };
+
+  const downloadPdf = async () => {
+    if (!salId) return;
+    setPdfDownloading(true);
+    try {
+      const response = await client.get(`/sal/${salId}/pdf`, {
+        responseType: "blob",
+      });
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const numero = detailQuery.data?.numero || "documento";
+      link.href = href;
+      link.download = `SAL-${String(numero).padStart(2, "0")}-con-libretto.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(href);
+      toast.success(`PDF SAL ${numero} scaricato`);
+    } catch (error) {
+      toast.error(formatApiErrorDetail(error.response?.data?.detail));
+    } finally {
+      setPdfDownloading(false);
+    }
   };
 
   return (
@@ -553,6 +600,8 @@ export default function Sal() {
             loading={detailQuery.isLoading && Boolean(salId)}
             transitioning={transitionSal.isPending}
             onTransition={(stato) => transitionSal.mutate(stato)}
+            downloading={pdfDownloading}
+            onDownload={downloadPdf}
           />
         </div>
       )}
