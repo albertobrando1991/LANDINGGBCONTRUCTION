@@ -13,6 +13,7 @@ import { TenantProvider } from "@/context/TenantContext";
 
 const Landing = lazy(() => import("@/landing/Landing"));
 const Login = lazy(() => import("@/dashboard/Login"));
+const SetPassword = lazy(() => import("@/portal/SetPassword"));
 const LegalPage = lazy(() => import("@/legal/LegalPage"));
 const DashboardLayout = lazy(() => import("@/dashboard/DashboardLayout"));
 const Today = lazy(() => import("@/dashboard/pages/Today"));
@@ -34,6 +35,7 @@ const ComputoEditor = lazy(() => import("@/dashboard/pages/ComputoEditor"));
 const Sal = lazy(() => import("@/dashboard/pages/Sal"));
 const Economics = lazy(() => import("@/dashboard/pages/Economics"));
 const Campo = lazy(() => import("@/campo/Campo"));
+const ClientPortal = lazy(() => import("@/portal/ClientPortal"));
 
 function RouteFallback() {
   return (
@@ -64,6 +66,18 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+function StaffRoute({ children }) {
+  const { user } = useAuth();
+  if (user?.role === "client") return <Navigate to="/portal" replace />;
+  return children;
+}
+
+function ClientRoute({ children }) {
+  const { user } = useAuth();
+  if (user?.role !== "client") return <Navigate to="/dashboard" replace />;
+  return children;
+}
+
 function AuthBoundary() {
   return (
     <AuthProvider>
@@ -91,10 +105,20 @@ function App() {
               <Route element={<AuthBoundary />}>
                 <Route path="/login" element={<Login />} />
                 <Route
+                  path="/set-password"
+                  element={
+                    <ProtectedRoute>
+                      <SetPassword />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
                   path="/campo"
                   element={
                     <ProtectedRoute>
-                      <Campo />
+                      <StaffRoute>
+                        <Campo />
+                      </StaffRoute>
                     </ProtectedRoute>
                   }
                 />
@@ -102,7 +126,9 @@ function App() {
                   path="/dashboard"
                   element={
                     <ProtectedRoute>
-                      <DashboardLayout />
+                      <StaffRoute>
+                        <DashboardLayout />
+                      </StaffRoute>
                     </ProtectedRoute>
                   }
                 >
@@ -126,6 +152,16 @@ function App() {
                   <Route path="report" element={<Report />} />
                   <Route path="impostazioni" element={<Settings />} />
                 </Route>
+                <Route
+                  path="/portal"
+                  element={
+                    <ProtectedRoute>
+                      <ClientRoute>
+                        <ClientPortal />
+                      </ClientRoute>
+                    </ProtectedRoute>
+                  }
+                />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

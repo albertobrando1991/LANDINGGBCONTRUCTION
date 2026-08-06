@@ -1,4 +1,5 @@
 """Risoluzione tenant interna e controllo ruoli."""
+
 from __future__ import annotations
 
 import os
@@ -60,32 +61,28 @@ async def current_tenant(request: Request, user: dict, conn=None) -> dict:
     if conn is None:
         # fallback senza Postgres: usa solo claim JWT
         if not memberships:
-            raise HTTPException(status_code=403, detail="Nessun tenant associato all'utente")
+            raise HTTPException(
+                status_code=403, detail="Nessun tenant associato all'utente"
+            )
         if slug:
             # senza DB non possiamo risolvere lo slug → richiedi claim con slug o id
             for m in memberships:
                 if m.get("slug") == slug or m.get("tenant_id") == slug:
                     return {"id": m["tenant_id"], "slug": slug, "role": m["role"]}
-            raise HTTPException(status_code=403, detail="Non sei membro di questo tenant")
+            raise HTTPException(
+                status_code=403, detail="Non sei membro di questo tenant"
+            )
         m0 = memberships[0]
         return {"id": m0["tenant_id"], "slug": slug or "", "role": m0["role"]}
 
     if slug:
         row = await conn.fetchrow(
-            "select id, slug, ragione_sociale, theme, contatti, piano, attivo "
-            "from public.tenants where slug = $1 and attivo = true",
+            "select id, slug, ragione_sociale, theme, contatti, piano, attivo, role "
+            "from public.utente_tenant_correnti where slug = $1 and attivo = true",
             slug,
         )
         if not row:
             raise HTTPException(status_code=404, detail="Tenant non trovato")
-        uid = user.get("supabase_user_id") or user.get("id") or user.get("sub")
-        member = await conn.fetchrow(
-            "select role from public.tenant_members where tenant_id = $1 and user_id = $2::uuid",
-            row["id"],
-            uid,
-        )
-        if not member:
-            raise HTTPException(status_code=403, detail="Non sei membro di questo tenant")
         return {
             "id": str(row["id"]),
             "slug": row["slug"],
@@ -93,24 +90,23 @@ async def current_tenant(request: Request, user: dict, conn=None) -> dict:
             "theme": row["theme"],
             "contatti": row["contatti"],
             "piano": row["piano"],
-            "role": str(member["role"]),
+            "role": str(row["role"]),
         }
 
     # nessun slug: primo membership
-    uid = user.get("supabase_user_id") or user.get("id") or user.get("sub")
     row = await conn.fetchrow(
         """
-        select t.id, t.slug, t.ragione_sociale, t.theme, t.contatti, t.piano, m.role
-        from public.tenant_members m
-        join public.tenants t on t.id = m.tenant_id
-        where m.user_id = $1::uuid and t.attivo = true
-        order by m.created_at
+        select t.id, t.slug, t.ragione_sociale, t.theme, t.contatti, t.piano, t.role
+        from public.utente_tenant_correnti t
+        where t.attivo = true
+        order by t.slug
         limit 1
         """,
-        uid,
     )
     if not row:
-        raise HTTPException(status_code=403, detail="Nessun tenant associato all'utente")
+        raise HTTPException(
+            status_code=403, detail="Nessun tenant associato all'utente"
+        )
     return {
         "id": str(row["id"]),
         "slug": row["slug"],
@@ -122,10 +118,14 @@ async def current_tenant(request: Request, user: dict, conn=None) -> dict:
     }
 
 
-async def require_tenant_role(request: Request, user: dict, roles: list[str], conn=None) -> dict:
+async def require_tenant_role(
+    request: Request, user: dict, roles: list[str], conn=None
+) -> dict:
     tenant = await current_tenant(request, user, conn=conn)
     if tenant.get("role") not in roles:
-        raise HTTPException(status_code=403, detail="Permessi insufficienti per questa operazione")
+        raise HTTPException(
+            status_code=403, detail="Permessi insufficienti per questa operazione"
+        )
     return tenant
 
 

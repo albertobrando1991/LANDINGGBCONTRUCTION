@@ -32,6 +32,9 @@ TABELLE_TENANT = [
     "spese",
     "incassi",
     "scadenze",
+    "cantiere_clienti",
+    "cantiere_condivisioni",
+    "varianti_approvazioni",
 ]
 
 
@@ -49,6 +52,9 @@ def test_tabelle_tenant_elencate():
     assert "spese" in TABELLE_TENANT
     assert "incassi" in TABELLE_TENANT
     assert "scadenze" in TABELLE_TENANT
+    assert "cantiere_clienti" in TABELLE_TENANT
+    assert "cantiere_condivisioni" in TABELLE_TENANT
+    assert "varianti_approvazioni" in TABELLE_TENANT
 
 
 def _pg_dsn() -> str | None:
@@ -181,6 +187,8 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
     user_a = "f1000000-0000-4000-8000-000000000001"
     staff_a = "f1000000-0000-4000-8000-000000000002"
     user_b = "f2000000-0000-4000-8000-000000000001"
+    client_a = "f1000000-0000-4000-8000-000000000004"
+    client_b = "f2000000-0000-4000-8000-000000000004"
 
     async def _claims(conn, user_id):
         await conn.execute("set local role authenticated")
@@ -422,6 +430,8 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             await _ensure_test_actor(conn, tenant_a, user_a, "owner")
             await _ensure_test_actor(conn, tenant_a, staff_a, "staff")
             await _ensure_test_actor(conn, tenant_b, user_b, "owner")
+            await _ensure_test_actor(conn, tenant_a, client_a, "client")
+            await _ensure_test_actor(conn, tenant_b, client_b, "client")
             fixture_a = await _insert_fixture(
                 conn,
                 tenant_a,
@@ -441,6 +451,113 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 user_b,
                 "e2000000-0000-4000-8000-000000000001",
             )
+
+            async def _insert_portal_fixture(tenant_id, cantiere_id, client_id, suffix):
+                base_id = await conn.fetchval(
+                    """
+                    insert into public.computi (
+                      tenant_id, cantiere_id, tipo, stato, numero
+                    ) values (
+                      $1::uuid, $2::uuid, 'esecutivo', 'bozza', $3
+                    ) returning id
+                    """,
+                    tenant_id,
+                    cantiere_id,
+                    f"BASE-PORTAL-{suffix}",
+                )
+                voce_id = await conn.fetchval(
+                    """
+                    insert into public.computo_voci (
+                      tenant_id, computo_id, super_categoria, categoria,
+                      descrizione, um, qta, prezzo_unitario
+                    ) values (
+                      $1::uuid, $2::uuid, 'Portale', 'Portale', $3, 'cad', 1, 10
+                    ) returning id
+                    """,
+                    tenant_id,
+                    base_id,
+                    f"Base cliente {suffix}",
+                )
+                variante_id = await conn.fetchval(
+                    """
+                    insert into public.computi (
+                      tenant_id, cantiere_id, parent_computo_id, tipo, stato, numero
+                    ) values (
+                      $1::uuid, $2::uuid, $3::uuid, 'variante', 'bozza', $4
+                    ) returning id
+                    """,
+                    tenant_id,
+                    cantiere_id,
+                    base_id,
+                    f"VAR-PORTAL-{suffix}",
+                )
+                await conn.execute(
+                    """
+                    insert into public.computo_voci (
+                      tenant_id, computo_id, parent_voce_id, super_categoria,
+                      categoria, descrizione, um, qta, prezzo_unitario
+                    ) values (
+                      $1::uuid, $2::uuid, $3::uuid, 'Portale', 'Portale',
+                      $4, 'cad', 2, 10
+                    )
+                    """,
+                    tenant_id,
+                    variante_id,
+                    voce_id,
+                    f"Variante cliente {suffix}",
+                )
+                await conn.execute(
+                    "update public.computi set stato = 'confermato' where id = $1::uuid",
+                    variante_id,
+                )
+                await conn.execute(
+                    """
+                    insert into public.cantiere_clienti (
+                      tenant_id, cantiere_id, user_id
+                    ) values ($1::uuid, $2::uuid, $3::uuid)
+                    """,
+                    tenant_id,
+                    cantiere_id,
+                    client_id,
+                )
+                await conn.execute(
+                    """
+                    insert into storage.objects (bucket_id, name, owner)
+                    values ('documenti', $1, $2::uuid)
+                    """,
+                    f"{tenant_id}/cantiere-{cantiere_id}/contratto-{suffix}.pdf",
+                    user_a if tenant_id == tenant_a else user_b,
+                )
+                await conn.execute(
+                    """
+                    insert into public.cantiere_condivisioni (
+                      tenant_id, cantiere_id, tipo, bucket, storage_path, titolo
+                    ) values (
+                      $1::uuid, $2::uuid, 'documento', 'documenti', $3, $4
+                    )
+                    """,
+                    tenant_id,
+                    cantiere_id,
+                    f"{tenant_id}/cantiere-{cantiere_id}/contratto-{suffix}.pdf",
+                    f"Contratto {suffix}",
+                )
+                await conn.execute(
+                    """
+                    insert into public.varianti_approvazioni (
+                      tenant_id, cantiere_id, variante_id, user_id, ip
+                    ) values ($1::uuid, $2::uuid, $3::uuid, $4::uuid, '127.0.0.1')
+                    """,
+                    tenant_id,
+                    cantiere_id,
+                    variante_id,
+                    client_id,
+                )
+                return variante_id
+
+            variante_portal_a = await _insert_portal_fixture(
+                tenant_a, cantiere_a, client_a, "A"
+            )
+            await _insert_portal_fixture(tenant_b, cantiere_b, client_b, "B")
             computo_sal_a = await conn.fetchval(
                 """
                 insert into public.computi (tenant_id, cantiere_id, stato, numero)
@@ -518,12 +635,99 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                     f"select count(*) from public.{table} where tenant_id = $1::uuid",
                     tenant_a,
                 )
-                assert int(visible) == 0, f"{table}: dati finanziari visibili allo staff"
+                assert (
+                    int(visible) == 0
+                ), f"{table}: dati finanziari visibili allo staff"
             staff_margin = await conn.fetchval(
                 "select count(*) from public.marginalita_cantiere where tenant_id = $1::uuid",
                 tenant_a,
             )
             assert int(staff_margin) == 0
+            await conn.execute("reset role")
+
+            await _claims(conn, client_a)
+            for table in (
+                "tenants",
+                "clienti",
+                "leads",
+                "cantieri",
+                "prezzari",
+                "computi",
+                "preventivi",
+                "libretto_misure",
+                "sal",
+                "spese",
+            ):
+                visible = await conn.fetchval(f"select count(*) from public.{table}")
+                assert int(visible) == 0, f"{table}: tabella interna visibile al client"
+
+            memberships = await conn.fetch(
+                "select tenant_id, user_id, role from public.tenant_members"
+            )
+            assert len(memberships) == 1
+            assert str(memberships[0]["user_id"]) == client_a
+            assert str(memberships[0]["role"]) == "client"
+
+            current_tenant = await conn.fetchrow(
+                "select id, role, piano from public.utente_tenant_correnti"
+            )
+            assert str(current_tenant["id"]) == tenant_a
+            assert str(current_tenant["role"]) == "client"
+            assert current_tenant["piano"] is None
+
+            portal_cantieri = await conn.fetch("select * from public.portale_cantieri")
+            assert [str(row["cantiere_id"]) for row in portal_cantieri] == [
+                str(cantiere_a)
+            ]
+            portal_varianti = await conn.fetch("select * from public.portale_varianti")
+            assert [str(row["variante_id"]) for row in portal_varianti] == [
+                str(variante_portal_a)
+            ]
+            assert portal_varianti[0]["approvata"] is True
+            assert (
+                int(
+                    await conn.fetchval(
+                        "select count(*) from public.cantiere_condivisioni"
+                    )
+                )
+                == 1
+            )
+            assert (
+                int(
+                    await conn.fetchval(
+                        "select count(*) from public.varianti_approvazioni"
+                    )
+                )
+                == 1
+            )
+            shared_storage = await conn.fetch(
+                "select bucket_id, name from storage.objects order by name"
+            )
+            assert len(shared_storage) == 1
+            assert str(cantiere_a) in shared_storage[0]["name"]
+
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        update public.varianti_approvazioni
+                        set ip = '127.0.0.2'
+                        where variante_id = $1::uuid
+                        """,
+                        variante_portal_a,
+                    )
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        insert into public.cantiere_clienti (
+                          tenant_id, cantiere_id, user_id
+                        ) values ($1::uuid, $2::uuid, $3::uuid)
+                        """,
+                        tenant_b,
+                        cantiere_b,
+                        client_a,
+                    )
             await conn.execute("reset role")
 
             await _claims(conn, user_a)

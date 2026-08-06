@@ -111,9 +111,18 @@ export function AuthProvider({ children }) {
     setUser(false);
   };
 
+  const updatePassword = async (password) => {
+    if (!supabaseConfigured || !supabase) {
+      throw new Error("Aggiornamento password non disponibile.");
+    }
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) throw error;
+    await check();
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, logout, refresh: check }}
+      value={{ user, loading, login, logout, updatePassword, refresh: check }}
     >
       {children}
     </AuthContext.Provider>

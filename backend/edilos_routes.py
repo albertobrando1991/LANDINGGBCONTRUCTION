@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -30,6 +31,7 @@ from pydantic import (
 
 import auth as authlib
 import boq_service
+import client_portal_service
 import db as db_pg
 import email_service
 import economics_service
@@ -251,7 +253,9 @@ class ScadenzaCreateBody(BaseModel):
     incasso_id: Optional[UUID] = None
     tipo: Literal["incasso", "pagamento", "adempimento"]
     titolo: str = Field(min_length=2, max_length=300)
-    importo: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    importo: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
     data_scadenza: date
     note: Optional[str] = Field(default=None, max_length=2000)
 
@@ -260,6 +264,29 @@ class ScadenzaPatchBody(BaseModel):
     stato: Optional[Literal["aperta", "completata", "annullata"]] = None
     completata_at: Optional[datetime] = None
     note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class PortaleInvitaBody(BaseModel):
+    email: EmailStr
+    nome: Optional[str] = Field(default=None, max_length=200)
+
+
+class PortaleCondivisioneBody(BaseModel):
+    tipo: Literal["foto", "documento"]
+    bucket: Literal["foto-cantiere", "documenti"]
+    storage_path: str = Field(min_length=10, max_length=1000)
+    titolo: str = Field(min_length=1, max_length=200)
+    descrizione: Optional[str] = Field(default=None, max_length=1000)
+
+
+def _request_ip(request: Request) -> str:
+    candidate = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if not candidate and request.client:
+        candidate = request.client.host
+    try:
+        return str(ipaddress.ip_address(candidate or "0.0.0.0"))
+    except ValueError:
+        return "0.0.0.0"
 
 
 def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
@@ -287,6 +314,24 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             raise HTTPException(
                 status_code=403,
                 detail="Permessi insufficienti per i dati economici",
+            )
+
+    def require_client_role(tenant: dict) -> None:
+        if tenant.get("role") != "client":
+            raise HTTPException(status_code=403, detail="Accesso riservato al cliente")
+
+    def require_portal_admin_role(tenant: dict) -> None:
+        if tenant.get("role") not in client_portal_service.PORTAL_ADMIN_ROLES:
+            raise HTTPException(
+                status_code=403,
+                detail="Permessi insufficienti per invitare clienti",
+            )
+
+    def require_portal_internal_role(tenant: dict) -> None:
+        if tenant.get("role") not in client_portal_service.INTERNAL_ROLES:
+            raise HTTPException(
+                status_code=403,
+                detail="Permessi insufficienti per gestire il portale",
             )
 
     @api.get("/tenant/config")
@@ -459,9 +504,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     async def crea_variante(request: Request, computo_id: str):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
-            return await boq_service.crea_variante(
-                conn, tenant["id"], computo_id
-            )
+            return await boq_service.crea_variante(conn, tenant["id"], computo_id)
 
     @api.get("/computi/{computo_id}/confronto-variante")
     async def confronto_variante(request: Request, computo_id: str):
@@ -653,14 +696,10 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
 
     # ---------- Economics cantiere ----------
     @api.get("/economics")
-    async def economics_dashboard(
-        request: Request, cantiere_id: Optional[str] = None
-    ):
+    async def economics_dashboard(request: Request, cantiere_id: Optional[str] = None):
         user = await _user(request, db)
         cantiere_uuid = (
-            str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
-            if cantiere_id
-            else None
+            str(tenancy.uuid_or_400(cantiere_id, "Cantiere")) if cantiere_id else None
         )
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_economics_role(tenant)
@@ -669,9 +708,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             )
 
     @api.post("/economics/fornitori", status_code=201)
-    async def economics_crea_fornitore(
-        request: Request, body: FornitoreCreateBody
-    ):
+    async def economics_crea_fornitore(request: Request, body: FornitoreCreateBody):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_economics_role(tenant)
@@ -743,9 +780,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             )
 
     @api.post("/economics/scadenze", status_code=201)
-    async def economics_crea_scadenza(
-        request: Request, body: ScadenzaCreateBody
-    ):
+    async def economics_crea_scadenza(request: Request, body: ScadenzaCreateBody):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_economics_role(tenant)
@@ -769,14 +804,10 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             )
 
     @api.get("/economics/export.csv")
-    async def economics_export_csv(
-        request: Request, cantiere_id: Optional[str] = None
-    ):
+    async def economics_export_csv(request: Request, cantiere_id: Optional[str] = None):
         user = await _user(request, db)
         cantiere_uuid = (
-            str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
-            if cantiere_id
-            else None
+            str(tenancy.uuid_or_400(cantiere_id, "Cantiere")) if cantiere_id else None
         )
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_economics_role(tenant)
@@ -789,6 +820,107 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 headers={
                     "Content-Disposition": 'attachment; filename="economics-cantieri.csv"'
                 },
+            )
+
+    # ---------- Portale cliente finale ----------
+    @api.get("/portal")
+    async def portale_cliente_dashboard(request: Request):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_client_role(tenant)
+            return await client_portal_service.get_portal_dashboard(conn, tenant["id"])
+
+    @api.post(
+        "/portal/cantieri/{cantiere_id}/varianti/{variante_id}/approva",
+        status_code=201,
+    )
+    async def portale_cliente_approva_variante(
+        request: Request, cantiere_id: str, variante_id: str
+    ):
+        user = await _user(request, db)
+        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+        variante_uuid = str(tenancy.uuid_or_400(variante_id, "Variante"))
+        user_id = str(
+            user.get("supabase_user_id") or user.get("sub") or user.get("id") or ""
+        )
+        user_uuid = str(tenancy.uuid_or_400(user_id, "Utente"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_client_role(tenant)
+            return await client_portal_service.approva_variante(
+                conn,
+                tenant["id"],
+                cantiere_uuid,
+                variante_uuid,
+                user_uuid,
+                ip=_request_ip(request),
+                user_agent=request.headers.get("user-agent"),
+            )
+
+    @api.get("/cantieri/{cantiere_id}/portale")
+    async def cantiere_portale_admin(request: Request, cantiere_id: str):
+        user = await _user(request, db)
+        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            return await client_portal_service.get_cantiere_portal_admin(
+                conn, tenant["id"], cantiere_uuid
+            )
+
+    @api.post("/cantieri/{cantiere_id}/portale/invita", status_code=201)
+    async def cantiere_portale_invita(
+        request: Request, cantiere_id: str, body: PortaleInvitaBody
+    ):
+        user = await _user(request, db)
+        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_admin_role(tenant)
+            return await client_portal_service.invita_cliente(
+                conn,
+                tenant["id"],
+                cantiere_uuid,
+                email=str(body.email),
+                nome=body.nome,
+            )
+
+    @api.patch("/cantieri/{cantiere_id}/portale/clienti/{client_user_id}/disattiva")
+    async def cantiere_portale_disattiva(
+        request: Request, cantiere_id: str, client_user_id: str
+    ):
+        user = await _user(request, db)
+        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+        client_uuid = str(tenancy.uuid_or_400(client_user_id, "Cliente"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_admin_role(tenant)
+            return await client_portal_service.disattiva_cliente(
+                conn, tenant["id"], cantiere_uuid, client_uuid
+            )
+
+    @api.post("/cantieri/{cantiere_id}/portale/condivisioni", status_code=201)
+    async def cantiere_portale_condividi(
+        request: Request, cantiere_id: str, body: PortaleCondivisioneBody
+    ):
+        user = await _user(request, db)
+        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            return await client_portal_service.condividi_asset(
+                conn,
+                tenant["id"],
+                cantiere_uuid,
+                **body.model_dump(),
+            )
+
+    @api.delete("/cantieri/{cantiere_id}/portale/condivisioni/{condivisione_id}")
+    async def cantiere_portale_revoca(
+        request: Request, cantiere_id: str, condivisione_id: str
+    ):
+        user = await _user(request, db)
+        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+        share_uuid = str(tenancy.uuid_or_400(condivisione_id, "Condivisione"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            return await client_portal_service.revoca_condivisione(
+                conn, tenant["id"], cantiere_uuid, share_uuid
             )
 
     @api.post("/metriche/estrai")

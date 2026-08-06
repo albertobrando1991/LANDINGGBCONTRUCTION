@@ -9,6 +9,153 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      cantiere_clienti: {
+        Row: {
+          attivo: boolean
+          cantiere_id: string
+          created_at: string
+          email: string | null
+          invitato_da: string | null
+          nome: string | null
+          tenant_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attivo?: boolean
+          cantiere_id: string
+          created_at?: string
+          email?: string | null
+          invitato_da?: string | null
+          nome?: string | null
+          tenant_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attivo?: boolean
+          cantiere_id?: string
+          created_at?: string
+          email?: string | null
+          invitato_da?: string | null
+          nome?: string | null
+          tenant_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cantiere_clienti_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "cantieri"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "cantiere_clienti_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "cantiere_clienti_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "cantiere_clienti_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cantiere_clienti_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cantiere_condivisioni: {
+        Row: {
+          bucket: string
+          cantiere_id: string
+          condiviso_da: string | null
+          created_at: string
+          descrizione: string | null
+          id: string
+          storage_path: string
+          tenant_id: string
+          tipo: string
+          titolo: string
+        }
+        Insert: {
+          bucket: string
+          cantiere_id: string
+          condiviso_da?: string | null
+          created_at?: string
+          descrizione?: string | null
+          id?: string
+          storage_path: string
+          tenant_id: string
+          tipo: string
+          titolo: string
+        }
+        Update: {
+          bucket?: string
+          cantiere_id?: string
+          condiviso_da?: string | null
+          created_at?: string
+          descrizione?: string | null
+          id?: string
+          storage_path?: string
+          tenant_id?: string
+          tipo?: string
+          titolo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cantiere_condivisioni_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "cantieri"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "cantiere_condivisioni_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "cantiere_condivisioni_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "cantiere_condivisioni_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cantiere_condivisioni_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cantieri: {
         Row: {
           avanzamento: number
@@ -95,6 +242,13 @@ export type Database = {
             referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "cantieri_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
         ]
       }
       clienti: {
@@ -149,6 +303,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "clienti_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -212,6 +373,13 @@ export type Database = {
             referencedColumns: ["cantiere_id"]
           },
           {
+            foreignKeyName: "computi_cantiere_id_fkey"
+            columns: ["cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["cantiere_id"]
+          },
+          {
             foreignKeyName: "computi_lead_id_fkey"
             columns: ["lead_id"]
             isOneToOne: false
@@ -233,6 +401,20 @@ export type Database = {
             referencedColumns: ["computo_id"]
           },
           {
+            foreignKeyName: "computi_parent_computo_id_fkey"
+            columns: ["parent_computo_id"]
+            isOneToOne: false
+            referencedRelation: "portale_varianti"
+            referencedColumns: ["computo_base_id"]
+          },
+          {
+            foreignKeyName: "computi_parent_computo_id_fkey"
+            columns: ["parent_computo_id"]
+            isOneToOne: false
+            referencedRelation: "portale_varianti"
+            referencedColumns: ["variante_id"]
+          },
+          {
             foreignKeyName: "computi_parent_tenant_fk"
             columns: ["tenant_id", "parent_computo_id"]
             isOneToOne: false
@@ -247,6 +429,20 @@ export type Database = {
             referencedColumns: ["tenant_id", "computo_id"]
           },
           {
+            foreignKeyName: "computi_parent_tenant_fk"
+            columns: ["tenant_id", "parent_computo_id"]
+            isOneToOne: false
+            referencedRelation: "portale_varianti"
+            referencedColumns: ["tenant_id", "computo_base_id"]
+          },
+          {
+            foreignKeyName: "computi_parent_tenant_fk"
+            columns: ["tenant_id", "parent_computo_id"]
+            isOneToOne: false
+            referencedRelation: "portale_varianti"
+            referencedColumns: ["tenant_id", "variante_id"]
+          },
+          {
             foreignKeyName: "computi_prezzario_id_fkey"
             columns: ["prezzario_id"]
             isOneToOne: false
@@ -258,6 +454,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "computi_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -336,6 +539,20 @@ export type Database = {
             referencedColumns: ["computo_id"]
           },
           {
+            foreignKeyName: "computo_voci_computo_id_fkey"
+            columns: ["computo_id"]
+            isOneToOne: false
+            referencedRelation: "portale_varianti"
+            referencedColumns: ["computo_base_id"]
+          },
+          {
+            foreignKeyName: "computo_voci_computo_id_fkey"
+            columns: ["computo_id"]
+            isOneToOne: false
+            referencedRelation: "portale_varianti"
+            referencedColumns: ["variante_id"]
+          },
+          {
             foreignKeyName: "computo_voci_origine_voce_id_fkey"
             columns: ["origine_voce_id"]
             isOneToOne: false
@@ -354,6 +571,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "computo_voci_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -407,6 +631,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fornitori_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -476,6 +707,20 @@ export type Database = {
             referencedColumns: ["tenant_id", "cantiere_id"]
           },
           {
+            foreignKeyName: "incassi_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "incassi_sal_tenant_fk"
+            columns: ["tenant_id", "sal_id"]
+            isOneToOne: false
+            referencedRelation: "portale_sal_approvati"
+            referencedColumns: ["tenant_id", "sal_id"]
+          },
+          {
             foreignKeyName: "incassi_sal_tenant_fk"
             columns: ["tenant_id", "sal_id"]
             isOneToOne: false
@@ -487,6 +732,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incassi_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -585,6 +837,13 @@ export type Database = {
             referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "leads_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
         ]
       }
       libretto_misure: {
@@ -655,6 +914,13 @@ export type Database = {
             referencedColumns: ["tenant_id", "cantiere_id"]
           },
           {
+            foreignKeyName: "libretto_misure_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
             foreignKeyName: "libretto_misure_computo_voce_tenant_fk"
             columns: ["tenant_id", "computo_voce_id"]
             isOneToOne: false
@@ -666,6 +932,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "libretto_misure_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -717,6 +990,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mapping_regole_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -832,6 +1112,20 @@ export type Database = {
             referencedColumns: ["computo_id"]
           },
           {
+            foreignKeyName: "preventivi_computo_id_fkey"
+            columns: ["computo_id"]
+            isOneToOne: false
+            referencedRelation: "portale_varianti"
+            referencedColumns: ["computo_base_id"]
+          },
+          {
+            foreignKeyName: "preventivi_computo_id_fkey"
+            columns: ["computo_id"]
+            isOneToOne: false
+            referencedRelation: "portale_varianti"
+            referencedColumns: ["variante_id"]
+          },
+          {
             foreignKeyName: "preventivi_lead_id_fkey"
             columns: ["lead_id"]
             isOneToOne: false
@@ -843,6 +1137,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "preventivi_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -911,6 +1212,13 @@ export type Database = {
             referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "preventivo_eventi_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
         ]
       }
       prezzari: {
@@ -953,6 +1261,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prezzari_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -1024,6 +1339,13 @@ export type Database = {
             referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "prezzario_voci_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
         ]
       }
       sal: {
@@ -1079,10 +1401,24 @@ export type Database = {
             referencedColumns: ["tenant_id", "cantiere_id"]
           },
           {
+            foreignKeyName: "sal_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
             foreignKeyName: "sal_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sal_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -1139,6 +1475,13 @@ export type Database = {
             foreignKeyName: "sal_righe_sal_tenant_fk"
             columns: ["tenant_id", "sal_id"]
             isOneToOne: false
+            referencedRelation: "portale_sal_approvati"
+            referencedColumns: ["tenant_id", "sal_id"]
+          },
+          {
+            foreignKeyName: "sal_righe_sal_tenant_fk"
+            columns: ["tenant_id", "sal_id"]
+            isOneToOne: false
             referencedRelation: "sal"
             referencedColumns: ["tenant_id", "id"]
           },
@@ -1147,6 +1490,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sal_righe_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -1219,6 +1569,13 @@ export type Database = {
             referencedColumns: ["tenant_id", "cantiere_id"]
           },
           {
+            foreignKeyName: "scadenze_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
             foreignKeyName: "scadenze_incasso_tenant_fk"
             columns: ["tenant_id", "incasso_id"]
             isOneToOne: false
@@ -1237,6 +1594,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scadenze_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -1321,6 +1685,13 @@ export type Database = {
             referencedColumns: ["tenant_id", "cantiere_id"]
           },
           {
+            foreignKeyName: "spese_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
             foreignKeyName: "spese_fornitore_tenant_fk"
             columns: ["tenant_id", "fornitore_id"]
             isOneToOne: false
@@ -1332,6 +1703,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "spese_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -1367,6 +1745,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_members_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -1416,6 +1801,99 @@ export type Database = {
         }
         Relationships: []
       }
+      varianti_approvazioni: {
+        Row: {
+          cantiere_id: string
+          created_at: string
+          decisione: string
+          id: string
+          ip: unknown
+          tenant_id: string
+          user_agent: string | null
+          user_id: string
+          variante_id: string
+        }
+        Insert: {
+          cantiere_id: string
+          created_at?: string
+          decisione?: string
+          id?: string
+          ip: unknown
+          tenant_id: string
+          user_agent?: string | null
+          user_id?: string
+          variante_id: string
+        }
+        Update: {
+          cantiere_id?: string
+          created_at?: string
+          decisione?: string
+          id?: string
+          ip?: unknown
+          tenant_id?: string
+          user_agent?: string | null
+          user_id?: string
+          variante_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "varianti_approvazioni_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "cantieri"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "varianti_approvazioni_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "varianti_approvazioni_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "varianti_approvazioni_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "varianti_approvazioni_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "varianti_approvazioni_variante_cantiere_fk"
+            columns: ["tenant_id", "cantiere_id", "variante_id"]
+            isOneToOne: false
+            referencedRelation: "computi"
+            referencedColumns: ["tenant_id", "cantiere_id", "id"]
+          },
+          {
+            foreignKeyName: "varianti_approvazioni_variante_cantiere_fk"
+            columns: ["tenant_id", "cantiere_id", "variante_id"]
+            isOneToOne: false
+            referencedRelation: "portale_varianti"
+            referencedColumns: ["tenant_id", "cantiere_id", "computo_base_id"]
+          },
+          {
+            foreignKeyName: "varianti_approvazioni_variante_cantiere_fk"
+            columns: ["tenant_id", "cantiere_id", "variante_id"]
+            isOneToOne: false
+            referencedRelation: "portale_varianti"
+            referencedColumns: ["tenant_id", "cantiere_id", "variante_id"]
+          },
+        ]
+      }
     }
     Views: {
       computi_totali: {
@@ -1432,6 +1910,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "computi_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
             referencedColumns: ["id"]
           },
         ]
@@ -1487,7 +1972,188 @@ export type Database = {
             referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "cantieri_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      portale_cantieri: {
+        Row: {
+          avanzamento: number | null
+          cantiere_id: string | null
+          indirizzo: string | null
+          milestone: string | null
+          milestone_data: string | null
+          nome_cantiere: string | null
+          stato: string | null
+          tenant_id: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cantieri_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cantieri_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      portale_sal_approvati: {
+        Row: {
+          approvato_at: string | null
+          cantiere_id: string | null
+          numero: number | null
+          periodo_a: string | null
+          periodo_da: string | null
+          righe: Json | null
+          sal_id: string | null
+          stato: string | null
+          tenant_id: string | null
+          totale_periodo: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sal_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "cantieri"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "sal_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "sal_cantiere_tenant_fk"
+            columns: ["tenant_id", "cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["tenant_id", "cantiere_id"]
+          },
+          {
+            foreignKeyName: "sal_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sal_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      portale_variante_righe: {
+        Row: {
+          classificazione: string | null
+          computo_base_id: string | null
+          delta_importo: number | null
+          delta_percentuale_contratto: number | null
+          delta_prezzo: number | null
+          delta_qta: number | null
+          descrizione_base: string | null
+          descrizione_variante: string | null
+          importo_base: number | null
+          importo_variante: number | null
+          ordine: number | null
+          prezzo_base: number | null
+          prezzo_variante: number | null
+          qta_base: number | null
+          qta_variante: number | null
+          tenant_id: string | null
+          um_base: string | null
+          um_variante: string | null
+          variante_id: string | null
+          voce_base_id: string | null
+          voce_variante_id: string | null
+        }
+        Relationships: []
+      }
+      portale_varianti: {
+        Row: {
+          approvata: boolean | null
+          approvata_at: string | null
+          cantiere_id: string | null
+          computo_base_id: string | null
+          delta_importo: number | null
+          delta_percentuale: number | null
+          numero_base: string | null
+          numero_variante: string | null
+          tenant_id: string | null
+          totale_base: number | null
+          totale_variante: number | null
+          updated_at: string | null
+          variante_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "computi_cantiere_id_fkey"
+            columns: ["cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "cantieri"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "computi_cantiere_id_fkey"
+            columns: ["cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "marginalita_cantiere"
+            referencedColumns: ["cantiere_id"]
+          },
+          {
+            foreignKeyName: "computi_cantiere_id_fkey"
+            columns: ["cantiere_id"]
+            isOneToOne: false
+            referencedRelation: "portale_cantieri"
+            referencedColumns: ["cantiere_id"]
+          },
+          {
+            foreignKeyName: "computi_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "computi_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "utente_tenant_correnti"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      utente_tenant_correnti: {
+        Row: {
+          attivo: boolean | null
+          contatti: Json | null
+          id: string | null
+          nome: string | null
+          piano: string | null
+          ragione_sociale: string | null
+          role: Database["public"]["Enums"]["tenant_role"] | null
+          slug: string | null
+          theme: Json | null
+        }
+        Relationships: []
       }
     }
     Functions: {
@@ -1496,6 +2162,12 @@ export type Database = {
         Args: { roles: Database["public"]["Enums"]["tenant_role"][]; t: string }
         Returns: boolean
       }
+      is_approvable_client_variant: {
+        Args: { c: string; t: string; v: string }
+        Returns: boolean
+      }
+      is_cantiere_client: { Args: { c: string; t: string }; Returns: boolean }
+      is_internal_member: { Args: { t: string }; Returns: boolean }
       is_member: { Args: { t: string }; Returns: boolean }
     }
     Enums: {
