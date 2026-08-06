@@ -260,6 +260,18 @@ async def duplica_computo(
     )
     if not src:
         raise HTTPException(status_code=404, detail="Computo non trovato")
+    target_tipo = tipo or src["tipo"]
+    is_variante = target_tipo == "variante"
+    if is_variante and src["stato"] != "confermato":
+        raise HTTPException(
+            status_code=409,
+            detail="La variante può essere creata solo da un computo confermato",
+        )
+    if is_variante and src["tipo"] == "variante":
+        raise HTTPException(
+            status_code=409,
+            detail="Crea la nuova variante dal computo contrattuale originale",
+        )
     new_id = await conn.fetchval(
         """
         insert into public.computi (
@@ -270,19 +282,24 @@ async def duplica_computo(
         tenant_id,
         src["lead_id"],
         src["cantiere_id"],
-        src["id"],
+        src["id"] if is_variante else None,
         src["prezzario_id"],
-        tipo or src["tipo"],
-        f"Copia di {src.get('numero') or src['id']}",
+        target_tipo,
+        (
+            f"Variante di {src.get('numero') or src['id']}"
+            if is_variante
+            else f"Copia di {src.get('numero') or src['id']}"
+        ),
     )
     await conn.execute(
         """
         insert into public.computo_voci (
-          tenant_id, computo_id, origine_voce_id, ordine,
+          tenant_id, computo_id, origine_voce_id, parent_voce_id, ordine,
           super_categoria, categoria, sub_categoria, descrizione, um, tipo,
           qta, prezzo_unitario, generata_da_ai, validata_umano
         )
-        select tenant_id, $1::uuid, origine_voce_id, ordine,
+        select tenant_id, $1::uuid, origine_voce_id,
+               case when $4::boolean then id else null end, ordine,
                super_categoria, categoria, sub_categoria, descrizione, um, tipo,
                qta, prezzo_unitario, generata_da_ai, validata_umano
         from public.computo_voci
@@ -291,9 +308,98 @@ async def duplica_computo(
         new_id,
         computo_id,
         tenant_id,
+        is_variante,
     )
-    row = await conn.fetchrow("select * from public.computi where id = $1", new_id)
+    row = await conn.fetchrow(
+        "select * from public.computi where id = $1 and tenant_id = $2::uuid",
+        new_id,
+        tenant_id,
+    )
     return _d(row)
+
+
+async def crea_variante(
+    conn: asyncpg.Connection, tenant_id: str, computo_id: str
+) -> dict:
+    return await duplica_computo(
+        conn, tenant_id, computo_id, tipo="variante"
+    )
+
+
+async def get_confronto_variante(
+    conn: asyncpg.Connection, tenant_id: str, variante_id: str
+) -> dict:
+    variante = await conn.fetchrow(
+        """
+        select v.*, b.numero as numero_base, b.stato as stato_base
+        from public.computi v
+        join public.computi b
+          on b.id = v.parent_computo_id and b.tenant_id = v.tenant_id
+        where v.id = $1::uuid and v.tenant_id = $2::uuid
+          and v.tipo = 'variante'
+        """,
+        variante_id,
+        tenant_id,
+    )
+    if not variante:
+        raise HTTPException(status_code=404, detail="Variante non trovata")
+
+    rows = await conn.fetch(
+        """
+        select *
+        from public.computo_varianti_confronto
+        where tenant_id = $1::uuid and variante_id = $2::uuid
+        order by ordine, coalesce(descrizione_variante, descrizione_base)
+        """,
+        tenant_id,
+        variante_id,
+    )
+    totals = await conn.fetchrow(
+        """
+        select
+          coalesce(sum(v.totale) filter (where v.computo_id = $2::uuid), 0)
+            ::numeric(14,2) as totale_variante,
+          coalesce(sum(v.totale) filter (where v.computo_id = $3::uuid), 0)
+            ::numeric(14,2) as totale_base
+        from public.computo_voci v
+        where v.tenant_id = $1::uuid
+          and v.computo_id in ($2::uuid, $3::uuid)
+        """,
+        tenant_id,
+        variante_id,
+        variante["parent_computo_id"],
+    )
+    totale_base = Decimal(totals["totale_base"] or 0)
+    totale_variante = Decimal(totals["totale_variante"] or 0)
+    delta = totale_variante - totale_base
+    counts = {name: 0 for name in ("invariata", "modificata", "nuova", "soppressa")}
+    for row in rows:
+        counts[row["classificazione"]] += 1
+
+    return {
+        "base": {
+            "id": str(variante["parent_computo_id"]),
+            "numero": variante["numero_base"],
+            "stato": variante["stato_base"],
+        },
+        "variante": {
+            "id": str(variante["id"]),
+            "numero": variante["numero"],
+            "stato": variante["stato"],
+        },
+        "riepilogo": {
+            "totale_base": float(totale_base),
+            "totale_variante": float(totale_variante),
+            "delta_importo": float(delta),
+            "delta_percentuale": (
+                round(float(delta / totale_base * 100), 2)
+                if totale_base
+                else None
+            ),
+            "conteggi": counts,
+        },
+        "righe": [_d(row) for row in rows],
+    }
 
 
 async def conferma_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str) -> dict:
@@ -378,8 +484,12 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
         tenant_id,
     )
     totali = await conn.fetchrow(
-        "select * from public.computi_totali where computo_id = $1",
+        """
+        select * from public.computi_totali
+        where computo_id = $1::uuid and tenant_id = $2::uuid
+        """,
         computo_id,
+        tenant_id,
     )
     out = _d(c)
     out["voci"] = [_d(v) for v in voci]
@@ -392,7 +502,8 @@ async def lista_computi(conn: asyncpg.Connection, tenant_id: str) -> list[dict]:
         """
         select c.*, t.totale, t.n_voci, t.n_da_validare
         from public.computi c
-        left join public.computi_totali t on t.computo_id = c.id
+        left join public.computi_totali t
+          on t.computo_id = c.id and t.tenant_id = c.tenant_id
         where c.tenant_id = $1::uuid
         order by c.created_at desc
         """,

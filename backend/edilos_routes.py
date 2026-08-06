@@ -350,12 +350,30 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
 
     @api.post("/computi/{computo_id}/duplica")
     async def dup_computo(
-        request: Request, computo_id: str, tipo: Optional[str] = None
+        request: Request,
+        computo_id: str,
+        tipo: Optional[Literal["estimativo", "esecutivo", "variante"]] = None,
     ):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             return await boq_service.duplica_computo(
                 conn, tenant["id"], computo_id, tipo=tipo
+            )
+
+    @api.post("/computi/{computo_id}/varianti")
+    async def crea_variante(request: Request, computo_id: str):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            return await boq_service.crea_variante(
+                conn, tenant["id"], computo_id
+            )
+
+    @api.get("/computi/{computo_id}/confronto-variante")
+    async def confronto_variante(request: Request, computo_id: str):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            return await boq_service.get_confronto_variante(
+                conn, tenant["id"], computo_id
             )
 
     @api.post("/computi/{computo_id}/valida-ai")

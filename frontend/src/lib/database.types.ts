@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -226,6 +226,20 @@ export type Database = {
             referencedColumns: ["computo_id"]
           },
           {
+            foreignKeyName: "computi_parent_tenant_fk"
+            columns: ["tenant_id", "parent_computo_id"]
+            isOneToOne: false
+            referencedRelation: "computi"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "computi_parent_tenant_fk"
+            columns: ["tenant_id", "parent_computo_id"]
+            isOneToOne: false
+            referencedRelation: "computi_totali"
+            referencedColumns: ["tenant_id", "computo_id"]
+          },
+          {
             foreignKeyName: "computi_prezzario_id_fkey"
             columns: ["prezzario_id"]
             isOneToOne: false
@@ -250,6 +264,7 @@ export type Database = {
           id: string
           ordine: number
           origine_voce_id: string | null
+          parent_voce_id: string | null
           prezzo_unitario: number
           qta: number
           sub_categoria: string | null
@@ -268,6 +283,7 @@ export type Database = {
           id?: string
           ordine?: number
           origine_voce_id?: string | null
+          parent_voce_id?: string | null
           prezzo_unitario?: number
           qta?: number
           sub_categoria?: string | null
@@ -286,6 +302,7 @@ export type Database = {
           id?: string
           ordine?: number
           origine_voce_id?: string | null
+          parent_voce_id?: string | null
           prezzo_unitario?: number
           qta?: number
           sub_categoria?: string | null
@@ -317,6 +334,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "prezzario_voci"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "computo_voci_parent_tenant_fk"
+            columns: ["tenant_id", "parent_voce_id"]
+            isOneToOne: false
+            referencedRelation: "computo_voci"
+            referencedColumns: ["tenant_id", "id"]
           },
           {
             foreignKeyName: "computo_voci_tenant_id_fkey"
@@ -1072,6 +1096,32 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      computo_varianti_confronto: {
+        Row: {
+          classificazione: string | null
+          computo_base_id: string | null
+          delta_importo: number | null
+          delta_percentuale_contratto: number | null
+          delta_prezzo: number | null
+          delta_qta: number | null
+          descrizione_base: string | null
+          descrizione_variante: string | null
+          importo_base: number | null
+          importo_variante: number | null
+          ordine: number | null
+          prezzo_base: number | null
+          prezzo_variante: number | null
+          qta_base: number | null
+          qta_variante: number | null
+          tenant_id: string | null
+          um_base: string | null
+          um_variante: string | null
+          variante_id: string | null
+          voce_base_id: string | null
+          voce_variante_id: string | null
+        }
+        Relationships: []
       }
     }
     Functions: {

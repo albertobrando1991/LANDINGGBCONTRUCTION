@@ -201,6 +201,96 @@ def test_riordina_voci_aggiorna_solo_righe_del_tenant():
     assert first_update.args[1:] == (0, str(second), computo_id, tenant_id)
 
 
+def test_duplica_computo_ordinario_non_crea_legami_contrattuali():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    computo_id = "10000000-0000-4000-8000-000000000001"
+    new_id = UUID("10000000-0000-4000-8000-000000000002")
+    src = {
+        "id": UUID(computo_id),
+        "lead_id": None,
+        "cantiere_id": None,
+        "prezzario_id": None,
+        "tipo": "estimativo",
+        "stato": "confermato",
+        "numero": "CMP-001",
+    }
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [src, {**src, "id": new_id, "stato": "bozza"}]
+    conn.fetchval.return_value = new_id
+
+    result = asyncio.run(
+        boq_service.duplica_computo(conn, tenant_id, computo_id)
+    )
+
+    assert result["id"] == str(new_id)
+    insert_computo = conn.fetchval.await_args
+    assert insert_computo.args[4] is None
+    copy_voci = conn.execute.await_args
+    assert "parent_voce_id" in copy_voci.args[0]
+    assert copy_voci.args[-1] is False
+
+
+def test_crea_variante_richiede_base_confermata_e_non_variante():
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "id": UUID("10000000-0000-4000-8000-000000000001"),
+        "tipo": "estimativo",
+        "stato": "bozza",
+    }
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            boq_service.crea_variante(
+                conn,
+                "a0000000-0000-4000-8000-000000000001",
+                "10000000-0000-4000-8000-000000000001",
+            )
+        )
+
+    assert exc.value.status_code == 409
+    assert "confermato" in exc.value.detail
+    assert conn.fetchval.await_count == 0
+
+
+def test_confronto_variante_calcola_delta_e_classificazioni():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    variante_id = "10000000-0000-4000-8000-000000000002"
+    base_id = UUID("10000000-0000-4000-8000-000000000001")
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [
+        {
+            "id": UUID(variante_id),
+            "parent_computo_id": base_id,
+            "numero": "VAR-001",
+            "stato": "bozza",
+            "numero_base": "CMP-001",
+            "stato_base": "confermato",
+        },
+        {"totale_variante": 1125, "totale_base": 1000},
+    ]
+    conn.fetch.return_value = [
+        {"classificazione": "modificata", "delta_importo": 100},
+        {"classificazione": "nuova", "delta_importo": 25},
+        {"classificazione": "invariata", "delta_importo": 0},
+    ]
+
+    result = asyncio.run(
+        boq_service.get_confronto_variante(conn, tenant_id, variante_id)
+    )
+
+    assert result["riepilogo"]["delta_importo"] == 125.0
+    assert result["riepilogo"]["delta_percentuale"] == 12.5
+    assert result["riepilogo"]["conteggi"] == {
+        "invariata": 1,
+        "modificata": 1,
+        "nuova": 1,
+        "soppressa": 0,
+    }
+    comparison_call = conn.fetch.await_args
+    assert "tenant_id = $1::uuid" in comparison_call.args[0]
+    assert comparison_call.args[1:] == (tenant_id, variante_id)
+
+
 def test_aggiorna_stato_preventivo_registra_evento_e_aggiorna_lead():
     tenant_id = "a0000000-0000-4000-8000-000000000001"
     preventivo_id = "30000000-0000-4000-8000-000000000001"

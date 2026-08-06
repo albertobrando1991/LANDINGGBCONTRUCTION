@@ -13,6 +13,7 @@ import {
 import client from "@/lib/api";
 import { moveVoceIds } from "@/lib/computo";
 import { toast } from "sonner";
+import VarianteComparison from "@/dashboard/components/VarianteComparison";
 
 const LOCKED_STATES = new Set(["confermato", "archiviato"]);
 
@@ -236,6 +237,7 @@ export default function ComputoEditor() {
   const refresh = () =>
     Promise.all([
       qc.invalidateQueries({ queryKey: ["computo", id] }),
+      qc.invalidateQueries({ queryKey: ["confronto-variante", id] }),
       qc.invalidateQueries({ queryKey: ["computi"] }),
     ]);
 
@@ -312,12 +314,14 @@ export default function ComputoEditor() {
   });
 
   const duplicate = useMutation({
-    mutationFn: async (tipo) =>
-      (
-        await client.post(`/computi/${id}/duplica`, null, {
-          params: { tipo },
-        })
-      ).data,
+    mutationFn: async ({ tipo, variante = false }) =>
+      variante
+        ? (await client.post(`/computi/${id}/varianti`)).data
+        : (
+            await client.post(`/computi/${id}/duplica`, null, {
+              params: { tipo },
+            })
+          ).data,
     onSuccess: (copy) => {
       toast.success(
         copy.tipo === "variante" ? "Variante creata" : "Computo duplicato",
@@ -402,18 +406,20 @@ export default function ComputoEditor() {
               Valida tutte AI
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => duplicate.mutate(computo.tipo)}
-            disabled={duplicate.isPending}
-            className="inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 text-xs font-display uppercase text-ink disabled:opacity-40"
-          >
-            <Copy className="h-4 w-4" /> Duplica
-          </button>
-          {locked && (
+          {computo.tipo !== "variante" && (
             <button
               type="button"
-              onClick={() => duplicate.mutate("variante")}
+              onClick={() => duplicate.mutate({ tipo: computo.tipo })}
+              disabled={duplicate.isPending}
+              className="inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 text-xs font-display uppercase text-ink disabled:opacity-40"
+            >
+              <Copy className="h-4 w-4" /> Duplica
+            </button>
+          )}
+          {locked && computo.tipo !== "variante" && (
+            <button
+              type="button"
+              onClick={() => duplicate.mutate({ variante: true })}
               disabled={duplicate.isPending}
               className="rounded-xl border border-brand/40 px-3 py-2 text-xs font-display uppercase text-brand disabled:opacity-40"
             >
@@ -445,6 +451,10 @@ export default function ComputoEditor() {
           </button>
         </div>
       </div>
+
+      {computo.tipo === "variante" && (
+        <VarianteComparison computoId={id} />
+      )}
 
       {!locked && (
         <div className="grid items-end gap-2 rounded-2xl border border-stroke bg-surface p-4 md:grid-cols-12">
