@@ -31,6 +31,7 @@ const Prezzario = lazy(() => import("@/dashboard/pages/Prezzario"));
 const PrezzarioWizard = lazy(() => import("@/dashboard/pages/PrezzarioWizard"));
 const Computi = lazy(() => import("@/dashboard/pages/Computi"));
 const ComputoEditor = lazy(() => import("@/dashboard/pages/ComputoEditor"));
+const Sal = lazy(() => import("@/dashboard/pages/Sal"));
 const Campo = lazy(() => import("@/campo/Campo"));
 
 function RouteFallback() {
@@ -118,6 +119,7 @@ function App() {
                   />
                   <Route path="computi" element={<Computi />} />
                   <Route path="computi/:id" element={<ComputoEditor />} />
+                  <Route path="sal" element={<Sal />} />
                   <Route path="ai-architect" element={<AIArchitectReview />} />
                   <Route path="report" element={<Report />} />
                   <Route path="impostazioni" element={<Settings />} />

@@ -18,6 +18,7 @@ import {
   Brain,
   Calculator,
   ListTree,
+  FileCheck2,
   Smartphone,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -42,6 +43,12 @@ const NAV = [
   { to: "/dashboard/prezzario", label: "Prezzario", Icon: Calculator },
   { to: "/dashboard/computi", label: "Computi", Icon: ListTree },
   { to: "/dashboard/cantieri", label: "Cantieri attivi", Icon: HardHat },
+  {
+    to: "/dashboard/sal",
+    label: "SAL",
+    Icon: FileCheck2,
+    roles: ["owner", "admin", "staff", "operations"],
+  },
   {
     to: "/campo",
     label: "Campo",
