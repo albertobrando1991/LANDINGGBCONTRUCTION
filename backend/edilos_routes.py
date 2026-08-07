@@ -859,9 +859,11 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     @api.get("/cantieri/{cantiere_id}/portale")
     async def cantiere_portale_admin(request: Request, cantiere_id: str):
         user = await _user(request, db)
-        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_portal_internal_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
             return await client_portal_service.get_cantiere_portal_admin(
                 conn, tenant["id"], cantiere_uuid
             )
@@ -871,9 +873,11 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         request: Request, cantiere_id: str, body: PortaleInvitaBody
     ):
         user = await _user(request, db)
-        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_portal_admin_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
             return await client_portal_service.invita_cliente(
                 conn,
                 tenant["id"],
@@ -887,10 +891,12 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         request: Request, cantiere_id: str, client_user_id: str
     ):
         user = await _user(request, db)
-        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
         client_uuid = str(tenancy.uuid_or_400(client_user_id, "Cliente"))
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_portal_admin_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
             return await client_portal_service.disattiva_cliente(
                 conn, tenant["id"], cantiere_uuid, client_uuid
             )
@@ -900,9 +906,11 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         request: Request, cantiere_id: str, body: PortaleCondivisioneBody
     ):
         user = await _user(request, db)
-        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_portal_internal_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
             return await client_portal_service.condividi_asset(
                 conn,
                 tenant["id"],
@@ -915,10 +923,12 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         request: Request, cantiere_id: str, condivisione_id: str
     ):
         user = await _user(request, db)
-        cantiere_uuid = str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
         share_uuid = str(tenancy.uuid_or_400(condivisione_id, "Condivisione"))
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_portal_internal_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
             return await client_portal_service.revoca_condivisione(
                 conn, tenant["id"], cantiere_uuid, share_uuid
             )

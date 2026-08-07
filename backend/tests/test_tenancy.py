@@ -1,5 +1,8 @@
 """Risoluzione tenant sui domini di produzione GB Construction."""
 
+import asyncio
+
+import pytest
 from starlette.requests import Request
 
 import tenancy
@@ -64,3 +67,37 @@ def test_claim_tenant_senza_ruolo_usa_il_minimo_privilegio():
         {"app_tenants": [{"t": "tenant-id"}]}
     )
     assert memberships == [{"tenant_id": "tenant-id", "role": "client"}]
+
+
+class _FakeConn:
+    def __init__(self, row):
+        self.row = row
+        self.calls = []
+
+    async def fetchrow(self, query, *args):
+        self.calls.append((query, args))
+        return self.row
+
+
+def test_resolve_cantiere_uuid_accetta_uuid_senza_query():
+    conn = _FakeConn(None)
+    value = "0b1f767b-dda4-4993-9b5c-13d78e408c80"
+    assert asyncio.run(tenancy.resolve_cantiere_uuid(conn, "tenant", value)) == value
+    assert conn.calls == []
+
+
+def test_resolve_cantiere_uuid_mappa_id_legacy_nel_tenant():
+    conn = _FakeConn({"id": "0b1f767b-dda4-4993-9b5c-13d78e408c80"})
+    result = asyncio.run(
+        tenancy.resolve_cantiere_uuid(conn, "tenant-id", "6a2598f54cc46468f40fdf07")
+    )
+    assert result == "0b1f767b-dda4-4993-9b5c-13d78e408c80"
+    assert conn.calls[0][1] == ("tenant-id", "6a2598f54cc46468f40fdf07")
+
+
+def test_resolve_cantiere_uuid_rifiuta_legacy_assente():
+    with pytest.raises(Exception) as exc_info:
+        asyncio.run(
+            tenancy.resolve_cantiere_uuid(_FakeConn(None), "tenant-id", "missing")
+        )
+    assert exc_info.value.status_code == 404

@@ -134,3 +134,32 @@ def uuid_or_400(value: str, label: str = "ID") -> UUID:
         return UUID(str(value))
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail=f"{label} non valido")
+
+
+async def resolve_cantiere_uuid(conn, tenant_id: str, value: str) -> str:
+    """Risolvi un cantiere sia per UUID Supabase sia per ID Mongo legacy.
+
+    Le schermate Cantieri legacy continuano a inviare l'ObjectId Mongo, mentre
+    le tabelle EdilOS usano UUID. Il mapping viene mantenuto in
+    ``cantieri.legacy_mongo_id`` e deve essere sempre limitato al tenant.
+    """
+    try:
+        return str(UUID(str(value)))
+    except (TypeError, ValueError):
+        legacy_id = str(value or "").strip()
+        if not legacy_id:
+            raise HTTPException(status_code=400, detail="Cantiere non valido")
+
+    row = await conn.fetchrow(
+        """
+        select id
+        from public.cantieri
+        where tenant_id = $1::uuid and legacy_mongo_id = $2
+        limit 1
+        """,
+        str(tenant_id),
+        legacy_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    return str(row["id"])

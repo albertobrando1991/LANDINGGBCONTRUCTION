@@ -133,7 +133,10 @@ export default function CantierePortalAccess({ cantiereId }) {
             </div>
           ) : portal.isError ? (
             <div className="font-body text-xs text-red-400">
-              Configurazione portale non disponibile.
+              Configurazione portale non disponibile
+              {portal.error?.response?.data?.detail
+                ? `: ${formatApiErrorDetail(portal.error.response.data.detail)}`
+                : "."}
             </div>
           ) : (
             <>
