@@ -21,3 +21,19 @@ def test_claims_have_sub():
     claims = claims_for_user({"email": "staff@gbconstruction.it", "role": "staff"})
     assert claims["sub"] == "f1000000-0000-4000-8000-000000000002"
     assert claims["role"] == "authenticated"
+
+
+def test_info_accounts_map_to_supabase_admin_memberships():
+    expected = {
+        "info@gbconstruction.it": "3573af1c-1be2-4296-8c59-cb5bd2ed3eb3",
+        "info@alantis.it": "cd543ef2-cbae-49fc-bd34-db5739be0fda",
+    }
+    for email, user_id in expected.items():
+        mapped = map_legacy_user(
+            {"id": "6a235c957b3c08a131d4277a", "email": email, "role": "admin"}
+        )
+        assert mapped["id"] == user_id
+        assert mapped["supabase_user_id"] == user_id
+        assert mapped["app_tenants"] == [
+            {"t": GB_TENANT_ID, "r": "admin", "slug": GB_TENANT_SLUG}
+        ]

@@ -16,6 +16,8 @@ GB_TENANT_SLUG = os.environ.get("DEFAULT_TENANT_SLUG", "gbconstruction")
 # email lowercase → (supabase_user_uuid, tenant_role)
 LEGACY_STAFF_MAP: dict[str, tuple[str, str]] = {
     "admin@gbconstruction.it": ("f1000000-0000-4000-8000-000000000001", "owner"),
+    "info@gbconstruction.it": ("3573af1c-1be2-4296-8c59-cb5bd2ed3eb3", "admin"),
+    "info@alantis.it": ("cd543ef2-cbae-49fc-bd34-db5739be0fda", "admin"),
     "staff@gbconstruction.it": ("f1000000-0000-4000-8000-000000000002", "staff"),
     "operations@gbconstruction.it": ("f1000000-0000-4000-8000-000000000003", "operations"),
 }
