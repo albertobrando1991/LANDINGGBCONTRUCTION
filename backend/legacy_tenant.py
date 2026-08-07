@@ -22,6 +22,12 @@ LEGACY_STAFF_MAP: dict[str, tuple[str, str]] = {
     "operations@gbconstruction.it": ("f1000000-0000-4000-8000-000000000003", "operations"),
 }
 
+LEGACY_ROLE_MAP: dict[str, tuple[str, str]] = {
+    "admin": ("f1000000-0000-4000-8000-000000000001", "owner"),
+    "staff": ("f1000000-0000-4000-8000-000000000002", "staff"),
+    "operations": ("f1000000-0000-4000-8000-000000000003", "operations"),
+}
+
 
 def map_legacy_user(user: dict) -> dict:
     """Arricchisce l'utente Mongo con id Supabase e claim tenant GB."""
@@ -37,13 +43,11 @@ def map_legacy_user(user: dict) -> dict:
     if mapped:
         supabase_uid, tenant_role = mapped
     else:
-        # fallback deterministico non in seed: non sarà membro finché non onboarding
-        supabase_uid = user.get("supabase_user_id") or user.get("id")
-        tenant_role = {
-            "admin": "owner",
-            "staff": "staff",
-            "operations": "operations",
-        }.get(role_mongo, "staff")
+        # Fallback su identita tecniche gia presenti nel seed: il ruolo deriva
+        # dal JWT legacy firmato e nessun ObjectId raggiunge PostgreSQL.
+        supabase_uid, tenant_role = LEGACY_ROLE_MAP.get(
+            role_mongo, LEGACY_ROLE_MAP["staff"]
+        )
 
     out = dict(user)
     out["supabase_user_id"] = str(supabase_uid)

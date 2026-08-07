@@ -2,6 +2,7 @@
 from legacy_tenant import (
     GB_TENANT_ID,
     GB_TENANT_SLUG,
+    LEGACY_ROLE_MAP,
     claims_for_user,
     map_legacy_user,
 )
@@ -37,3 +38,33 @@ def test_info_accounts_map_to_supabase_admin_memberships():
         assert mapped["app_tenants"] == [
             {"t": GB_TENANT_ID, "r": "admin", "slug": GB_TENANT_SLUG}
         ]
+
+
+def test_unmigrated_legacy_accounts_use_valid_role_identity():
+    for role in ("admin", "staff", "operations"):
+        mapped = map_legacy_user(
+            {
+                "id": "6a235c957b3c08a131d4277a",
+                "email": f"nuovo-{role}@gbconstruction.it",
+                "role": role,
+                "auth_provider": "legacy",
+            }
+        )
+        expected_user_id, expected_role = LEGACY_ROLE_MAP[role]
+        assert mapped["id"] == expected_user_id
+        assert mapped["supabase_user_id"] == expected_user_id
+        assert mapped["app_tenants"][0]["r"] == expected_role
+        assert len(mapped["id"]) == 36
+
+
+def test_unknown_legacy_role_uses_least_privileged_staff_identity():
+    mapped = map_legacy_user(
+        {
+            "id": "6a235c957b3c08a131d4277a",
+            "email": "nuovo@gbconstruction.it",
+            "role": "unknown",
+            "auth_provider": "legacy",
+        }
+    )
+    assert mapped["id"] == LEGACY_ROLE_MAP["staff"][0]
+    assert mapped["app_tenants"][0]["r"] == "staff"
