@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const WORDS = ["Progettiamo", "Costruiamo", "Trasformiamo"];
+const WORD_DURATION_MS = 700;
+const LOADER_DURATION_MS = WORD_DURATION_MS * WORDS.length + 200;
 
 export default function LoadingScreen({ onDone }) {
   const [count, setCount] = useState(0);
@@ -29,7 +31,7 @@ export default function LoadingScreen({ onDone }) {
       return undefined;
     }
     const start = performance.now();
-    const duration = 900;
+    const duration = LOADER_DURATION_MS;
     const tick = (now) => {
       const p = Math.min((now - start) / duration, 1);
       setCount(Math.floor(p * 100));
@@ -37,7 +39,7 @@ export default function LoadingScreen({ onDone }) {
     };
     raf.current = requestAnimationFrame(tick);
     // Safety fallback: force completion if rAF gets throttled (background tab)
-    const fallback = setTimeout(() => setCount(100), 1400);
+    const fallback = setTimeout(() => setCount(100), LOADER_DURATION_MS + 500);
     return () => {
       cancelAnimationFrame(raf.current);
       clearTimeout(fallback);
@@ -45,11 +47,10 @@ export default function LoadingScreen({ onDone }) {
   }, []);
 
   useEffect(() => {
-    const id = setInterval(
-      () => setWordIdx((i) => (i + 1) % WORDS.length),
-      900,
+    const timers = WORDS.slice(1).map((_, index) =>
+      setTimeout(() => setWordIdx(index + 1), WORD_DURATION_MS * (index + 1)),
     );
-    return () => clearInterval(id);
+    return () => timers.forEach(clearTimeout);
   }, []);
 
   useEffect(() => {
