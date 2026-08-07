@@ -119,6 +119,23 @@ function createFrameSources({ basePath, step, preferPngEndpoints = true }) {
   return frames;
 }
 
+const SLOW_EFFECTIVE_TYPES = new Set(["slow-2g", "2g", "3g"]);
+
+// Su rete lenta o con risparmio dati la sequenza di frame (150+ MB) non arriva
+// mai a schermo: meglio servire subito la hero statica gia usata per reduced-motion.
+function prefersLightHeroExperience() {
+  if (typeof navigator === "undefined") return false;
+
+  const connection =
+    navigator.connection ||
+    navigator.mozConnection ||
+    navigator.webkitConnection;
+  if (!connection) return false;
+
+  if (connection.saveData) return true;
+  return SLOW_EFFECTIVE_TYPES.has(connection.effectiveType);
+}
+
 function isMobileScrollViewport() {
   return (
     typeof window !== "undefined" &&
@@ -1102,22 +1119,30 @@ function AnimatedImmersiveHero({ prefersReducedMotion }) {
   );
 }
 
-function ReducedMotionHero() {
+function ReducedMotionHero({ lightweight = false }) {
   const scrollToConfig = () =>
     scheduleSmoothScrollToElement(document.getElementById("configuratore"));
+
+  // Su rete lenta anche il poster desktop (552 KB) e troppo: usa quello mobile (228 KB).
+  const posterSrc = lightweight
+    ? `${PUBLIC_MEDIA_BASE}/frames_heron_mobile/frame_0001.jpg`
+    : `${PUBLIC_MEDIA_BASE}/frames_heron_uhd/frame_0001.jpg`;
 
   return (
     <section
       id="hero"
+      data-hero-mode={lightweight ? "lightweight" : "reduced-motion"}
       className="relative flex min-h-[100svh] items-center justify-center overflow-hidden bg-black px-5 py-28 text-center sm:px-6"
     >
       <picture className="absolute inset-0">
-        <source
-          media="(max-width: 768px)"
-          srcSet={`${PUBLIC_MEDIA_BASE}/frames_heron_mobile/frame_0001.jpg`}
-        />
+        {!lightweight && (
+          <source
+            media="(max-width: 768px)"
+            srcSet={`${PUBLIC_MEDIA_BASE}/frames_heron_mobile/frame_0001.jpg`}
+          />
+        )}
         <img
-          src={`${PUBLIC_MEDIA_BASE}/frames_heron_uhd/frame_0001.jpg`}
+          src={posterSrc}
           alt="Interno da ristrutturare seguito da GB Construction"
           className="h-full w-full object-cover"
           loading="eager"
@@ -1166,9 +1191,13 @@ export default function ImmersiveHero() {
     typeof window !== "undefined" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  return prefersReducedMotion ? (
-    <ReducedMotionHero />
-  ) : (
-    <AnimatedImmersiveHero prefersReducedMotion={false} />
-  );
+  // Decisione congelata al mount: un cambio di rete a meta scroll
+  // rimonterebbe la hero e farebbe perdere la posizione all'utente.
+  const [isLightConnection] = useState(prefersLightHeroExperience);
+
+  if (prefersReducedMotion || isLightConnection) {
+    return <ReducedMotionHero lightweight={isLightConnection} />;
+  }
+
+  return <AnimatedImmersiveHero prefersReducedMotion={false} />;
 }
