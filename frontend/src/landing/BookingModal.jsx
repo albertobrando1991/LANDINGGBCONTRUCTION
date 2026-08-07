@@ -190,13 +190,16 @@ export default function BookingModal() {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 40, opacity: 0 }}
             className="relative w-full max-w-2xl max-h-[92vh] overflow-y-auto bg-surface border border-stroke rounded-t-3xl sm:rounded-3xl p-6 md:p-8"
+            style={{
+              paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+            }}
           >
             <button
               ref={closeButtonRef}
               type="button"
               onClick={close}
               aria-label="Chiudi prenotazione sopralluogo"
-              className="absolute top-4 right-4 text-fog hover:text-ink"
+              className="absolute top-3 right-3 inline-flex h-11 w-11 items-center justify-center rounded-full text-fog hover:text-ink touch-manipulation sm:top-4 sm:right-4"
             >
               <X className="w-5 h-5" />
             </button>

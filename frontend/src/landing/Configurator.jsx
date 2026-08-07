@@ -146,7 +146,7 @@ export default function Configurator({ onComplete }) {
         <button
           type="button"
           onClick={() => onChange(Math.max(min, value - 1))}
-          className="w-7 h-7 rounded-full bg-surface-2 text-ink flex items-center justify-center hover:bg-brand transition-colors"
+          className="w-11 h-11 sm:w-7 sm:h-7 rounded-full bg-surface-2 text-ink flex items-center justify-center hover:bg-brand transition-colors touch-manipulation"
         >
           <Minus className="w-4 h-4" />
         </button>
@@ -156,7 +156,7 @@ export default function Configurator({ onComplete }) {
         <button
           type="button"
           onClick={() => onChange(Math.min(max, value + 1))}
-          className="w-7 h-7 rounded-full bg-surface-2 text-ink flex items-center justify-center hover:bg-brand transition-colors"
+          className="w-11 h-11 sm:w-7 sm:h-7 rounded-full bg-surface-2 text-ink flex items-center justify-center hover:bg-brand transition-colors touch-manipulation"
         >
           <Plus className="w-4 h-4" />
         </button>

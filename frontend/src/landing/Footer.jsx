@@ -155,7 +155,7 @@ export default function Footer() {
               target="_blank"
               rel="noreferrer"
               aria-label={label}
-              className="text-fog hover:text-brand transition-colors"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full text-fog hover:text-brand transition-colors touch-manipulation"
             >
               <Icon className="w-5 h-5" aria-hidden="true" />
             </a>

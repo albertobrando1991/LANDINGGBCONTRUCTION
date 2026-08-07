@@ -89,7 +89,7 @@ export default function SocialProof() {
                       {c.citta}
                     </div>
                   </div>
-                  <div className="absolute right-4 bottom-4 size-9 rounded-full bg-black/50 border border-white/20 text-white opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity grid place-items-center">
+                  <div className="absolute right-4 bottom-4 size-10 rounded-full bg-black/50 border border-white/20 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity grid place-items-center">
                     <Maximize2 className="w-4 h-4" />
                   </div>
                 </button>
@@ -113,8 +113,8 @@ export default function SocialProof() {
                 className="w-full h-auto object-cover"
                 loading="lazy"
               />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/45 transition-colors flex items-center justify-center">
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity font-display uppercase text-[11px] tracking-wider text-white bg-brand px-4 py-2 rounded-full inline-flex items-center gap-2">
+              <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent sm:bg-black/0 sm:from-transparent sm:group-hover:bg-black/45 transition-colors flex items-end sm:items-center justify-center p-3 sm:p-0">
+                <span className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity font-display uppercase text-[11px] tracking-wider text-white bg-brand px-4 py-2 rounded-full inline-flex items-center gap-2">
                   <Maximize2 className="w-3.5 h-3.5" /> Leggi la recensione
                 </span>
               </div>

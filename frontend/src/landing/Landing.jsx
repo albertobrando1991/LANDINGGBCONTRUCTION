@@ -3,6 +3,7 @@ import LoadingScreen from "@/landing/LoadingScreen";
 import Navbar from "@/landing/Navbar";
 import ImmersiveHero from "@/landing/ImmersiveHero";
 import BookingModal from "@/landing/BookingModal";
+import MobileStickyCTA from "@/landing/MobileStickyCTA";
 import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 
 const SocialProof = lazy(() => import("@/landing/SocialProof"));
@@ -107,7 +108,7 @@ export default function Landing() {
   };
 
   return (
-    <div className="bg-bg text-ink min-h-screen">
+    <div className="bg-bg text-ink min-h-screen pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-0">
       {loading && <LoadingScreen onDone={() => setLoading(false)} />}
       <StaticNavbar />
       <StaticImmersiveHero />
@@ -162,6 +163,7 @@ export default function Landing() {
         <Footer />
       </Suspense>
       <BookingModal />
+      <MobileStickyCTA />
     </div>
   );
 }

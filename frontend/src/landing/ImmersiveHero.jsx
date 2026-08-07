@@ -1080,11 +1080,12 @@ function AnimatedImmersiveHero({ prefersReducedMotion }) {
                 visiva del progetto e una proposta di sopralluogo gratuito.
               </span>
             </p>
-            <div className="mt-9">
+            <div className="mt-9 pointer-events-auto">
               <button
+                type="button"
                 data-testid="hero-cta-stima"
                 onClick={scrollToConfig}
-                className="group bg-brand text-white rounded-full px-7 md:px-12 py-4 md:py-5 text-sm md:text-lg font-display font-semibold uppercase tracking-wider inline-flex items-center gap-3 transition-transform hover:scale-105"
+                className="group bg-brand text-white rounded-full px-7 md:px-12 py-4 md:py-5 text-sm md:text-lg font-display font-semibold uppercase tracking-wider inline-flex items-center gap-3 transition-transform hover:scale-105 touch-manipulation"
                 style={{ boxShadow: "0 8px 32px rgba(198,40,40,0.35)" }}
               >
                 Avvia stima gratuita

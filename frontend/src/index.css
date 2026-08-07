@@ -56,6 +56,8 @@ html {
   scroll-behavior: smooth;
   scroll-padding-top: 88px;
   overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 html.is-programmatic-scroll {
@@ -92,6 +94,38 @@ body {
   font-family: "Montserrat", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Avoid iOS rubber-band issues on fixed nav/CTAs */
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+/* Mobile: prevent iOS auto-zoom on focus (font < 16px) */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  button,
+  a,
+  [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  img,
+  video {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* Utility: safe-area aware sticky bars */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
 }
 
 html.is-scroll-locked,

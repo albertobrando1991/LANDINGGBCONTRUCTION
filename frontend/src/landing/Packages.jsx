@@ -76,8 +76,8 @@ export default function Packages() {
                       loading="lazy"
                     />
                   </div>
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/35 transition-colors flex items-center justify-center">
-                    <span className="opacity-0 group-hover:opacity-100 transition-opacity font-display uppercase text-[11px] tracking-wider text-white bg-brand px-4 py-2 rounded-full inline-flex items-center gap-2">
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent sm:bg-black/0 sm:from-transparent sm:group-hover:bg-black/35 transition-colors flex items-end sm:items-center justify-center p-4 sm:p-0">
+                    <span className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity font-display uppercase text-[11px] tracking-wider text-white bg-brand px-4 py-2 rounded-full inline-flex items-center gap-2">
                       <Maximize2 className="w-3.5 h-3.5" /> Leggi i dettagli
                     </span>
                   </div>
