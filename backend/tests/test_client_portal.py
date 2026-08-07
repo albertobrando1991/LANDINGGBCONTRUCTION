@@ -126,7 +126,7 @@ def test_invito_collega_utente_supabase_come_client(monkeypatch):
     }
     monkeypatch.setattr(
         client_portal_service,
-        "_find_or_invite_user",
+        "find_or_invite_user",
         lambda email, nome=None: (SimpleNamespace(id=USER_ID, email=email), True),
     )
 
