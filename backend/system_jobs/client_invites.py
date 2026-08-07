@@ -7,16 +7,24 @@ import os
 from fastapi import HTTPException
 
 
-def _supabase_admin():
+def _supabase_credentials() -> tuple[str, str]:
     url = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-    secret = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    secret = (
+        os.environ.get("SUPABASE_SECRET_KEY")
+        or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        or ""
+    ).strip()
     if not url or not secret:
         raise HTTPException(
             status_code=503,
             detail="Inviti cliente non configurati sul server",
         )
-    from supabase import create_client
-    from supabase.lib.client_options import ClientOptions
+    return url, secret
+
+
+def _supabase_admin():
+    url, secret = _supabase_credentials()
+    from supabase import ClientOptions, create_client
 
     return create_client(
         url,

@@ -10,6 +10,7 @@ from fastapi import HTTPException
 import client_portal_service
 import edilos_routes
 from server import api
+from system_jobs import client_invites
 
 TENANT_ID = "a0000000-0000-4000-8000-000000000001"
 CANTIERE_ID = "10000000-0000-4000-8000-000000000001"
@@ -151,3 +152,14 @@ def test_request_ip_scartando_header_non_valido():
         client=SimpleNamespace(host="127.0.0.1"),
     )
     assert edilos_routes._request_ip(request) == "0.0.0.0"
+
+
+def test_inviti_preferiscono_secret_key_moderna(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co/")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_current")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "legacy_service_role")
+
+    assert client_invites._supabase_credentials() == (
+        "https://project.supabase.co",
+        "sb_secret_current",
+    )
