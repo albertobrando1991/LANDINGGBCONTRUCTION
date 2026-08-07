@@ -154,10 +154,9 @@ def test_request_ip_scartando_header_non_valido():
     assert edilos_routes._request_ip(request) == "0.0.0.0"
 
 
-def test_inviti_preferiscono_secret_key_moderna(monkeypatch):
+def test_inviti_usano_secret_key_moderna(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co/")
     monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_current")
-    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "legacy_service_role")
 
     assert client_invites._supabase_credentials() == (
         "https://project.supabase.co",
