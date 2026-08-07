@@ -30,6 +30,7 @@ from pydantic import (
 )
 
 import auth as authlib
+import acca_pdf_parser
 import boq_service
 import client_portal_service
 import db as db_pg
@@ -512,6 +513,31 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 cantiere_id=body.cantiere_id,
                 prezzario_id=body.prezzario_id,
                 tipo=body.tipo,
+            )
+
+    @api.post("/computi/importa-pdf", status_code=201)
+    async def importa_computo_pdf(
+        request: Request, file: UploadFile = File(...)
+    ):
+        user = await _user(request, db)
+        filename = (file.filename or "computo-acca.pdf").strip()
+        if not filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Carica un file PDF")
+        data = await file.read(15 * 1024 * 1024 + 1)
+        if len(data) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="PDF troppo grande (massimo 15 MB)")
+        parsed = acca_pdf_parser.parse_acca_pdf(data)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            if tenant.get("role") not in {"owner", "admin", "staff", "operations"}:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Permessi insufficienti per importare un computo",
+                )
+            return await boq_service.importa_computo_acca(
+                conn,
+                tenant["id"],
+                filename=filename[:255],
+                parsed=parsed,
             )
 
     @api.get("/computi/{computo_id}")

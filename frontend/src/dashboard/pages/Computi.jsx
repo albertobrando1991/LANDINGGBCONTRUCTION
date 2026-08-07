@@ -1,11 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Loader2, Plus, Upload } from "lucide-react";
+import { useRef } from "react";
 import client from "@/lib/api";
 import { toast } from "sonner";
 
 export default function Computi() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const fileInputRef = useRef(null);
   const { data: computi = [], isLoading } = useQuery({
     queryKey: ["computi"],
     queryFn: async () => (await client.get("/computi")).data,
@@ -16,10 +19,31 @@ export default function Computi() {
     onSuccess: (c) => {
       toast.success("Computo creato");
       qc.invalidateQueries({ queryKey: ["computi"] });
-      window.location.href = `/dashboard/computi/${c.id}`;
+      navigate(`/dashboard/computi/${c.id}`);
     },
     onError: (e) => toast.error(e?.response?.data?.detail || "Errore creazione"),
   });
+
+  const importa = useMutation({
+    mutationFn: async (file) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (await client.post("/computi/importa-pdf", form)).data;
+    },
+    onSuccess: (computo) => {
+      const count = computo.importazione?.n_voci || computo.voci?.length || 0;
+      toast.success(`${count} voci ACCA estratte. Verifica e conferma il computo.`);
+      qc.invalidateQueries({ queryKey: ["computi"] });
+      navigate(`/dashboard/computi/${computo.id}`);
+    },
+    onError: (e) => toast.error(e?.response?.data?.detail || "Importazione PDF non riuscita"),
+  });
+
+  const handlePdf = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) importa.mutate(file);
+  };
 
   if (isLoading) {
     return <div className="p-6 text-fog text-sm font-display uppercase tracking-widest">Caricamento computi…</div>;
@@ -32,13 +56,25 @@ export default function Computi() {
           <h1 className="font-display text-2xl uppercase text-ink">Computi</h1>
           <p className="text-fog text-sm">Estimativi, esecutivi e bozze AI da validare</p>
         </div>
-        <button
-          type="button"
-          onClick={() => crea.mutate()}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-brand text-white text-xs font-display uppercase tracking-wider"
-        >
-          <Plus className="w-4 h-4" /> Nuovo computo
-        </button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <input ref={fileInputRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handlePdf} />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importa.isPending}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-brand text-brand text-xs font-display uppercase tracking-wider disabled:opacity-50"
+          >
+            {importa.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            Importa PDF ACCA
+          </button>
+          <button
+            type="button"
+            onClick={() => crea.mutate()}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-brand text-white text-xs font-display uppercase tracking-wider"
+          >
+            <Plus className="w-4 h-4" /> Nuovo computo
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-stroke">

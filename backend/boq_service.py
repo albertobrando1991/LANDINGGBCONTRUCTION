@@ -318,6 +318,59 @@ async def duplica_computo(
     return _d(row)
 
 
+async def importa_computo_acca(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    *,
+    filename: str,
+    parsed: dict,
+) -> dict:
+    """Salva atomicamente un computo ACCA verificato come bozza da revisionare."""
+    computo = await crea_computo(conn, tenant_id, tipo="estimativo")
+    computo_id = computo["id"]
+    await conn.execute(
+        """
+        update public.computi
+        set note = $1, stato = 'ai_da_revisionare'
+        where id = $2::uuid and tenant_id = $3::uuid
+        """,
+        f"Importato da PDF ACCA: {filename}",
+        computo_id,
+        tenant_id,
+    )
+    for item in parsed["voci"]:
+        code = str(item.get("codice") or f"ACCA-{item['numero']:03d}")
+        await conn.execute(
+            """
+            insert into public.computo_voci (
+              tenant_id, computo_id, ordine, super_categoria, categoria,
+              sub_categoria, descrizione, um, tipo, qta, prezzo_unitario,
+              generata_da_ai, validata_umano
+            ) values (
+              $1::uuid, $2::uuid, $3, 'Importazione ACCA', 'Computo PriMus',
+              $4, $5, $6, $7, $8, $9, true, false
+            )
+            """,
+            tenant_id,
+            computo_id,
+            int(item["numero"]) * 10,
+            code,
+            item["descrizione"],
+            item["um"],
+            "a_corpo" if item["um"] == "corpo" else "a_misura",
+            item["qta"],
+            item["prezzo_unitario"],
+        )
+    result = await get_computo(conn, tenant_id, computo_id)
+    result["importazione"] = {
+        "file": filename,
+        "n_voci": parsed["n_voci"],
+        "totale_pdf": float(parsed["totale_pdf"]),
+        "n_da_verificare": parsed["n_voci"],
+    }
+    return result
+
+
 async def crea_variante(
     conn: asyncpg.Connection, tenant_id: str, computo_id: str
 ) -> dict:
@@ -416,7 +469,7 @@ async def conferma_computo(conn: asyncpg.Connection, tenant_id: str, computo_id:
     if pending and int(pending) > 0:
         raise HTTPException(
             status_code=409,
-            detail=f"Restano {pending} voci AI non validate: validale prima di confermare",
+            detail=f"Restano {pending} voci automatiche non validate: validale prima di confermare",
         )
     row = await conn.fetchrow(
         """
@@ -781,7 +834,7 @@ async def computo_to_preventivo(
     if c["stato"] != "confermato":
         raise HTTPException(
             status_code=409,
-            detail="Conferma il computo e valida tutte le voci AI prima di creare il preventivo",
+            detail="Conferma il computo e valida tutte le voci automatiche prima di creare il preventivo",
         )
 
     imponibile = float(c["totali"].get("totale") or 0)

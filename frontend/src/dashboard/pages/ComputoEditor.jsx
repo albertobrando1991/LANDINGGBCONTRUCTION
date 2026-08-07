@@ -306,11 +306,11 @@ export default function ComputoEditor() {
         })
       ).data,
     onSuccess: async (data) => {
-      toast.success(`Validate ${data.validate} voci AI`);
+      toast.success(`Validate ${data.validate} voci automatiche`);
       await refresh();
     },
     onError: (error) =>
-      toast.error(error?.response?.data?.detail || "Errore validazione AI"),
+      toast.error(error?.response?.data?.detail || "Errore validazione voci"),
   });
 
   const duplicate = useMutation({
@@ -385,7 +385,7 @@ export default function ComputoEditor() {
             </span>
             {daValidare > 0 && (
               <span className="ml-2 text-brand">
-                · {daValidare} voci AI da validare
+                · {daValidare} voci automatiche da validare
               </span>
             )}
           </p>
@@ -403,7 +403,7 @@ export default function ComputoEditor() {
               disabled={validate.isPending}
               className="rounded-xl border border-stroke px-3 py-2 text-xs font-display uppercase text-ink disabled:opacity-40"
             >
-              Valida tutte AI
+              Valida tutte
             </button>
           )}
           {computo.tipo !== "variante" && (
