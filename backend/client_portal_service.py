@@ -128,41 +128,25 @@ async def approva_variante(
 ) -> dict:
     row = await conn.fetchrow(
         """
-        insert into public.varianti_approvazioni (
-          tenant_id, cantiere_id, variante_id, user_id, ip, user_agent
-        ) values ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::inet, $6)
-        on conflict (tenant_id, variante_id, user_id) do nothing
-        returning *
+        select *
+        from private.approva_variante_cliente(
+          $1::uuid, $2::uuid, $3::uuid, $4::inet, $5
+        )
         """,
         tenant_id,
         cantiere_id,
         variante_id,
-        user_id,
         ip,
         (user_agent or "")[:500] or None,
     )
-    created = row is not None
-    if row is None:
-        row = await conn.fetchrow(
-            """
-            select * from public.varianti_approvazioni
-            where tenant_id = $1::uuid
-              and cantiere_id = $2::uuid
-              and variante_id = $3::uuid
-              and user_id = $4::uuid
-            """,
-            tenant_id,
-            cantiere_id,
-            variante_id,
-            user_id,
-        )
     if row is None:
         raise HTTPException(
             status_code=404,
             detail="Variante confermata non disponibile per questo cantiere",
         )
     result = _row(row)
-    result["created"] = created
+    if result["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Identita cliente non coerente")
     return result
 
 

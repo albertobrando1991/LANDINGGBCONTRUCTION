@@ -71,6 +71,7 @@ def test_approvazione_e_idempotente_e_conserva_audit():
         "variante_id": VARIANTE_ID,
         "user_id": USER_ID,
         "ip": "127.0.0.1",
+        "created": True,
     }
 
     result = asyncio.run(
@@ -88,8 +89,7 @@ def test_approvazione_e_idempotente_e_conserva_audit():
     assert result["created"] is True
     assert result["ip"] == "127.0.0.1"
     query = conn.fetchrow.await_args.args[0]
-    assert "on conflict" in query.lower()
-    assert "do nothing" in query.lower()
+    assert "private.approva_variante_cliente" in query
 
 
 def test_condivisione_blocca_path_di_un_altro_cantiere():

@@ -710,6 +710,33 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 async with conn.transaction():
                     await conn.execute(
                         """
+                        insert into public.varianti_approvazioni (
+                          tenant_id, cantiere_id, variante_id, user_id, ip
+                        ) values ($1::uuid, $2::uuid, $3::uuid, $4::uuid, '127.0.0.9')
+                        """,
+                        tenant_a,
+                        cantiere_a,
+                        variante_portal_a,
+                        client_a,
+                    )
+            approval = await conn.fetchrow(
+                """
+                select * from private.approva_variante_cliente(
+                  $1::uuid, $2::uuid, $3::uuid, '127.0.0.1'::inet, 'pytest'
+                )
+                """,
+                tenant_a,
+                cantiere_a,
+                variante_portal_a,
+            )
+            assert approval is not None
+            assert approval["created"] is False
+            assert str(approval["user_id"]) == client_a
+
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with conn.transaction():
+                    await conn.execute(
+                        """
                         update public.varianti_approvazioni
                         set ip = '127.0.0.2'
                         where variante_id = $1::uuid
