@@ -1,14 +1,29 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Copy, RefreshCw, Star, Upload } from "lucide-react";
+import { Copy, Pencil, Plus, RefreshCw, Save, Star, Upload, X } from "lucide-react";
 import client from "@/lib/api";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+
+const EMPTY_VOCE = {
+  codice: "",
+  super_categoria: "Lavorazioni",
+  categoria: "Generale",
+  sub_categoria: "",
+  descrizione: "",
+  um: "cad",
+  prezzo_unitario: "",
+  tipo: "a_misura",
+};
 
 export default function Prezzario() {
+  const { user } = useAuth();
   const qc = useQueryClient();
   const [selected, setSelected] = useState(null);
   const [q, setQ] = useState("");
+  const [editor, setEditor] = useState(null);
+  const [voceForm, setVoceForm] = useState(EMPTY_VOCE);
 
   const { data: prezzari = [], isLoading } = useQuery({
     queryKey: ["prezzari"],
@@ -62,7 +77,53 @@ export default function Prezzario() {
     onError: (e) => toast.error(e?.response?.data?.detail || "Errore ripristino"),
   });
 
+  const salvaVoce = useMutation({
+    mutationFn: async () => {
+      const body = {
+        ...voceForm,
+        codice: voceForm.codice.trim() || null,
+        sub_categoria: voceForm.sub_categoria.trim() || null,
+        prezzo_unitario: Number(voceForm.prezzo_unitario),
+      };
+      if (editor === "new") {
+        return (await client.post(`/prezzario/${activeId}/voci`, body)).data;
+      }
+      return (
+        await client.patch(`/prezzario/${activeId}/voci/${editor}`, body)
+      ).data;
+    },
+    onSuccess: () => {
+      toast.success(editor === "new" ? "Nuova voce aggiunta" : "Voce aggiornata");
+      setEditor(null);
+      setVoceForm(EMPTY_VOCE);
+      qc.invalidateQueries({ queryKey: ["prezzario-voci", activeId] });
+      qc.invalidateQueries({ queryKey: ["prezzari"] });
+    },
+    onError: (e) =>
+      toast.error(e?.response?.data?.detail || "Salvataggio voce non riuscito"),
+  });
+
   const active = useMemo(() => prezzari.find((p) => p.id === activeId), [prezzari, activeId]);
+  const canEdit = ["owner", "admin"].includes(user?.role) && active && !active.is_sistema;
+
+  const openNew = () => {
+    setVoceForm(EMPTY_VOCE);
+    setEditor("new");
+  };
+
+  const openEdit = (voce) => {
+    setVoceForm({
+      codice: voce.codice || "",
+      super_categoria: voce.super_categoria || "Lavorazioni",
+      categoria: voce.categoria || "Generale",
+      sub_categoria: voce.sub_categoria || "",
+      descrizione: voce.descrizione || "",
+      um: voce.um || "cad",
+      prezzo_unitario: String(voce.prezzo_unitario ?? ""),
+      tipo: voce.tipo || "a_misura",
+    });
+    setEditor(voce.id);
+  };
 
   if (isLoading) {
     return <div className="p-6 text-fog font-display uppercase tracking-widest text-sm">Caricamento prezzari…</div>;
@@ -109,6 +170,15 @@ export default function Prezzario() {
               >
                 Wizard 28 voci
               </Link>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={openNew}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-brand text-xs font-display uppercase tracking-wider text-white"
+                >
+                  <Plus className="w-4 h-4" /> Nuova voce
+                </button>
+              )}
             </>
           )}
         </div>
@@ -128,6 +198,39 @@ export default function Prezzario() {
           </button>
         ))}
       </div>
+
+      {editor && canEdit && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            salvaVoce.mutate();
+          }}
+          className="rounded-2xl border border-brand/40 bg-surface p-4 space-y-4"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-display text-sm uppercase text-ink">
+              {editor === "new" ? "Aggiungi voce al Listino GB" : "Modifica voce Listino GB"}
+            </h2>
+            <button type="button" onClick={() => setEditor(null)} aria-label="Chiudi editor">
+              <X className="h-4 w-4 text-fog" />
+            </button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <input value={voceForm.codice} onChange={(e) => setVoceForm((v) => ({ ...v, codice: e.target.value }))} placeholder="Codice" className="rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink" />
+            <input required value={voceForm.super_categoria} onChange={(e) => setVoceForm((v) => ({ ...v, super_categoria: e.target.value }))} placeholder="Super categoria" className="rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink" />
+            <input required value={voceForm.categoria} onChange={(e) => setVoceForm((v) => ({ ...v, categoria: e.target.value }))} placeholder="Categoria" className="rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink" />
+            <input value={voceForm.sub_categoria} onChange={(e) => setVoceForm((v) => ({ ...v, sub_categoria: e.target.value }))} placeholder="Sottocategoria" className="rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink" />
+            <input required value={voceForm.descrizione} onChange={(e) => setVoceForm((v) => ({ ...v, descrizione: e.target.value }))} placeholder="Descrizione lavorazione" className="rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink md:col-span-2" />
+            <select value={voceForm.um} onChange={(e) => setVoceForm((v) => ({ ...v, um: e.target.value }))} className="rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink">
+              {["mq", "ml", "mc", "cad", "corpo", "kg", "h", "n"].map((um) => <option key={um} value={um}>{um}</option>)}
+            </select>
+            <input required min="0" step="0.01" type="number" value={voceForm.prezzo_unitario} onChange={(e) => setVoceForm((v) => ({ ...v, prezzo_unitario: e.target.value }))} placeholder="Prezzo unitario" className="rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink" />
+          </div>
+          <button type="submit" disabled={salvaVoce.isPending} className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-2 font-display text-xs uppercase text-white disabled:opacity-60">
+            <Save className="h-4 w-4" /> Salva voce
+          </button>
+        </form>
+      )}
 
       <div className="flex items-center gap-2">
         <input
@@ -170,6 +273,7 @@ export default function Prezzario() {
               <th className="text-left px-3 py-2">UM</th>
               <th className="text-right px-3 py-2">Prezzo</th>
               <th className="text-center px-3 py-2">Wizard</th>
+              {canEdit && <th className="text-center px-3 py-2">Modifica</th>}
             </tr>
           </thead>
           <tbody>
@@ -181,6 +285,18 @@ export default function Prezzario() {
                 <td className="px-3 py-2 text-fog">{v.um}</td>
                 <td className="px-3 py-2 text-right text-ink">€ {Number(v.prezzo_unitario).toFixed(2)}</td>
                 <td className="px-3 py-2 text-center">{v.chiave_wizard ? "★" : ""}</td>
+                {canEdit && (
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(v)}
+                      className="rounded-lg border border-stroke p-2 text-fog hover:border-brand hover:text-brand"
+                      aria-label={`Modifica ${v.descrizione}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

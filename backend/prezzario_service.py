@@ -357,3 +357,97 @@ async def lista_voci(
     sql += " order by super_categoria, categoria, descrizione"
     rows = await conn.fetch(sql, *args)
     return [_d(r) for r in rows]
+
+
+async def _require_prezzario_modificabile(
+    conn: asyncpg.Connection, tenant_id: str, prezzario_id: str
+) -> None:
+    row = await conn.fetchrow(
+        "select is_sistema from public.prezzari "
+        "where id = $1::uuid and tenant_id = $2::uuid",
+        prezzario_id,
+        tenant_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Prezzario non trovato")
+    if row["is_sistema"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Il prezzario Campania e di sola lettura: usa il Listino GB operativo",
+        )
+
+
+async def crea_voce(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    prezzario_id: str,
+    data: dict[str, Any],
+) -> dict:
+    await _require_prezzario_modificabile(conn, tenant_id, prezzario_id)
+    row = await conn.fetchrow(
+        """
+        insert into public.prezzario_voci (
+          tenant_id, prezzario_id, codice, super_categoria, categoria,
+          sub_categoria, descrizione, um, prezzo_unitario,
+          prezzo_riferimento, tipo, chiave_wizard, attiva
+        ) values (
+          $1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $9, $10, false, true
+        )
+        returning *
+        """,
+        tenant_id,
+        prezzario_id,
+        data.get("codice"),
+        data["super_categoria"],
+        data["categoria"],
+        data.get("sub_categoria"),
+        data["descrizione"],
+        data["um"],
+        data["prezzo_unitario"],
+        data["tipo"],
+    )
+    return _d(row)
+
+
+async def aggiorna_voce(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    prezzario_id: str,
+    voce_id: str,
+    data: dict[str, Any],
+) -> dict:
+    await _require_prezzario_modificabile(conn, tenant_id, prezzario_id)
+    allowed = (
+        "codice",
+        "super_categoria",
+        "categoria",
+        "sub_categoria",
+        "descrizione",
+        "um",
+        "prezzo_unitario",
+        "tipo",
+        "attiva",
+    )
+    updates = [(key, data[key]) for key in allowed if key in data]
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nessuna modifica indicata")
+    assignments = ", ".join(
+        f"{key} = ${index}" for index, (key, _) in enumerate(updates, start=1)
+    )
+    args = [value for _, value in updates]
+    args.extend([voce_id, prezzario_id, tenant_id])
+    offset = len(updates)
+    row = await conn.fetchrow(
+        f"""
+        update public.prezzario_voci
+        set {assignments}
+        where id = ${offset + 1}::uuid
+          and prezzario_id = ${offset + 2}::uuid
+          and tenant_id = ${offset + 3}::uuid
+        returning *
+        """,
+        *args,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Voce di prezzario non trovata")
+    return _d(row)

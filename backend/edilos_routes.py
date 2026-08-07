@@ -71,6 +71,31 @@ class WizardBody(BaseModel):
     correzioni: Dict[str, float] = Field(default_factory=dict)
 
 
+class PrezzarioVoceCreateBody(BaseModel):
+    codice: Optional[str] = Field(default=None, max_length=100)
+    super_categoria: str = Field(min_length=1, max_length=200)
+    categoria: str = Field(min_length=1, max_length=200)
+    sub_categoria: Optional[str] = Field(default=None, max_length=200)
+    descrizione: str = Field(min_length=2, max_length=1000)
+    um: Literal["mq", "ml", "mc", "cad", "corpo", "kg", "h", "n"]
+    prezzo_unitario: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+    tipo: Literal["a_misura", "a_corpo"] = "a_misura"
+
+
+class PrezzarioVocePatchBody(BaseModel):
+    codice: Optional[str] = Field(default=None, max_length=100)
+    super_categoria: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    categoria: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    sub_categoria: Optional[str] = Field(default=None, max_length=200)
+    descrizione: Optional[str] = Field(default=None, min_length=2, max_length=1000)
+    um: Optional[Literal["mq", "ml", "mc", "cad", "corpo", "kg", "h", "n"]] = None
+    prezzo_unitario: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=12, decimal_places=2
+    )
+    tipo: Optional[Literal["a_misura", "a_corpo"]] = None
+    attiva: Optional[bool] = None
+
+
 class RipristinaBody(BaseModel):
     prezzario_id: Optional[str] = None
     voce_ids: Optional[List[str]] = None
@@ -309,6 +334,13 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 detail="Permessi insufficienti per la gestione SAL",
             )
 
+    def require_prezzario_write_role(tenant: dict) -> None:
+        if tenant.get("role") not in {"owner", "admin"}:
+            raise HTTPException(
+                status_code=403,
+                detail="Permessi insufficienti per modificare il prezzario",
+            )
+
     def require_economics_role(tenant: dict) -> None:
         if tenant.get("role") not in economics_service.ECONOMICS_ROLES:
             raise HTTPException(
@@ -389,6 +421,35 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         async with get_tenant_conn(request, user) as (conn, tenant):
             return await prezzario_service.lista_voci(
                 conn, tenant["id"], prezzario_id, q=q, categoria=categoria
+            )
+
+    @api.post("/prezzario/{prezzario_id}/voci", status_code=201)
+    async def crea_voce_prezzario(
+        request: Request, prezzario_id: str, body: PrezzarioVoceCreateBody
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_prezzario_write_role(tenant)
+            return await prezzario_service.crea_voce(
+                conn, tenant["id"], prezzario_id, body.model_dump()
+            )
+
+    @api.patch("/prezzario/{prezzario_id}/voci/{voce_id}")
+    async def aggiorna_voce_prezzario(
+        request: Request,
+        prezzario_id: str,
+        voce_id: str,
+        body: PrezzarioVocePatchBody,
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_prezzario_write_role(tenant)
+            return await prezzario_service.aggiorna_voce(
+                conn,
+                tenant["id"],
+                prezzario_id,
+                voce_id,
+                body.model_dump(exclude_unset=True),
             )
 
     @api.get("/prezzario/{prezzario_id}/wizard")

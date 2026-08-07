@@ -4,6 +4,7 @@ from decimal import Decimal
 from collections import defaultdict
 
 import prezzario_service
+from fastapi import HTTPException
 
 
 def test_wizard_propagation_math():
@@ -77,3 +78,53 @@ def test_default_usa_lock_transazionale_tenant_scoped():
     )
     assert row["id"] == prezzario_id
     assert row["is_default"] is True
+
+
+def test_crea_voce_solo_su_prezzario_modificabile():
+    class Conn:
+        async def fetchrow(self, sql, *args):
+            if "select is_sistema" in sql:
+                return {"is_sistema": False}
+            assert "insert into public.prezzario_voci" in sql
+            return {
+                "id": "c0000000-0000-4000-8000-000000000001",
+                "descrizione": args[6],
+                "prezzo_unitario": Decimal(str(args[8])),
+            }
+
+    row = asyncio.run(
+        prezzario_service.crea_voce(
+            Conn(),
+            "a0000000-0000-4000-8000-000000000001",
+            "b0000000-0000-4000-8000-000000000002",
+            {
+                "codice": "GB-001",
+                "super_categoria": "Lavorazioni",
+                "categoria": "Extra",
+                "sub_categoria": None,
+                "descrizione": "Nuova lavorazione",
+                "um": "cad",
+                "prezzo_unitario": Decimal("125.50"),
+                "tipo": "a_misura",
+            },
+        )
+    )
+    assert row["descrizione"] == "Nuova lavorazione"
+    assert row["prezzo_unitario"] == 125.5
+
+
+def test_modifica_voce_blocca_prezzario_campania():
+    class Conn:
+        async def fetchrow(self, sql, *args):
+            return {"is_sistema": True}
+
+    try:
+        asyncio.run(
+            prezzario_service.aggiorna_voce(
+                Conn(), "tenant", "prezzario", "voce", {"prezzo_unitario": 10}
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 409
+    else:
+        raise AssertionError("Il prezzario Campania doveva restare in sola lettura")
