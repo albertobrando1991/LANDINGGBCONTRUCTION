@@ -150,6 +150,8 @@ def test_professional_quote_contains_brand_customer_and_totals():
     assert "PREV-2026-0042" in text
     assert "TOTALE OFFERTA" in text
     assert "PER ACCETTAZIONE" in text
+    assert "Timbro e firma dell'Appaltatrice" in text
+    assert document[-1].get_images(full=True)
     document.close()
 
 

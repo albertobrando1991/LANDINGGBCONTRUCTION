@@ -1,11 +1,20 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { FileClock, FileText, Mail, MessageCircle } from "lucide-react";
+import {
+  FileClock,
+  FileSignature,
+  FileText,
+  Mail,
+  MessageCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 import client, { formatApiErrorDetail } from "@/lib/api";
 import { formatEuro } from "@/lib/format";
-import { preventivoGestibile } from "@/lib/preventivi";
+import {
+  contrattoGenerabile,
+  preventivoGestibile,
+} from "@/lib/preventivi";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { STATI } from "@/dashboard/leadMeta";
 import NuovoPreventivoModal from "@/dashboard/NuovoPreventivoModal";
@@ -44,6 +53,27 @@ export default function Preventivi() {
       toast.error(
         formatApiErrorDetail(error?.response?.data?.detail) ||
           "Download del PDF non riuscito.",
+      );
+    }
+  };
+
+  const downloadContract = async (preventivo) => {
+    try {
+      const response = await client.get(
+        `/preventivi/${preventivo.id}/contratto/pdf`,
+        { responseType: "blob" },
+      );
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${String(preventivo.numero || "contratto").replace(/^PREV/i, "CTR")}.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success("Contratto compilato e firmato generato.");
+    } catch (error) {
+      toast.error(
+        formatApiErrorDetail(error?.response?.data?.detail) ||
+          "Generazione del contratto non riuscita.",
       );
     }
   };
@@ -203,6 +233,17 @@ export default function Preventivi() {
                         >
                           <FileText className="h-4 w-4" />
                         </button>
+                        {contrattoGenerabile(preventivo) && (
+                          <button
+                            type="button"
+                            onClick={() => downloadContract(preventivo)}
+                            aria-label={`Genera contratto firmato per ${preventivo.cliente}`}
+                            className="hover:text-brand"
+                            title="Genera contratto firmato"
+                          >
+                            <FileSignature className="h-4 w-4" />
+                          </button>
+                        )}
                         {whatsappUrl ? (
                           <a
                             href={whatsappUrl}

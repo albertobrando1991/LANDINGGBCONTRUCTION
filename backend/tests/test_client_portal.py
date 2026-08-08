@@ -35,6 +35,7 @@ def test_route_portale_complete_sono_registrate():
     )
     assert callable(_endpoint("/api/cantieri/{cantiere_id}/portale", "GET"))
     assert callable(_endpoint("/api/cantieri/{cantiere_id}/portale/invita", "POST"))
+    assert callable(_endpoint("/api/preventivi/{preventivo_id}/contratto/pdf", "GET"))
     assert callable(
         _endpoint("/api/cantieri/{cantiere_id}/portale/condivisioni", "POST")
     )

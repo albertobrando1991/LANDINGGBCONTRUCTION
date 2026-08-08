@@ -23,6 +23,14 @@ export function preventivoGestibile(preventivo) {
   return preventivo?.source === "edilos";
 }
 
+export function contrattoGenerabile(preventivo) {
+  return (
+    preventivoGestibile(preventivo) &&
+    preventivo?.computo_stato === "confermato" &&
+    !["rifiutato", "scaduto"].includes(preventivo?.stato_documento)
+  );
+}
+
 export function etichettaEventoPreventivo(evento) {
   if (evento?.tipo === "email_inviata") return "Email inviata";
   if (evento?.tipo === "stato") return "Stato aggiornato";

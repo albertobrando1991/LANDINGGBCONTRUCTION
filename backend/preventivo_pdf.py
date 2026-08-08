@@ -1,10 +1,10 @@
 """Preventivo professionale A4 con branding tenant e identità GB."""
+
 from __future__ import annotations
 
 import io
 import json
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
 
 from reportlab.lib import colors
@@ -26,11 +26,10 @@ from reportlab.platypus import (
 
 import cronoprogramma
 import fasi_lavorazione
+from pdf_brand_assets import COVER_PATH, LOGO_PATH, firma_appaltatrice, is_gb_tenant
 import preventivo_pdf_blocchi as blocchi
 import preventivo_struttura
 
-LOGO_PATH = Path(__file__).resolve().parent / "assets" / "email-logo.png"
-COVER_PATH = Path(__file__).resolve().parent / "assets" / "document-cover.jpg"
 LIVELLI_DETTAGLIO = ("analitico", "sintetico")
 
 
@@ -107,6 +106,7 @@ def _cover_decorator(
     primary: colors.Color,
 ):
     """Copertina fotografica, costruita come apertura editoriale."""
+
     def draw(canvas, _doc):
         width, height = A4
         canvas.saveState()
@@ -144,15 +144,23 @@ def _cover_decorator(
 
         if LOGO_PATH.exists():
             canvas.drawImage(
-                str(LOGO_PATH), 22 * mm, height - 53 * mm,
-                width=37 * mm, height=31 * mm, mask="auto",
+                str(LOGO_PATH),
+                22 * mm,
+                height - 53 * mm,
+                width=37 * mm,
+                height=31 * mm,
+                mask="auto",
             )
         canvas.setFillColor(colors.HexColor("#F5F3EF"))
         canvas.setFont("Helvetica-Bold", 12)
         canvas.drawString(64 * mm, height - 32 * mm, ragione.upper())
         canvas.setFont("Helvetica", 7.5)
         canvas.setFillColor(colors.HexColor("#C8C5BF"))
-        canvas.drawString(64 * mm, height - 38 * mm, "COSTRUIAMO SPAZI. TRASFORMIAMO IL MODO DI VIVERLI.")
+        canvas.drawString(
+            64 * mm,
+            height - 38 * mm,
+            "COSTRUIAMO SPAZI. TRASFORMIAMO IL MODO DI VIVERLI.",
+        )
 
         canvas.setFillColor(colors.HexColor("#F5F3EF"))
         canvas.setFont("Helvetica-Bold", 35)
@@ -220,49 +228,95 @@ def genera_pdf_preventivo(
     base = getSampleStyleSheet()
     styles = {
         "brand": ParagraphStyle(
-            "QuoteBrand", parent=base["Heading1"], fontName="Helvetica-Bold",
-            fontSize=15, leading=18, textColor=graphite, spaceAfter=1 * mm,
+            "QuoteBrand",
+            parent=base["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=15,
+            leading=18,
+            textColor=graphite,
+            spaceAfter=1 * mm,
         ),
         "title": ParagraphStyle(
-            "QuoteTitle", parent=base["Heading1"], fontName="Helvetica-Bold",
-            fontSize=25, leading=28, textColor=primary, alignment=TA_RIGHT,
+            "QuoteTitle",
+            parent=base["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=25,
+            leading=28,
+            textColor=primary,
+            alignment=TA_RIGHT,
         ),
         "section": ParagraphStyle(
-            "QuoteSection", parent=base["Heading2"], fontName="Helvetica-Bold",
-            fontSize=11, leading=14, textColor=primary,
-            spaceBefore=5 * mm, spaceAfter=2.5 * mm,
+            "QuoteSection",
+            parent=base["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            leading=14,
+            textColor=primary,
+            spaceBefore=5 * mm,
+            spaceAfter=2.5 * mm,
         ),
         "body": ParagraphStyle(
-            "QuoteBody", parent=base["Normal"], fontSize=8.5, leading=11,
+            "QuoteBody",
+            parent=base["Normal"],
+            fontSize=8.5,
+            leading=11,
             textColor=graphite,
         ),
         "small": ParagraphStyle(
-            "QuoteSmall", parent=base["Normal"], fontSize=7.2, leading=9,
+            "QuoteSmall",
+            parent=base["Normal"],
+            fontSize=7.2,
+            leading=9,
             textColor=colors.HexColor("#5D6168"),
         ),
         "table": ParagraphStyle(
-            "QuoteTable", parent=base["Normal"], fontSize=7.2, leading=9,
+            "QuoteTable",
+            parent=base["Normal"],
+            fontSize=7.2,
+            leading=9,
             textColor=graphite,
         ),
         "table_head": ParagraphStyle(
-            "QuoteTableHead", parent=base["Normal"], fontName="Helvetica-Bold",
-            fontSize=6.7, leading=8, textColor=colors.white,
+            "QuoteTableHead",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=6.7,
+            leading=8,
+            textColor=colors.white,
         ),
         "right": ParagraphStyle(
-            "QuoteRight", parent=base["Normal"], fontName="Helvetica-Bold",
-            fontSize=9, leading=11, alignment=TA_RIGHT, textColor=graphite,
+            "QuoteRight",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=9,
+            leading=11,
+            alignment=TA_RIGHT,
+            textColor=graphite,
         ),
         "fase_numero": ParagraphStyle(
-            "QuotePhaseNumber", parent=base["Normal"], fontName="Helvetica-Bold",
-            fontSize=13, leading=15, textColor=secondary,
+            "QuotePhaseNumber",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=13,
+            leading=15,
+            textColor=secondary,
         ),
         "fase_titolo": ParagraphStyle(
-            "QuotePhaseTitle", parent=base["Normal"], fontName="Helvetica-Bold",
-            fontSize=9, leading=12, textColor=colors.white,
+            "QuotePhaseTitle",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=9,
+            leading=12,
+            textColor=colors.white,
         ),
         "fase_importo": ParagraphStyle(
-            "QuotePhaseAmount", parent=base["Normal"], fontName="Helvetica-Bold",
-            fontSize=9.5, leading=12, alignment=TA_RIGHT, textColor=colors.white,
+            "QuotePhaseAmount",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=9.5,
+            leading=12,
+            alignment=TA_RIGHT,
+            textColor=colors.white,
         ),
     }
     palette = {
@@ -273,7 +327,7 @@ def genera_pdf_preventivo(
         "line": line,
     }
 
-    is_gb = "gbconstruction" in str(tenant.get("slug") or "").lower()
+    is_gb = is_gb_tenant(tenant)
     logo = None
     if is_gb and LOGO_PATH.exists():
         logo = Image(str(LOGO_PATH), width=29 * mm, height=24.5 * mm)
@@ -281,58 +335,91 @@ def genera_pdf_preventivo(
     if tenant.get("piva"):
         company.append(Paragraph(f"P. IVA {_text(tenant['piva'])}", styles["small"]))
     contact_line = " · ".join(
-        _text(value) for value in (
-            contatti.get("indirizzo"), contatti.get("telefono"), contatti.get("email")
-        ) if value
+        _text(value)
+        for value in (
+            contatti.get("indirizzo"),
+            contatti.get("telefono"),
+            contatti.get("email"),
+        )
+        if value
     )
     if contact_line:
         company.append(Paragraph(contact_line, styles["small"]))
     identity = [logo, company] if logo else [company]
     left_widths = [34 * mm, 79 * mm] if logo else [113 * mm]
     identity_table = Table([identity], colWidths=left_widths)
-    identity_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
+    identity_table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
     title_block = [
         Paragraph("PREVENTIVO", styles["title"]),
         Paragraph(f"N. <b>{_text(numero)}</b>", styles["right"]),
-        Paragraph(f"Emesso il {_date_it(preventivo.get('created_at'))}", styles["small"]),
+        Paragraph(
+            f"Emesso il {_date_it(preventivo.get('created_at'))}", styles["small"]
+        ),
     ]
     header = Table([[identity_table, title_block]], colWidths=[115 * mm, 57 * mm])
-    header.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-        ("LINEBELOW", (0, 0), (-1, -1), 1.2, primary),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4 * mm),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-    ]))
+    header.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ("LINEBELOW", (0, 0), (-1, -1), 1.2, primary),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4 * mm),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
 
     cliente = preventivo.get("cliente_nome") or "Cliente non associato"
-    cliente_lines = [Paragraph("DESTINATARIO", styles["table_head"]), Paragraph(f"<b>{_text(cliente)}</b>", styles["body"])]
-    for value in (preventivo.get("cliente_indirizzo"), preventivo.get("cliente_citta"), preventivo.get("cliente_email"), preventivo.get("cliente_telefono")):
+    cliente_lines = [
+        Paragraph("DESTINATARIO", styles["table_head"]),
+        Paragraph(f"<b>{_text(cliente)}</b>", styles["body"]),
+    ]
+    for value in (
+        preventivo.get("cliente_indirizzo"),
+        preventivo.get("cliente_citta"),
+        preventivo.get("cliente_email"),
+        preventivo.get("cliente_telefono"),
+    ):
         if value:
             cliente_lines.append(Paragraph(_text(value), styles["small"]))
     project_lines = [Paragraph("INTERVENTO", styles["table_head"])]
-    project_lines.append(Paragraph(_text(preventivo.get("cantiere_indirizzo"), "Sede da definire"), styles["body"]))
+    project_lines.append(
+        Paragraph(
+            _text(preventivo.get("cantiere_indirizzo"), "Sede da definire"),
+            styles["body"],
+        )
+    )
     validity = int(preventivo.get("validita_giorni") or 30)
-    project_lines.append(Paragraph(f"Validità offerta: <b>{validity} giorni</b>", styles["small"]))
+    project_lines.append(
+        Paragraph(f"Validità offerta: <b>{validity} giorni</b>", styles["small"])
+    )
     info = Table([[cliente_lines, project_lines]], colWidths=[86 * mm, 86 * mm])
-    info.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), soft),
-        ("BOX", (0, 0), (-1, -1), 0.5, line),
-        ("LINEBEFORE", (1, 0), (1, 0), 0.5, line),
-        ("BACKGROUND", (0, 0), (0, 0), soft),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4 * mm),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4 * mm),
-        ("TOPPADDING", (0, 0), (-1, -1), 3 * mm),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm),
-    ]))
+    info.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), soft),
+                ("BOX", (0, 0), (-1, -1), 0.5, line),
+                ("LINEBEFORE", (1, 0), (1, 0), 0.5, line),
+                ("BACKGROUND", (0, 0), (0, 0), soft),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4 * mm),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4 * mm),
+                ("TOPPADDING", (0, 0), (-1, -1), 3 * mm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm),
+            ]
+        )
+    )
 
     snapshot = preventivo.get("snapshot_voci") or []
     if isinstance(snapshot, str):
@@ -343,7 +430,10 @@ def genera_pdf_preventivo(
     classificato = any(voce.get("fase") for voce in snapshot)
     if classificato:
         gruppi = [
-            {**gruppo, "voci": preventivo_struttura.aggrega_voci_gemelle(gruppo["voci"])}
+            {
+                **gruppo,
+                "voci": preventivo_struttura.aggrega_voci_gemelle(gruppo["voci"]),
+            }
             for gruppo in fasi_lavorazione.raggruppa_per_fase(snapshot)
         ]
         opere = blocchi.quadro_economico(gruppi, styles, palette)
@@ -363,73 +453,139 @@ def genera_pdf_preventivo(
     vat = float(preventivo.get("iva_percentuale") or 0)
     totals_data = [["Imponibile", _money(subtotal)]]
     if discount:
-        totals_data.append([f"Sconto applicato ({_number(discount)}%)", f"- {_money(subtotal * discount / 100)}"])
-    totals_data.extend([
-        [f"IVA ({_number(vat)}%)", _money(preventivo.get("totale_iva"))],
-        ["TOTALE OFFERTA", _money(preventivo.get("totale_documento"))],
-    ])
+        totals_data.append(
+            [
+                f"Sconto applicato ({_number(discount)}%)",
+                f"- {_money(subtotal * discount / 100)}",
+            ]
+        )
+    totals_data.extend(
+        [
+            [f"IVA ({_number(vat)}%)", _money(preventivo.get("totale_iva"))],
+            ["TOTALE OFFERTA", _money(preventivo.get("totale_documento"))],
+        ]
+    )
     totals = Table(totals_data, colWidths=[118 * mm, 54 * mm])
-    totals.setStyle(TableStyle([
-        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("FONTSIZE", (0, 0), (-1, -2), 9),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, -1), (-1, -1), 12),
-        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
-        ("BACKGROUND", (0, -1), (-1, -1), primary),
-        ("LINEABOVE", (0, 0), (-1, 0), 0.7, secondary),
-        ("TOPPADDING", (0, 0), (-1, -1), 2.5 * mm),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5 * mm),
-        ("LEFTPADDING", (0, 0), (-1, -1), 3 * mm),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm),
-    ]))
+    totals.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("FONTSIZE", (0, 0), (-1, -2), 9),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, -1), (-1, -1), 12),
+                ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+                ("BACKGROUND", (0, -1), (-1, -1), primary),
+                ("LINEABOVE", (0, 0), (-1, 0), 0.7, secondary),
+                ("TOPPADDING", (0, 0), (-1, -1), 2.5 * mm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5 * mm),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3 * mm),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm),
+            ]
+        )
+    )
 
     conditions = (
         "Gli importi si riferiscono esclusivamente alle lavorazioni elencate. "
         "Eventuali varianti, opere impreviste o quantità eccedenti saranno concordate e contabilizzate separatamente. "
         "Tempi di esecuzione e modalità di pagamento saranno definiti prima dell'avvio dei lavori."
     )
-    signatures = Table([
-        ["PER ACCETTAZIONE DEL CLIENTE", "PER L'IMPRESA"],
-        ["Data ____________________\n\nFirma __________________________", "Data ____________________\n\nFirma __________________________"],
-    ], colWidths=[86 * mm, 86 * mm])
-    signatures.setStyle(TableStyle([
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
-        ("TOPPADDING", (0, 1), (-1, -1), 5 * mm),
-    ]))
+    firma = firma_appaltatrice(tenant)
+    firma_impresa = (
+        [
+            Paragraph(
+                f"Data {_date_it(preventivo.get('created_at'))}", styles["small"]
+            ),
+            firma,
+            Paragraph("Timbro e firma dell'Appaltatrice", styles["small"]),
+        ]
+        if firma
+        else [
+            Paragraph("Data ____________________", styles["small"]),
+            Spacer(1, 10 * mm),
+            Paragraph("Firma __________________________", styles["small"]),
+        ]
+    )
+    signatures = Table(
+        [
+            [
+                Paragraph("PER ACCETTAZIONE DEL CLIENTE", styles["table_head"]),
+                Paragraph("PER L'IMPRESA", styles["table_head"]),
+            ],
+            [
+                [
+                    Paragraph("Data ____________________", styles["small"]),
+                    Spacer(1, 12 * mm),
+                    Paragraph("Firma __________________________", styles["small"]),
+                ],
+                firma_impresa,
+            ],
+        ],
+        colWidths=[86 * mm, 86 * mm],
+    )
+    signatures.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("BACKGROUND", (0, 0), (-1, 0), primary),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+                ("BOX", (0, 0), (-1, -1), 0.5, line),
+                ("LINEBEFORE", (1, 0), (1, -1), 0.5, line),
+                ("TOPPADDING", (0, 0), (-1, 0), 2.5 * mm),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 2.5 * mm),
+                ("TOPPADDING", (0, 1), (-1, -1), 4 * mm),
+                ("BOTTOMPADDING", (0, 1), (-1, -1), 4 * mm),
+            ]
+        )
+    )
 
     cover_space = Spacer(1, 252 * mm)
     story = [
-        cover_space, PageBreak(),
-        header, Spacer(1, 5 * mm), info,
+        cover_space,
+        PageBreak(),
+        header,
+        Spacer(1, 5 * mm),
+        info,
         Spacer(1, 2 * mm),
         Table(
-            [[
-                Paragraph("01", ParagraphStyle(
-                    "QuoteChapterNumber", parent=styles["title"], fontSize=34,
-                    leading=36, alignment=0, textColor=primary,
-                )),
-                Paragraph(
-                    "Una proposta costruita intorno al progetto.<br/>"
-                    "Le lavorazioni sono raccolte nelle fasi di cantiere che le "
-                    "eseguono, cosi da leggere subito dove va ogni euro.",
-                    ParagraphStyle(
-                        "QuoteEditorialIntro", parent=styles["body"], fontSize=12,
-                        leading=16, textColor=graphite,
+            [
+                [
+                    Paragraph(
+                        "01",
+                        ParagraphStyle(
+                            "QuoteChapterNumber",
+                            parent=styles["title"],
+                            fontSize=34,
+                            leading=36,
+                            alignment=0,
+                            textColor=primary,
+                        ),
                     ),
-                ),
-            ]],
+                    Paragraph(
+                        "Una proposta costruita intorno al progetto.<br/>"
+                        "Le lavorazioni sono raccolte nelle fasi di cantiere che le "
+                        "eseguono, cosi da leggere subito dove va ogni euro.",
+                        ParagraphStyle(
+                            "QuoteEditorialIntro",
+                            parent=styles["body"],
+                            fontSize=12,
+                            leading=16,
+                            textColor=graphite,
+                        ),
+                    ),
+                ]
+            ],
             colWidths=[28 * mm, 144 * mm],
-            style=TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LINEBELOW", (0, 0), (-1, -1), 0.7, secondary),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm),
-                ("TOPPADDING", (0, 0), (-1, -1), 4 * mm),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5 * mm),
-            ]),
+            style=TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LINEBELOW", (0, 0), (-1, -1), 0.7, secondary),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4 * mm),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5 * mm),
+                ]
+            ),
         ),
         *opere,
         Spacer(1, 5 * mm),
@@ -450,18 +606,25 @@ def genera_pdf_preventivo(
     )
     if classificato:
         story.extend(
-            blocchi.esclusioni(preventivo_struttura.esclusioni(snapshot), styles, palette)
+            blocchi.esclusioni(
+                preventivo_struttura.esclusioni(snapshot), styles, palette
+            )
         )
     if preventivo.get("note"):
-        story.extend([
-            Paragraph("Note specifiche", styles["section"]),
-            Paragraph(_text(preventivo["note"]), styles["body"]),
-        ])
-    story.extend([
-        Paragraph("Condizioni dell'offerta", styles["section"]),
-        Paragraph(conditions, styles["small"]),
-        Spacer(1, 8 * mm), KeepTogether(signatures),
-    ])
+        story.extend(
+            [
+                Paragraph("Note specifiche", styles["section"]),
+                Paragraph(_text(preventivo["note"]), styles["body"]),
+            ]
+        )
+    story.extend(
+        [
+            Paragraph("Condizioni dell'offerta", styles["section"]),
+            Paragraph(conditions, styles["small"]),
+            Spacer(1, 8 * mm),
+            KeepTogether(signatures),
+        ]
+    )
     cover = _cover_decorator(
         ragione,
         numero,

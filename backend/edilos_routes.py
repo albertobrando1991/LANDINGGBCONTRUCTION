@@ -45,6 +45,7 @@ import prezzario_service
 import sal_service
 import tenancy
 from engines.metriche import estrai_metriche
+from contratto_appalto_pdf import genera_pdf_contratto, numero_contratto
 from preventivo_pdf import genera_pdf_preventivo
 from sal_pdf import genera_pdf_sal
 
@@ -1192,6 +1193,72 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 headers={
                     "Content-Disposition": f'inline; filename="{prev.get("numero") or "preventivo"}.pdf"'
                 },
+            )
+
+    @api.get("/preventivi/{preventivo_id}/contratto/pdf")
+    async def contratto_appalto_pdf(request: Request, preventivo_id: str):
+        """Compila il contratto dal preventivo e applica la firma GB."""
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            row = await conn.fetchrow(
+                """
+                select p.*,
+                       coalesce(l.nome, cl.nome) as cliente_nome,
+                       coalesce(l.email, cl.email) as cliente_email,
+                       coalesce(l.telefono, cl.telefono) as cliente_telefono,
+                       coalesce(l.indirizzo, cl.indirizzo) as cliente_indirizzo,
+                       coalesce(l.citta, cl.citta) as cliente_citta,
+                       cl.cf as cliente_cf,
+                       cl.piva as cliente_piva,
+                       ca.indirizzo as cantiere_indirizzo,
+                       co.stato as computo_stato,
+                       t.piva as tenant_piva
+                from public.preventivi p
+                join public.tenants t on t.id = p.tenant_id
+                left join public.leads l
+                  on l.id = p.lead_id and l.tenant_id = p.tenant_id
+                left join public.clienti cl
+                  on cl.id = p.cliente_id and cl.tenant_id = p.tenant_id
+                left join public.computi co
+                  on co.id = p.computo_id and co.tenant_id = p.tenant_id
+                left join public.cantieri ca
+                  on ca.id = co.cantiere_id and ca.tenant_id = p.tenant_id
+                where p.id = $1::uuid and p.tenant_id = $2::uuid
+                """,
+                preventivo_id,
+                tenant["id"],
+            )
+            if not row:
+                raise HTTPException(status_code=404, detail="Preventivo non trovato")
+            preventivo = dict(row)
+            if preventivo.get("computo_stato") != "confermato":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Conferma il computo prima di generare il contratto firmato",
+                )
+            if preventivo.get("stato") in {"rifiutato", "scaduto"}:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Non puoi generare un contratto da un preventivo chiuso",
+                )
+            if not preventivo.get("cliente_nome") or not preventivo.get(
+                "cantiere_indirizzo"
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Completa cliente e indirizzo del cantiere prima di "
+                        "generare il contratto"
+                    ),
+                )
+            tenant_pdf = {**tenant, "piva": preventivo.pop("tenant_piva", None)}
+            pdf = genera_pdf_contratto(preventivo, tenant_pdf)
+            filename = numero_contratto(preventivo.get("numero"))
+            return Response(
+                content=pdf,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'inline; filename="{filename}.pdf"'},
             )
 
     @api.get("/preventivi/{preventivo_id}/eventi")
