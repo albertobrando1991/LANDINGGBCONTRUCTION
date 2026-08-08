@@ -1034,7 +1034,25 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             row = await conn.fetchrow(
-                "select * from public.preventivi where id = $1::uuid and tenant_id = $2::uuid",
+                """
+                select p.*,
+                       l.nome as cliente_nome,
+                       l.email as cliente_email,
+                       l.telefono as cliente_telefono,
+                       l.indirizzo as cliente_indirizzo,
+                       l.citta as cliente_citta,
+                       ca.indirizzo as cantiere_indirizzo,
+                       t.piva as tenant_piva
+                from public.preventivi p
+                join public.tenants t on t.id = p.tenant_id
+                left join public.leads l
+                  on l.id = p.lead_id and l.tenant_id = p.tenant_id
+                left join public.computi co
+                  on co.id = p.computo_id and co.tenant_id = p.tenant_id
+                left join public.cantieri ca
+                  on ca.id = co.cantiere_id and ca.tenant_id = p.tenant_id
+                where p.id = $1::uuid and p.tenant_id = $2::uuid
+                """,
                 preventivo_id,
                 tenant["id"],
             )
@@ -1043,7 +1061,8 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             prev = dict(row)
             if isinstance(prev.get("snapshot_voci"), str):
                 prev["snapshot_voci"] = json.loads(prev["snapshot_voci"])
-            pdf = genera_pdf_preventivo(prev, tenant)
+            tenant_pdf = {**tenant, "piva": prev.pop("tenant_piva", None)}
+            pdf = genera_pdf_preventivo(prev, tenant_pdf)
             return Response(
                 content=pdf,
                 media_type="application/pdf",

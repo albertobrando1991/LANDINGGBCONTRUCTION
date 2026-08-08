@@ -1,132 +1,323 @@
-"""Generazione PDF preventivo white-label con reportlab.
-Nessun riferimento hardcoded a GB Construction: branding da tenants.theme/contatti.
-"""
+"""Preventivo professionale A4 con branding tenant e identità GB."""
 from __future__ import annotations
 
 import io
+import json
+from datetime import date, datetime
+from html import escape
+from pathlib import Path
 from typing import Any
 
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    Image,
+    KeepTogether,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
+
+LOGO_PATH = Path(__file__).resolve().parent / "assets" / "email-logo.png"
 
 
-def _hex_color(value: str, fallback: str = "#111111") -> colors.Color:
-    raw = (value or fallback).lstrip("#")
-    if len(raw) != 6:
-        raw = fallback.lstrip("#")
-    try:
-        r, g, b = int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
-        return colors.Color(r / 255, g / 255, b / 255)
-    except Exception:
-        return colors.black
-
-
-def _as_dict(value, default=None):
-    if default is None:
-        default = {}
-    if value is None:
-        return default
+def _as_dict(value: Any) -> dict:
     if isinstance(value, dict):
         return value
     if isinstance(value, str):
-        import json
         try:
             parsed = json.loads(value)
-            return parsed if isinstance(parsed, dict) else default
-        except Exception:
-            return default
-    return default
+            return parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+    return {}
+
+
+def _color(value: Any, fallback: str) -> colors.Color:
+    try:
+        return colors.HexColor(str(value or fallback).strip())
+    except (TypeError, ValueError):
+        return colors.HexColor(fallback)
+
+
+def _text(value: Any, fallback: str = "-") -> str:
+    return escape(str(value or fallback))
+
+
+def _money(value: Any) -> str:
+    raw = f"{float(value or 0):,.2f}"
+    return "EUR " + raw.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _number(value: Any, decimals: int = 2) -> str:
+    raw = f"{float(value or 0):,.{decimals}f}"
+    return raw.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _date_it(value: Any) -> str:
+    if isinstance(value, (date, datetime)):
+        return value.strftime("%d/%m/%Y")
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).strftime(
+            "%d/%m/%Y"
+        )
+    except (TypeError, ValueError):
+        return str(value or "-")
+
+
+def _page_decorator(ragione: str, numero: str, stato: str, primary: colors.Color):
+    def draw(canvas, doc):
+        canvas.saveState()
+        canvas.setTitle(f"Preventivo {numero} - {ragione}")
+        canvas.setAuthor(ragione)
+        canvas.setSubject("Preventivo professionale lavori edili")
+        if stato == "bozza":
+            canvas.saveState()
+            canvas.setFillColor(colors.Color(0.45, 0.45, 0.45, alpha=0.09))
+            canvas.setFont("Helvetica-Bold", 52)
+            canvas.translate(A4[0] / 2, A4[1] / 2)
+            canvas.rotate(35)
+            canvas.drawCentredString(0, 0, "BOZZA")
+            canvas.restoreState()
+        canvas.setStrokeColor(primary)
+        canvas.setLineWidth(0.7)
+        canvas.line(18 * mm, 13 * mm, A4[0] - 18 * mm, 13 * mm)
+        canvas.setFillColor(colors.HexColor("#62666D"))
+        canvas.setFont("Helvetica", 7)
+        canvas.drawString(18 * mm, 8.5 * mm, f"{ragione} - Preventivo {numero}")
+        canvas.drawRightString(
+            A4[0] - 18 * mm, 8.5 * mm, f"Pagina {canvas.getPageNumber()}"
+        )
+        canvas.restoreState()
+
+    return draw
 
 
 def genera_pdf_preventivo(preventivo: dict, tenant: dict) -> bytes:
     theme = _as_dict(tenant.get("theme"))
     contatti = _as_dict(tenant.get("contatti"))
-    primary = _hex_color(theme.get("primary") or "#C41E3A")
-    secondary = _hex_color(theme.get("secondary") or "#D4AF37")
-    ragione = tenant.get("ragione_sociale") or tenant.get("slug") or "Preventivo"
+    primary = _color(theme.get("primary"), "#B8202E")
+    secondary = _color(theme.get("secondary"), "#B8A16A")
+    graphite = colors.HexColor("#202226")
+    soft = colors.HexColor("#F3F1ED")
+    line = colors.HexColor("#D8D4CD")
+    ragione = str(tenant.get("ragione_sociale") or "GB Construction S.r.l.")
+    numero = str(preventivo.get("numero") or "BOZZA")
+    stato = str(preventivo.get("stato") or "bozza").lower()
 
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm,
-                            topMargin=16 * mm, bottomMargin=16 * mm)
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "TitleBrand", parent=styles["Heading1"], textColor=primary, fontSize=18, spaceAfter=6
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=15 * mm,
+        bottomMargin=18 * mm,
+        title=f"Preventivo {numero} - {ragione}",
+        author=ragione,
     )
-    sub_style = ParagraphStyle("Sub", parent=styles["Normal"], textColor=colors.HexColor("#444444"), fontSize=10)
-    body = ParagraphStyle("Body", parent=styles["Normal"], fontSize=9, leading=12)
+    base = getSampleStyleSheet()
+    styles = {
+        "brand": ParagraphStyle(
+            "QuoteBrand", parent=base["Heading1"], fontName="Helvetica-Bold",
+            fontSize=15, leading=18, textColor=graphite, spaceAfter=1 * mm,
+        ),
+        "title": ParagraphStyle(
+            "QuoteTitle", parent=base["Heading1"], fontName="Helvetica-Bold",
+            fontSize=25, leading=28, textColor=primary, alignment=TA_RIGHT,
+        ),
+        "section": ParagraphStyle(
+            "QuoteSection", parent=base["Heading2"], fontName="Helvetica-Bold",
+            fontSize=11, leading=14, textColor=primary,
+            spaceBefore=5 * mm, spaceAfter=2.5 * mm,
+        ),
+        "body": ParagraphStyle(
+            "QuoteBody", parent=base["Normal"], fontSize=8.5, leading=11,
+            textColor=graphite,
+        ),
+        "small": ParagraphStyle(
+            "QuoteSmall", parent=base["Normal"], fontSize=7.2, leading=9,
+            textColor=colors.HexColor("#5D6168"),
+        ),
+        "table": ParagraphStyle(
+            "QuoteTable", parent=base["Normal"], fontSize=7.2, leading=9,
+            textColor=graphite,
+        ),
+        "table_head": ParagraphStyle(
+            "QuoteTableHead", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=6.7, leading=8, textColor=colors.white,
+        ),
+        "right": ParagraphStyle(
+            "QuoteRight", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=9, leading=11, alignment=TA_RIGHT, textColor=graphite,
+        ),
+    }
 
-    story = []
-    story.append(Paragraph(ragione, title_style))
-    contatto_line = " · ".join(
-        x for x in [
-            contatti.get("telefono"),
-            contatti.get("email"),
-            contatti.get("indirizzo"),
-        ] if x
+    is_gb = "gbconstruction" in str(tenant.get("slug") or "").lower()
+    logo = None
+    if is_gb and LOGO_PATH.exists():
+        logo = Image(str(LOGO_PATH), width=29 * mm, height=24.5 * mm)
+    company = [Paragraph(_text(ragione), styles["brand"])]
+    if tenant.get("piva"):
+        company.append(Paragraph(f"P. IVA {_text(tenant['piva'])}", styles["small"]))
+    contact_line = " · ".join(
+        _text(value) for value in (
+            contatti.get("indirizzo"), contatti.get("telefono"), contatti.get("email")
+        ) if value
     )
-    if contatto_line:
-        story.append(Paragraph(contatto_line, sub_style))
-    story.append(Spacer(1, 8 * mm))
-    story.append(Paragraph(f"Preventivo <b>{preventivo.get('numero')}</b>", styles["Heading2"]))
-    story.append(Paragraph(
-        f"Stato: {preventivo.get('stato')} · IVA {preventivo.get('iva_percentuale')}% · "
-        f"Sconto {preventivo.get('sconto_percentuale')}%",
-        body,
-    ))
-    story.append(Spacer(1, 6 * mm))
+    if contact_line:
+        company.append(Paragraph(contact_line, styles["small"]))
+    identity = [logo, company] if logo else [company]
+    left_widths = [34 * mm, 79 * mm] if logo else [113 * mm]
+    identity_table = Table([identity], colWidths=left_widths)
+    identity_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    title_block = [
+        Paragraph("PREVENTIVO", styles["title"]),
+        Paragraph(f"N. <b>{_text(numero)}</b>", styles["right"]),
+        Paragraph(f"Emesso il {_date_it(preventivo.get('created_at'))}", styles["small"]),
+    ]
+    header = Table([[identity_table, title_block]], colWidths=[115 * mm, 57 * mm])
+    header.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+        ("LINEBELOW", (0, 0), (-1, -1), 1.2, primary),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4 * mm),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+
+    cliente = preventivo.get("cliente_nome") or "Cliente non associato"
+    cliente_lines = [Paragraph("DESTINATARIO", styles["table_head"]), Paragraph(f"<b>{_text(cliente)}</b>", styles["body"])]
+    for value in (preventivo.get("cliente_indirizzo"), preventivo.get("cliente_citta"), preventivo.get("cliente_email"), preventivo.get("cliente_telefono")):
+        if value:
+            cliente_lines.append(Paragraph(_text(value), styles["small"]))
+    project_lines = [Paragraph("INTERVENTO", styles["table_head"])]
+    project_lines.append(Paragraph(_text(preventivo.get("cantiere_indirizzo"), "Sede da definire"), styles["body"]))
+    validity = int(preventivo.get("validita_giorni") or 30)
+    project_lines.append(Paragraph(f"Validità offerta: <b>{validity} giorni</b>", styles["small"]))
+    info = Table([[cliente_lines, project_lines]], colWidths=[86 * mm, 86 * mm])
+    info.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), soft),
+        ("BOX", (0, 0), (-1, -1), 0.5, line),
+        ("LINEBEFORE", (1, 0), (1, 0), 0.5, line),
+        ("BACKGROUND", (0, 0), (0, 0), soft),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4 * mm),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4 * mm),
+        ("TOPPADDING", (0, 0), (-1, -1), 3 * mm),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm),
+    ]))
 
     snapshot = preventivo.get("snapshot_voci") or []
     if isinstance(snapshot, str):
-        import json
         snapshot = json.loads(snapshot)
-
-    data = [["#", "Descrizione", "UM", "Q.tà", "Prezzo", "Totale"]]
-    for i, v in enumerate(snapshot, 1):
-        qta = float(v.get("qta") or 0)
-        pu = float(v.get("prezzo_unitario") or 0)
-        tot = float(v.get("totale") or round(qta * pu, 2))
-        data.append([
-            str(i),
-            (v.get("descrizione") or "")[:60],
-            v.get("um") or "",
-            f"{qta:.2f}",
-            f"€ {pu:,.2f}",
-            f"€ {tot:,.2f}",
+    rows = [[
+        Paragraph("#", styles["table_head"]),
+        Paragraph("DESCRIZIONE DELLE OPERE", styles["table_head"]),
+        Paragraph("UM", styles["table_head"]),
+        Paragraph("Q.TÀ", styles["table_head"]),
+        Paragraph("PREZZO", styles["table_head"]),
+        Paragraph("IMPORTO", styles["table_head"]),
+    ]]
+    for index, item in enumerate(snapshot, 1):
+        qta = float(item.get("qta") or 0)
+        price = float(item.get("prezzo_unitario") or 0)
+        total = float(item.get("totale") or round(qta * price, 2))
+        code = item.get("sub_categoria") or item.get("codice")
+        description = _text(item.get("descrizione"), "Voce senza descrizione")
+        if code:
+            description = f"<b>{_text(code)}</b><br/>{description}"
+        rows.append([
+            str(index), Paragraph(description, styles["table"]), _text(item.get("um")),
+            _number(qta, 3), _money(price), _money(total),
         ])
-
-    table = Table(data, colWidths=[12 * mm, 80 * mm, 15 * mm, 20 * mm, 25 * mm, 25 * mm])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), primary),
+    works = Table(
+        rows, repeatRows=1,
+        colWidths=[8 * mm, 81 * mm, 12 * mm, 18 * mm, 25 * mm, 28 * mm],
+    )
+    works.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), graphite),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#dddddd")),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
-        ("ALIGN", (3, 0), (-1, -1), "RIGHT"),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ALIGN", (0, 1), (0, -1), "CENTER"),
+        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.25, line),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FAF9F7")]),
+        ("LEFTPADDING", (0, 0), (-1, -1), 1.7 * mm),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 1.7 * mm),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.2 * mm),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2 * mm),
     ]))
-    story.append(table)
-    story.append(Spacer(1, 8 * mm))
 
-    totals = [
-        ["Imponibile", f"€ {float(preventivo.get('totale_imponibile') or 0):,.2f}"],
-        ["IVA", f"€ {float(preventivo.get('totale_iva') or 0):,.2f}"],
-        ["Totale documento", f"€ {float(preventivo.get('totale_documento') or 0):,.2f}"],
-    ]
-    t2 = Table(totals, colWidths=[120 * mm, 40 * mm])
-    t2.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("TEXTCOLOR", (0, -1), (-1, -1), primary),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, secondary),
+    subtotal = float(preventivo.get("totale_imponibile") or 0)
+    discount = float(preventivo.get("sconto_percentuale") or 0)
+    vat = float(preventivo.get("iva_percentuale") or 0)
+    totals_data = [["Imponibile", _money(subtotal)]]
+    if discount:
+        totals_data.append([f"Sconto applicato ({_number(discount)}%)", f"- {_money(subtotal * discount / 100)}"])
+    totals_data.extend([
+        [f"IVA ({_number(vat)}%)", _money(preventivo.get("totale_iva"))],
+        ["TOTALE OFFERTA", _money(preventivo.get("totale_documento"))],
+    ])
+    totals = Table(totals_data, colWidths=[118 * mm, 54 * mm])
+    totals.setStyle(TableStyle([
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("FONTSIZE", (0, 0), (-1, -2), 9),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, -1), (-1, -1), 12),
+        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+        ("BACKGROUND", (0, -1), (-1, -1), primary),
+        ("LINEABOVE", (0, 0), (-1, 0), 0.7, secondary),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5 * mm),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5 * mm),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3 * mm),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm),
     ]))
-    story.append(t2)
-    if preventivo.get("note"):
-        story.append(Spacer(1, 6 * mm))
-        story.append(Paragraph(f"Note: {preventivo['note']}", body))
 
-    doc.build(story)
-    return buf.getvalue()
+    conditions = (
+        "Gli importi si riferiscono esclusivamente alle lavorazioni elencate. "
+        "Eventuali varianti, opere impreviste o quantità eccedenti saranno concordate e contabilizzate separatamente. "
+        "Tempi di esecuzione e modalità di pagamento saranno definiti prima dell'avvio dei lavori."
+    )
+    signatures = Table([
+        ["PER ACCETTAZIONE DEL CLIENTE", "PER L'IMPRESA"],
+        ["Data ____________________\n\nFirma __________________________", "Data ____________________\n\nFirma __________________________"],
+    ], colWidths=[86 * mm, 86 * mm])
+    signatures.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+        ("TOPPADDING", (0, 1), (-1, -1), 5 * mm),
+    ]))
+
+    story = [
+        header, Spacer(1, 5 * mm), info,
+        Paragraph("Dettaglio economico delle lavorazioni", styles["section"]),
+        works, Spacer(1, 5 * mm), totals,
+    ]
+    if preventivo.get("note"):
+        story.extend([
+            Paragraph("Note specifiche", styles["section"]),
+            Paragraph(_text(preventivo["note"]), styles["body"]),
+        ])
+    story.extend([
+        Paragraph("Condizioni dell'offerta", styles["section"]),
+        Paragraph(conditions, styles["small"]),
+        Spacer(1, 8 * mm), KeepTogether(signatures),
+    ])
+    decorator = _page_decorator(ragione, numero, stato, primary)
+    doc.build(story, onFirstPage=decorator, onLaterPages=decorator)
+    return buffer.getvalue()

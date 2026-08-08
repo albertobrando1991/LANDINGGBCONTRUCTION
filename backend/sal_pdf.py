@@ -6,6 +6,7 @@ import io
 import json
 from datetime import date, datetime
 from html import escape
+from pathlib import Path
 from typing import Any
 
 from reportlab.lib import colors
@@ -15,12 +16,15 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     PageBreak,
+    Image,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
 )
+
+LOGO_PATH = Path(__file__).resolve().parent / "assets" / "email-logo.png"
 
 
 def _as_dict(value: Any) -> dict:
@@ -211,10 +215,27 @@ def genera_pdf_sal(documento: dict) -> bytes:
                 styles["small"],
             )
         )
+    identity: Any = company_lines
+    if "gbconstruction" in str(tenant.get("slug") or "").lower() and LOGO_PATH.exists():
+        identity = Table(
+            [[Image(str(LOGO_PATH), width=27 * mm, height=23 * mm), company_lines]],
+            colWidths=[31 * mm, 77 * mm],
+        )
+        identity.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
     header = Table(
         [
             [
-                company_lines,
+                identity,
                 [
                     Paragraph(f"SAL {numero:02d}", styles["title"]),
                     Paragraph(f"Stato: <b>{_text(stato.upper())}</b>", styles["right"]),
