@@ -161,8 +161,8 @@ def test_import_acca_applica_prezzo_gb_solo_su_match_sicuro():
 
 def test_preventivo_automatico_persist_client_id():
     conn = AsyncMock()
-    conn.fetchval.side_effect = [CLIENTE_ID, None, 1]
-    conn.fetchrow.return_value = {
+    conn.fetchval.side_effect = [None, CLIENTE_ID, None, 1]
+    preventivo = {
         "id": UUID("30000000-0000-4000-8000-000000000001"),
         "tenant_id": UUID(TENANT_ID),
         "computo_id": COMPUTO_ID,
@@ -171,12 +171,13 @@ def test_preventivo_automatico_persist_client_id():
         "numero": "PREV-2026-0001",
         "stato": "bozza",
     }
+    conn.fetchrow.side_effect = [None, preventivo]
     computo = {
         "id": str(COMPUTO_ID),
         "lead_id": LEAD_ID,
-        "stato": "confermato",
-        "totali": {"totale": 1000},
-        "voci": [],
+        "stato": "bozza",
+        "totali": {"totale": 1000, "n_da_validare": 0},
+        "voci": [{"descrizione": "Demolizione", "qta": 10, "prezzo_unitario": 100}],
     }
 
     with patch("boq_service.get_computo", new=AsyncMock(return_value=computo)):
@@ -186,10 +187,62 @@ def test_preventivo_automatico_persist_client_id():
                 TENANT_ID,
                 str(COMPUTO_ID),
                 autore="Operatore GB",
+                consenti_computo_editabile=True,
             )
         )
 
     assert result["cliente_id"] == str(CLIENTE_ID)
-    insert_preventivo = conn.fetchrow.await_args
+    insert_preventivo = conn.fetchrow.await_args_list[1]
     assert "cliente_id" in insert_preventivo.args[0]
     assert insert_preventivo.args[4] == CLIENTE_ID
+
+
+def test_rigenerazione_aggiorna_la_stessa_bozza_senza_creare_copie():
+    preventivo_id = UUID("30000000-0000-4000-8000-000000000001")
+    existing = {
+        "id": preventivo_id,
+        "tenant_id": UUID(TENANT_ID),
+        "computo_id": COMPUTO_ID,
+        "lead_id": UUID(LEAD_ID),
+        "cliente_id": CLIENTE_ID,
+        "numero": "PREV-2026-0001",
+        "stato": "bozza",
+        "sconto_percentuale": Decimal("0"),
+        "iva_percentuale": Decimal("10"),
+    }
+    updated = {
+        **existing,
+        "totale_imponibile": Decimal("1200.00"),
+        "totale_documento": Decimal("1254.00"),
+    }
+    computo = {
+        "id": str(COMPUTO_ID),
+        "lead_id": LEAD_ID,
+        "stato": "bozza",
+        "totali": {"totale": 1200, "n_da_validare": 0},
+        "voci": [{"descrizione": "Demolizione", "qta": 12, "prezzo_unitario": 100}],
+    }
+    conn = AsyncMock()
+    conn.fetchval.side_effect = [None, CLIENTE_ID]
+    conn.fetchrow.side_effect = [existing, updated]
+
+    with patch("boq_service.get_computo", new=AsyncMock(return_value=computo)):
+        result = asyncio.run(
+            boq_service.computo_to_preventivo(
+                conn,
+                TENANT_ID,
+                str(COMPUTO_ID),
+                sconto=5,
+                iva=10,
+                autore="Operatore GB",
+                consenti_computo_editabile=True,
+            )
+        )
+
+    assert result["id"] == str(preventivo_id)
+    assert conn.fetchrow.await_count == 2
+    assert "update public.preventivi" in conn.fetchrow.await_args_list[1].args[0]
+    assert all(
+        "insert into public.preventivi" not in call.args[0]
+        for call in conn.fetchrow.await_args_list
+    )

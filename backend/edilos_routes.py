@@ -575,7 +575,6 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             if auto_preventivo and result["automazione"]["pronto_preventivo"]:
                 importazione = result["importazione"]
                 automazione = result["automazione"]
-                await boq_service.conferma_computo(conn, tenant["id"], result["id"])
                 preventivo = await boq_service.computo_to_preventivo(
                     conn,
                     tenant["id"],
@@ -583,6 +582,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                     sconto=sconto,
                     iva=iva,
                     autore=actor_name(user),
+                    consenti_computo_editabile=True,
                 )
                 result = await boq_service.get_computo(
                     conn, tenant["id"], result["id"]
@@ -590,7 +590,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 result["importazione"] = importazione
                 result["automazione"] = automazione
                 result["preventivo"] = preventivo
-                result["stato_flusso"] = "preventivo_creato"
+                result["stato_flusso"] = "bozza_preventivo_creata"
             else:
                 result["stato_flusso"] = (
                     "revisione_richiesta"
@@ -1167,6 +1167,23 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 raise HTTPException(
                     status_code=409,
                     detail="Puoi inviare soltanto un preventivo in bozza",
+                )
+            computo_stato = await conn.fetchval(
+                """
+                select c.stato
+                from public.computi c
+                where c.id = $1::uuid and c.tenant_id = $2::uuid
+                """,
+                preventivo["computo_id"],
+                tenant["id"],
+            )
+            if computo_stato != "confermato":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Il preventivo e ancora modificabile: conferma prima "
+                        "le voci del computo, poi procedi con l'invio"
+                    ),
                 )
             contact = await conn.fetchrow(
                 """

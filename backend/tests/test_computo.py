@@ -124,6 +124,7 @@ def test_rimuovi_voce_filtra_tenant_e_computo():
             "id": UUID(voce_id),
             "computo_id": computo_id,
         },
+        None,
     ]
 
     deleted = asyncio.run(boq_service.rimuovi_voce(conn, tenant_id, voce_id))
@@ -154,6 +155,58 @@ def test_rimuovi_voce_blocca_computo_confermato():
     assert conn.fetchrow.await_count == 1
 
 
+def test_modifica_voce_sincronizza_la_bozza_preventivo():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    computo_id = UUID("10000000-0000-4000-8000-000000000001")
+    voce_id = "20000000-0000-4000-8000-000000000001"
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [
+        {"computo_id": computo_id, "stato": "bozza"},
+        {
+            "id": UUID(voce_id),
+            "computo_id": computo_id,
+            "descrizione": "Voce aggiornata",
+            "qta": 3,
+            "prezzo_unitario": 120,
+        },
+    ]
+    sync = AsyncMock(return_value={"numero": "PREV-2026-0001"})
+
+    with patch("boq_service.sincronizza_preventivo_bozza", new=sync):
+        result = asyncio.run(
+            boq_service.aggiorna_voce(
+                conn,
+                tenant_id,
+                voce_id,
+                qta=3,
+                prezzo_unitario=120,
+            )
+        )
+
+    assert result["qta"] == 3
+    sync.assert_awaited_once_with(conn, tenant_id, str(computo_id))
+
+
+def test_conferma_blocca_il_computo_prima_della_sincronizzazione_finale():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    computo_id = UUID("10000000-0000-4000-8000-000000000001")
+    current = {"id": computo_id, "stato": "bozza"}
+    confirmed = {"id": computo_id, "stato": "confermato"}
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [current, confirmed]
+    conn.fetchval.return_value = 0
+    sync = AsyncMock(return_value={"numero": "PREV-2026-0001"})
+
+    with patch("boq_service.sincronizza_preventivo_bozza", new=sync):
+        result = asyncio.run(
+            boq_service.conferma_computo(conn, tenant_id, str(computo_id))
+        )
+
+    assert result["stato"] == "confermato"
+    assert "for update" in conn.fetchrow.await_args_list[0].args[0].lower()
+    sync.assert_awaited_once_with(conn, tenant_id, str(computo_id))
+
+
 def test_riordina_voci_richiede_elenco_completo_senza_duplicati():
     tenant_id = "a0000000-0000-4000-8000-000000000001"
     computo_id = "10000000-0000-4000-8000-000000000001"
@@ -162,6 +215,7 @@ def test_riordina_voci_richiede_elenco_completo_senza_duplicati():
     conn = AsyncMock()
     conn.fetchval.return_value = "bozza"
     conn.fetch.return_value = [{"id": first}, {"id": second}]
+    conn.fetchrow.return_value = None
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
@@ -185,6 +239,7 @@ def test_riordina_voci_aggiorna_solo_righe_del_tenant():
     conn = AsyncMock()
     conn.fetchval.return_value = "bozza"
     conn.fetch.return_value = [{"id": first}, {"id": second}]
+    conn.fetchrow.return_value = None
 
     asyncio.run(
         boq_service.riordina_voci(

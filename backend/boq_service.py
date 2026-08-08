@@ -228,7 +228,11 @@ async def _assert_computo_editabile(
     conn: asyncpg.Connection, tenant_id: str, computo_id: str
 ) -> None:
     stato = await conn.fetchval(
-        "select stato from public.computi where id = $1::uuid and tenant_id = $2::uuid",
+        """
+        select stato from public.computi
+        where id = $1::uuid and tenant_id = $2::uuid
+        for update
+        """,
         computo_id,
         tenant_id,
     )
@@ -251,6 +255,7 @@ async def _voce_computo_editabile(
         join public.computi c
           on c.id = v.computo_id and c.tenant_id = v.tenant_id
         where v.id = $1::uuid and v.tenant_id = $2::uuid
+        for update of c
         """,
         voce_id,
         tenant_id,
@@ -344,7 +349,9 @@ async def aggiungi_voce(
         qta,
         float(voce["prezzo_unitario"]),
     )
-    return _d(row)
+    result = _d(row)
+    await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
+    return result
 
 
 async def aggiorna_voce(
@@ -375,7 +382,9 @@ async def aggiorna_voce(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Voce di computo non trovata")
-    return _d(row)
+    result = _d(row)
+    await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
+    return result
 
 
 async def rimuovi_voce(
@@ -394,7 +403,9 @@ async def rimuovi_voce(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Voce di computo non trovata")
-    return _d(row)
+    result = _d(row)
+    await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
+    return result
 
 
 async def riordina_voci(
@@ -427,6 +438,7 @@ async def riordina_voci(
             computo_id,
             tenant_id,
         )
+    await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
 
 
 async def duplica_computo(
@@ -711,6 +723,19 @@ async def get_confronto_variante(
 
 async def conferma_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str) -> dict:
     """409 se restano voci generata_da_ai and not validata_umano."""
+    current = await conn.fetchrow(
+        """
+        select * from public.computi
+        where id = $1::uuid and tenant_id = $2::uuid
+        for update
+        """,
+        computo_id,
+        tenant_id,
+    )
+    if not current:
+        raise HTTPException(status_code=404, detail="Computo non trovato")
+    if current["stato"] in LOCKED_COMPUTO_STATES:
+        return _d(current)
     pending = await conn.fetchval(
         """
         select count(*) from public.computo_voci
@@ -725,6 +750,7 @@ async def conferma_computo(conn: asyncpg.Connection, tenant_id: str, computo_id:
             status_code=409,
             detail=f"Restano {pending} voci automatiche non validate: validale prima di confermare",
         )
+    await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
     row = await conn.fetchrow(
         """
         update public.computi set stato = 'confermato'
@@ -768,16 +794,21 @@ async def valida_voci_ai(
             tenant_id,
         )
     try:
-        return int(result.split()[-1])
+        count = int(result.split()[-1])
     except Exception:
-        return 0
+        count = 0
+    await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
+    return count
 
 
 async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str) -> dict:
     c = await conn.fetchrow(
         """
         select c.*, coalesce(l.nome, cl.nome, ca.cliente) as cliente,
-               p.nome as prezzario_nome
+               p.nome as prezzario_nome,
+               pb.id as preventivo_bozza_id,
+               pb.numero as preventivo_bozza_numero,
+               pb.totale_documento as preventivo_bozza_totale
         from public.computi c
         left join public.leads l
           on l.id = c.lead_id and l.tenant_id = c.tenant_id
@@ -788,6 +819,15 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
          and cl.tenant_id = c.tenant_id
         left join public.prezzari p
           on p.id = c.prezzario_id and p.tenant_id = c.tenant_id
+        left join lateral (
+          select pr.id, pr.numero, pr.totale_documento
+          from public.preventivi pr
+          where pr.computo_id = c.id
+            and pr.tenant_id = c.tenant_id
+            and pr.stato = 'bozza'
+          order by pr.created_at desc, pr.id desc
+          limit 1
+        ) pb on true
         where c.id = $1::uuid and c.tenant_id = $2::uuid
         """,
         computo_id,
@@ -816,6 +856,102 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
     out["voci"] = [_d(v) for v in voci]
     out["totali"] = _d(totali) if totali else {"totale": 0, "n_voci": 0, "n_da_validare": 0}
     return out
+
+
+def _importi_preventivo(computo: dict, sconto: float, iva: float) -> dict:
+    imponibile = round(float(computo["totali"].get("totale") or 0), 2)
+    sconto = max(0.0, min(100.0, float(sconto)))
+    iva = max(0.0, float(iva))
+    netto = imponibile * (1 - sconto / 100)
+    iva_importo = round(netto * iva / 100, 2)
+    return {
+        "imponibile": imponibile,
+        "sconto": sconto,
+        "iva": iva,
+        "iva_importo": iva_importo,
+        "totale": round(netto + iva_importo, 2),
+    }
+
+
+async def _cliente_id_per_computo(
+    conn: asyncpg.Connection, tenant_id: str, computo_id: str
+) -> Any:
+    return await conn.fetchval(
+        """
+        select coalesce(ca.cliente_id, l.cliente_id)
+        from public.computi co
+        left join public.cantieri ca
+          on ca.id = co.cantiere_id and ca.tenant_id = co.tenant_id
+        left join public.leads l
+          on l.id = co.lead_id and l.tenant_id = co.tenant_id
+        where co.id = $1::uuid and co.tenant_id = $2::uuid
+        """,
+        computo_id,
+        tenant_id,
+    )
+
+
+async def sincronizza_preventivo_bozza(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    computo_id: str,
+    *,
+    computo: Optional[dict] = None,
+    preventivo: Optional[asyncpg.Record | dict] = None,
+    sconto: Optional[float] = None,
+    iva: Optional[float] = None,
+) -> dict | None:
+    """Aggiorna la stessa bozza dopo ogni modifica del computo, senza duplicarla."""
+    if preventivo is None:
+        preventivo = await conn.fetchrow(
+            """
+            select * from public.preventivi
+            where tenant_id = $1::uuid and computo_id = $2::uuid
+              and stato = 'bozza'
+            order by created_at desc, id desc
+            limit 1
+            for update
+            """,
+            tenant_id,
+            computo_id,
+        )
+    if not preventivo:
+        return None
+
+    computo = computo or await get_computo(conn, tenant_id, computo_id)
+    terms = _importi_preventivo(
+        computo,
+        preventivo["sconto_percentuale"] if sconto is None else sconto,
+        preventivo["iva_percentuale"] if iva is None else iva,
+    )
+    cliente_id = await _cliente_id_per_computo(conn, tenant_id, computo_id)
+    row = await conn.fetchrow(
+        """
+        update public.preventivi
+        set lead_id = $1::uuid,
+            cliente_id = $2::uuid,
+            totale_imponibile = $3,
+            sconto_percentuale = $4,
+            iva_percentuale = $5,
+            totale_iva = $6,
+            totale_documento = $7,
+            snapshot_voci = $8::jsonb,
+            pdf_path = null
+        where id = $9::uuid and tenant_id = $10::uuid and stato = 'bozza'
+        returning *
+        """,
+        computo.get("lead_id"),
+        cliente_id,
+        terms["imponibile"],
+        terms["sconto"],
+        terms["iva"],
+        terms["iva_importo"],
+        terms["totale"],
+        json.dumps(computo["voci"], default=str),
+        preventivo["id"],
+        tenant_id,
+    )
+    return _d(row) if row else None
 
 
 async def lista_computi(conn: asyncpg.Connection, tenant_id: str) -> list[dict]:
@@ -873,6 +1009,7 @@ async def lista_preventivi(conn: asyncpg.Connection, tenant_id: str) -> list[dic
                p.ultimo_destinatario,
                p.ultimo_email_provider,
                p.ultimo_email_id,
+               co.stato as computo_stato,
                greatest(
                  0,
                  floor(
@@ -887,6 +1024,8 @@ async def lista_preventivi(conn: asyncpg.Connection, tenant_id: str) -> list[dic
           on l.id = p.lead_id and l.tenant_id = p.tenant_id
         left join public.clienti cl
           on cl.id = p.cliente_id and cl.tenant_id = p.tenant_id
+        join public.computi co
+          on co.id = p.computo_id and co.tenant_id = p.tenant_id
         where p.tenant_id = $1::uuid
         order by p.created_at desc
         """,
@@ -1112,34 +1251,57 @@ async def computo_to_preventivo(
     sconto: float = 0,
     iva: float = 10,
     autore: Optional[str] = None,
+    consenti_computo_editabile: bool = False,
 ) -> dict:
     c = await get_computo(conn, tenant_id, computo_id)
-    if c["stato"] != "confermato":
+    pending = int(c["totali"].get("n_da_validare") or 0)
+    editable_ready = (
+        consenti_computo_editabile
+        and c["stato"] not in LOCKED_COMPUTO_STATES
+        and pending == 0
+    )
+    if c["stato"] != "confermato" and not editable_ready:
         raise HTTPException(
             status_code=409,
             detail="Conferma il computo e valida tutte le voci automatiche prima di creare il preventivo",
         )
+    if not c["voci"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Inserisci almeno una voce prima di creare il preventivo",
+        )
 
-    imponibile = float(c["totali"].get("totale") or 0)
-    sconto = max(0.0, min(100.0, float(sconto)))
-    iva = max(0.0, float(iva))
-    netto = imponibile * (1 - sconto / 100)
-    iva_importo = round(netto * iva / 100, 2)
-    totale = round(netto + iva_importo, 2)
-
-    cliente_id = await conn.fetchval(
-        """
-        select coalesce(ca.cliente_id, l.cliente_id)
-        from public.computi co
-        left join public.cantieri ca
-          on ca.id = co.cantiere_id and ca.tenant_id = co.tenant_id
-        left join public.leads l
-          on l.id = co.lead_id and l.tenant_id = co.tenant_id
-        where co.id = $1::uuid and co.tenant_id = $2::uuid
-        """,
-        computo_id,
-        tenant_id,
+    # Una sola bozza modificabile per computo nel percorso applicativo, anche
+    # con richieste concorrenti. La numerazione resta separatamente serializzata.
+    await conn.fetchval(
+        "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+        f"edilos:preventivo-bozza:{tenant_id}:{computo_id}",
     )
+    existing = await conn.fetchrow(
+        """
+        select * from public.preventivi
+        where tenant_id = $1::uuid and computo_id = $2::uuid
+          and stato = 'bozza'
+        order by created_at desc, id desc
+        limit 1
+        for update
+        """,
+        tenant_id,
+        computo_id,
+    )
+    if existing:
+        return await sincronizza_preventivo_bozza(
+            conn,
+            tenant_id,
+            computo_id,
+            computo=c,
+            preventivo=existing,
+            sconto=sconto,
+            iva=iva,
+        )
+
+    terms = _importi_preventivo(c, sconto, iva)
+    cliente_id = await _cliente_id_per_computo(conn, tenant_id, computo_id)
 
     anno = datetime.now(timezone.utc).year
     # Serializza la numerazione per tenant senza dipendere dalla policy UPDATE
@@ -1158,7 +1320,6 @@ async def computo_to_preventivo(
         anno,
     )
     numero = f"PREV-{anno}-{int(progressivo):04d}"
-    snapshot = c["voci"]
     row = await conn.fetchrow(
         """
         insert into public.preventivi (
@@ -1178,12 +1339,12 @@ async def computo_to_preventivo(
         numero,
         anno,
         progressivo,
-        round(imponibile, 2),
-        sconto,
-        iva,
-        iva_importo,
-        totale,
-        json.dumps(snapshot, default=str),
+        terms["imponibile"],
+        terms["sconto"],
+        terms["iva"],
+        terms["iva_importo"],
+        terms["totale"],
+        json.dumps(c["voci"], default=str),
     )
     await conn.execute(
         """

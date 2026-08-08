@@ -100,6 +100,9 @@ export default function Preventivi() {
                   preventivo.cliente,
                 );
                 const gestibile = preventivoGestibile(preventivo);
+                const bozzaModificabile =
+                  preventivo.stato_documento === "bozza" &&
+                  preventivo.computo_stato !== "confermato";
                 return (
                   <tr
                     key={`${preventivo.source || "legacy"}-${preventivo.id}`}
@@ -131,11 +134,17 @@ export default function Preventivi() {
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`rounded-full px-2 py-1 font-display text-[10px] uppercase ${STATI[preventivo.status]?.bg || "bg-slate-500/20"} ${STATI[preventivo.status]?.color || "text-fog"}`}
+                        className={`rounded-full px-2 py-1 font-display text-[10px] uppercase ${
+                          bozzaModificabile
+                            ? "bg-amber-500/15 text-amber-300"
+                            : `${STATI[preventivo.status]?.bg || "bg-slate-500/20"} ${STATI[preventivo.status]?.color || "text-fog"}`
+                        }`}
                       >
-                        {STATI[preventivo.status]?.label ||
-                          preventivo.stato_documento ||
-                          "—"}
+                        {bozzaModificabile
+                          ? "Bozza modificabile"
+                          : STATI[preventivo.status]?.label ||
+                            preventivo.stato_documento ||
+                            "—"}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -158,7 +167,7 @@ export default function Preventivi() {
                       onClick={(event) => event.stopPropagation()}
                     >
                       <div className="flex items-center justify-end gap-3 text-fog">
-                        {gestibile && (
+                        {gestibile && !bozzaModificabile && (
                           <button
                             type="button"
                             onClick={() => setSelectedPreventivo(preventivo)}

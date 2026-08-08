@@ -262,7 +262,8 @@ function ImportComputoModal({ open, pending, onClose, onSubmit }) {
               <span className="mt-1 block text-xs leading-5 text-fog">
                 Il sistema procede soltanto se ogni codice ACCA trova una sola
                 voce GB con la stessa unità di misura. Ambiguità e voci mancanti
-                vengono fermate nell’editor, senza approvazioni automatiche.
+                vengono fermate nell’editor. La bozza generata resta sempre
+                modificabile e non viene confermata automaticamente.
               </span>
             </span>
           </label>
@@ -342,9 +343,9 @@ export default function Computi() {
       qc.invalidateQueries({ queryKey: ["preventivi"] });
       if (computo.preventivo) {
         toast.success(
-          `${extraction.n_voci || 0} voci estratte e valorizzate. Preventivo ${computo.preventivo.numero} creato.`,
+          `${extraction.n_voci || 0} voci estratte. Bozza ${computo.preventivo.numero} creata: controlla e modifica le singole voci prima della conferma.`,
         );
-        navigate("/dashboard/preventivi");
+        navigate(`/dashboard/computi/${computo.id}`);
         return;
       }
       if (Number(extraction.n_da_verificare || 0) > 0) {

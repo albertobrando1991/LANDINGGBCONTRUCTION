@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Check,
   Copy,
+  FileDown,
   Loader2,
   Save,
   Trash2,
@@ -243,6 +244,7 @@ export default function ComputoEditor() {
       qc.invalidateQueries({ queryKey: ["computo", id] }),
       qc.invalidateQueries({ queryKey: ["confronto-variante", id] }),
       qc.invalidateQueries({ queryKey: ["computi"] }),
+      qc.invalidateQueries({ queryKey: ["preventivi"] }),
     ]);
 
   const add = useMutation({
@@ -254,7 +256,11 @@ export default function ComputoEditor() {
         })
       ).data,
     onSuccess: async () => {
-      toast.success("Voce aggiunta");
+      toast.success(
+        computo?.preventivo_bozza_id
+          ? "Voce aggiunta e bozza preventivo aggiornata"
+          : "Voce aggiunta",
+      );
       setVoceId("");
       await refresh();
     },
@@ -266,7 +272,11 @@ export default function ComputoEditor() {
     mutationFn: async ({ id: currentVoceId, patch }) =>
       (await client.patch(`/computi/voci/${currentVoceId}`, patch)).data,
     onSuccess: async () => {
-      toast.success("Voce aggiornata");
+      toast.success(
+        computo?.preventivo_bozza_id
+          ? "Voce aggiornata e bozza preventivo sincronizzata"
+          : "Voce aggiornata",
+      );
       await refresh();
     },
     onError: (error) =>
@@ -277,7 +287,11 @@ export default function ComputoEditor() {
     mutationFn: async (currentVoceId) =>
       (await client.delete(`/computi/voci/${currentVoceId}`)).data,
     onSuccess: async () => {
-      toast.success("Voce eliminata");
+      toast.success(
+        computo?.preventivo_bozza_id
+          ? "Voce eliminata e bozza preventivo aggiornata"
+          : "Voce eliminata",
+      );
       await refresh();
     },
     onError: (error) =>
@@ -295,7 +309,7 @@ export default function ComputoEditor() {
   const confirm = useMutation({
     mutationFn: async () => (await client.post(`/computi/${id}/conferma`)).data,
     onSuccess: async () => {
-      toast.success("Computo confermato");
+      toast.success("Dati confermati: il preventivo è pronto per l’invio");
       await refresh();
     },
     onError: (error) =>
@@ -347,10 +361,34 @@ export default function ComputoEditor() {
           iva: 10,
         })
       ).data,
-    onSuccess: (preventivo) =>
-      toast.success(`Preventivo ${preventivo.numero} creato`),
+    onSuccess: async (preventivo) => {
+      await refresh();
+      toast.success(`Preventivo ${preventivo.numero} pronto`);
+      navigate("/dashboard/preventivi");
+    },
     onError: (error) =>
       toast.error(error?.response?.data?.detail || "Errore preventivo"),
+  });
+
+  const previewPdf = useMutation({
+    mutationFn: async () =>
+      (
+        await client.get(`/preventivi/${computo.preventivo_bozza_id}/pdf`, {
+          responseType: "blob",
+        })
+      ).data,
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${computo.preventivo_bozza_numero || "preventivo-bozza"}.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    },
+    onError: (error) =>
+      toast.error(
+        error?.response?.data?.detail || "Anteprima PDF non disponibile",
+      ),
   });
 
   if (isLoading || !computo) {
@@ -455,24 +493,61 @@ export default function ComputoEditor() {
               disabled={confirm.isPending || voci.length === 0}
               className="rounded-xl bg-brand px-3 py-2 text-xs font-display uppercase text-white disabled:opacity-40"
             >
-              Conferma
+              Conferma dati finali
+            </button>
+          )}
+          {!locked && computo.preventivo_bozza_id && (
+            <button
+              type="button"
+              onClick={() => previewPdf.mutate()}
+              disabled={previewPdf.isPending}
+              className="inline-flex items-center gap-2 rounded-xl border border-brand/40 px-3 py-2 text-xs font-display uppercase text-brand disabled:opacity-40"
+            >
+              {previewPdf.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileDown className="h-4 w-4" />
+              )}
+              Anteprima bozza
             </button>
           )}
           <button
             type="button"
-            onClick={() => toPreventivo.mutate()}
+            onClick={() =>
+              computo.preventivo_bozza_id
+                ? navigate("/dashboard/preventivi")
+                : toPreventivo.mutate()
+            }
             disabled={computo.stato !== "confermato" || toPreventivo.isPending}
             title={
               computo.stato !== "confermato"
-                ? "Conferma prima il computo"
-                : "Crea preventivo"
+                ? "Conferma prima i dati finali"
+                : computo.preventivo_bozza_id
+                  ? "Apri il preventivo confermato"
+                  : "Crea preventivo"
             }
             className="rounded-xl border border-brand/40 px-3 py-2 text-xs font-display uppercase text-brand disabled:cursor-not-allowed disabled:opacity-40"
           >
-            → Preventivo
+            {computo.preventivo_bozza_id
+              ? "Apri preventivo"
+              : "Genera preventivo"}
           </button>
         </div>
       </div>
+
+      {!locked && computo.preventivo_bozza_id && (
+        <div className="border-l-4 border-brand bg-brand/5 px-5 py-4">
+          <p className="text-sm font-semibold text-ink">
+            Bozza {computo.preventivo_bozza_numero} generata e modificabile
+          </p>
+          <p className="mt-1 text-xs leading-5 text-fog">
+            Puoi modificare descrizione, quantità, prezzo, ordine, aggiungere o
+            eliminare singole voci. Totali e PDF vengono sincronizzati sulla
+            stessa bozza. Conferma i dati soltanto quando il controllo è
+            concluso.
+          </p>
+        </div>
+      )}
 
       {computo.tipo === "variante" && <VarianteComparison computoId={id} />}
 
