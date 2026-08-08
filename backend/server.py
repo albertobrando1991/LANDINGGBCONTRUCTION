@@ -2126,6 +2126,13 @@ async def startup():
         await db_pg.init_pool()
         if db_pg.pool_ready():
             logger.info("Postgres pool ready (Supabase)")
+            try:
+                from system_jobs.sync_campania_prezzario import run as sync_campania
+
+                sync_result = await sync_campania()
+                logger.info("Prezzario Campania 2026 verificato: %s", sync_result)
+            except Exception as sync_exc:
+                logger.warning("Sync Prezzario Campania non eseguito: %s", sync_exc)
     except Exception as exc:
         logger.warning("Postgres pool non avviato: %s", exc)
     await db.users.create_index("email", unique=True)

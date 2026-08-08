@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Copy, Pencil, Plus, RefreshCw, Save, Star, Upload, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Pencil, Plus, RefreshCw, Save, Star, Upload, X } from "lucide-react";
 import client from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -22,6 +22,7 @@ export default function Prezzario() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState(null);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
   const [editor, setEditor] = useState(null);
   const [voceForm, setVoceForm] = useState(EMPTY_VOCE);
 
@@ -32,12 +33,13 @@ export default function Prezzario() {
 
   const activeId = selected || prezzari.find((p) => p.is_default)?.id || prezzari[0]?.id;
 
-  const { data: voci = [] } = useQuery({
-    queryKey: ["prezzario-voci", activeId, q],
+  const { data: vociData = { items: [], total: 0, pages: 1 } } = useQuery({
+    queryKey: ["prezzario-voci", activeId, q, page],
     enabled: Boolean(activeId),
     queryFn: async () =>
-      (await client.get(`/prezzario/${activeId}/voci`, { params: { q: q || undefined } })).data,
+      (await client.get(`/prezzario/${activeId}/voci`, { params: { q: q || undefined, page, page_size: 50 } })).data,
   });
+  const voci = vociData.items || [];
 
   const duplica = useMutation({
     mutationFn: async (id) =>
@@ -189,7 +191,7 @@ export default function Prezzario() {
           <button
             key={p.id}
             type="button"
-            onClick={() => setSelected(p.id)}
+            onClick={() => { setSelected(p.id); setPage(1); }}
             className={`px-3 py-2 rounded-xl text-xs font-display uppercase tracking-wider border ${
               p.id === activeId ? "border-brand bg-brand/15 text-brand" : "border-stroke text-fog"
             }`}
@@ -236,7 +238,7 @@ export default function Prezzario() {
         <input
           aria-label="Cerca voce o codice nel prezzario"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => { setQ(e.target.value); setPage(1); }}
           placeholder="Cerca voce o codice…"
           className="w-full max-w-md bg-surface border border-stroke rounded-xl px-3 py-2 text-sm text-ink"
         />
@@ -261,6 +263,14 @@ export default function Prezzario() {
             }}
           />
         </label>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-fog">
+        <span>{Number(vociData.total || 0).toLocaleString("it-IT")} voci complete · pagina {page} di {vociData.pages || 1}</span>
+        <div className="flex gap-2">
+          <button type="button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-lg border border-stroke p-2 disabled:opacity-40" aria-label="Pagina precedente"><ChevronLeft className="h-4 w-4" /></button>
+          <button type="button" disabled={page >= (vociData.pages || 1)} onClick={() => setPage((value) => value + 1)} className="rounded-lg border border-stroke p-2 disabled:opacity-40" aria-label="Pagina successiva"><ChevronRight className="h-4 w-4" /></button>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-stroke">

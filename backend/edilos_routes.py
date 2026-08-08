@@ -418,11 +418,19 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         prezzario_id: str,
         q: Optional[str] = None,
         categoria: Optional[str] = None,
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=100),
     ):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             return await prezzario_service.lista_voci(
-                conn, tenant["id"], prezzario_id, q=q, categoria=categoria
+                conn,
+                tenant["id"],
+                prezzario_id,
+                q=q,
+                categoria=categoria,
+                page=page,
+                page_size=page_size,
             )
 
     @api.post("/prezzario/{prezzario_id}/voci", status_code=201)

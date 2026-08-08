@@ -216,6 +216,7 @@ export default function ComputoEditor() {
   const [voceId, setVoceId] = useState("");
   const [qta, setQta] = useState(1);
   const [prezzarioId, setPrezzarioId] = useState("");
+  const [prezzarioQuery, setPrezzarioQuery] = useState("");
 
   const { data: computo, isLoading } = useQuery({
     queryKey: ["computo", id],
@@ -232,12 +233,13 @@ export default function ComputoEditor() {
     prezzari.find((prezzario) => prezzario.is_default)?.id ||
     prezzari[0]?.id;
 
-  const { data: vociPrezz = [] } = useQuery({
-    queryKey: ["prezzario-voci-editor", activePrezz],
+  const { data: vociPrezzData = { items: [] } } = useQuery({
+    queryKey: ["prezzario-voci-editor", activePrezz, prezzarioQuery],
     enabled: Boolean(activePrezz),
     queryFn: async () =>
-      (await client.get(`/prezzario/${activePrezz}/voci`)).data,
+      (await client.get(`/prezzario/${activePrezz}/voci`, { params: { q: prezzarioQuery || undefined, page_size: 50 } })).data,
   });
+  const vociPrezz = vociPrezzData.items || [];
 
   const refresh = () =>
     Promise.all([
@@ -573,6 +575,13 @@ export default function ComputoEditor() {
             <label className="text-[10px] font-display uppercase tracking-wider text-fog">
               Voce
             </label>
+            <input
+              type="search"
+              value={prezzarioQuery}
+              onChange={(event) => { setPrezzarioQuery(event.target.value); setVoceId(""); }}
+              placeholder="Cerca codice o descrizione…"
+              className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
+            />
             <select
               className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
               value={voceId}

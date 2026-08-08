@@ -28,7 +28,8 @@ async def lista_prezzari(conn: asyncpg.Connection, tenant_id: str) -> list[dict]
     rows = await conn.fetch(
         """
         select p.*,
-               (select count(*) from public.prezzario_voci v where v.prezzario_id = p.id) as n_voci
+               (select count(*) from public.prezzario_voci v
+                where v.prezzario_id = p.id and v.attiva = true) as n_voci
         from public.prezzari p
         where p.tenant_id = $1::uuid
         order by p.is_default desc, p.created_at
@@ -107,7 +108,7 @@ async def duplica_prezzario(
         select tenant_id, $1::uuid, codice, super_categoria, categoria, sub_categoria,
                descrizione, um, prezzo_unitario, prezzo_unitario, tipo, chiave_wizard, attiva
         from public.prezzario_voci
-        where prezzario_id = $2::uuid and tenant_id = $3::uuid
+        where prezzario_id = $2::uuid and tenant_id = $3::uuid and attiva = true
         """,
         new_id,
         prezzario_id,
@@ -342,7 +343,9 @@ async def lista_voci(
     *,
     q: Optional[str] = None,
     categoria: Optional[str] = None,
-) -> list[dict]:
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
     sql = """
         select * from public.prezzario_voci
         where tenant_id = $1::uuid and prezzario_id = $2::uuid and attiva = true
@@ -354,9 +357,20 @@ async def lista_voci(
     if q:
         args.append(f"%{q}%")
         sql += f" and (descrizione ilike ${len(args)} or codice ilike ${len(args)})"
-    sql += " order by super_categoria, categoria, descrizione"
+    total = await conn.fetchval(f"select count(*) from ({sql}) filtered", *args)
+    args.extend([page_size, (page - 1) * page_size])
+    sql += (
+        f" order by super_categoria, categoria, codice, descrizione"
+        f" limit ${len(args)-1} offset ${len(args)}"
+    )
     rows = await conn.fetch(sql, *args)
-    return [_d(r) for r in rows]
+    return {
+        "items": [_d(r) for r in rows],
+        "total": int(total or 0),
+        "page": page,
+        "page_size": page_size,
+        "pages": max(1, (int(total or 0) + page_size - 1) // page_size),
+    }
 
 
 async def _require_prezzario_modificabile(
