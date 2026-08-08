@@ -354,6 +354,54 @@ async def aggiungi_voce(
     return result
 
 
+async def aggiungi_voce_libera(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    computo_id: str,
+    descrizione: str,
+    um: str,
+    qta: float,
+    prezzo_unitario: float,
+) -> dict:
+    """Aggiunge una voce scritta al momento, senza dipendere dal prezzario."""
+    await _assert_computo_editabile(conn, tenant_id, computo_id)
+
+    ordine = await conn.fetchval(
+        """
+        select coalesce(max(ordine), 0) + 10
+        from public.computo_voci
+        where computo_id = $1::uuid and tenant_id = $2::uuid
+        """,
+        computo_id,
+        tenant_id,
+    )
+    um_pulita = um.strip()
+    row = await conn.fetchrow(
+        """
+        insert into public.computo_voci (
+          tenant_id, computo_id, origine_voce_id, ordine,
+          super_categoria, categoria, sub_categoria, descrizione, um, tipo,
+          qta, prezzo_unitario, generata_da_ai, validata_umano
+        ) values (
+          $1::uuid, $2::uuid, null, $3,
+          'Voci libere', 'Voci libere', null, $4, $5, $6,
+          $7, $8, false, true
+        ) returning *
+        """,
+        tenant_id,
+        computo_id,
+        ordine,
+        descrizione.strip(),
+        um_pulita,
+        "a_corpo" if um_pulita.lower() in {"corpo", "a corpo"} else "a_misura",
+        qta,
+        prezzo_unitario,
+    )
+    result = _d(row)
+    await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
+    return result
+
+
 async def aggiorna_voce(
     conn: asyncpg.Connection, tenant_id: str, voce_id: str, **campi
 ) -> dict:

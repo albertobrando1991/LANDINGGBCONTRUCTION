@@ -116,6 +116,13 @@ class AggiungiVoceBody(BaseModel):
     qta: float = Field(default=1, ge=0)
 
 
+class AggiungiVoceLiberaBody(BaseModel):
+    descrizione: str = Field(min_length=1, max_length=500)
+    um: str = Field(min_length=1, max_length=50)
+    qta: float = Field(default=1, ge=0)
+    prezzo_unitario: float = Field(ge=0)
+
+
 class AggiornaVoceBody(BaseModel):
     qta: Optional[float] = Field(default=None, ge=0)
     prezzo_unitario: Optional[float] = Field(default=None, ge=0)
@@ -619,6 +626,22 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         async with get_tenant_conn(request, user) as (conn, tenant):
             return await boq_service.aggiungi_voce(
                 conn, tenant["id"], computo_id, body.prezzario_voce_id, body.qta
+            )
+
+    @api.post("/computi/{computo_id}/voci-libere")
+    async def add_voce_libera(
+        request: Request, computo_id: str, body: AggiungiVoceLiberaBody
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            return await boq_service.aggiungi_voce_libera(
+                conn,
+                tenant["id"],
+                computo_id,
+                body.descrizione,
+                body.um,
+                body.qta,
+                body.prezzo_unitario,
             )
 
     @api.patch("/computi/voci/{voce_id}")

@@ -187,6 +187,44 @@ def test_modifica_voce_sincronizza_la_bozza_preventivo():
     sync.assert_awaited_once_with(conn, tenant_id, str(computo_id))
 
 
+def test_aggiungi_voce_libera_senza_prezzario_e_sincronizza_preventivo():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    computo_id = "10000000-0000-4000-8000-000000000001"
+    conn = AsyncMock()
+    conn.fetchval.side_effect = ["bozza", 20]
+    conn.fetchrow.return_value = {
+        "id": UUID("20000000-0000-4000-8000-000000000001"),
+        "computo_id": UUID(computo_id),
+        "origine_voce_id": None,
+        "descrizione": "Lavorazione speciale su misura",
+        "um": "mq",
+        "qta": 12.5,
+        "prezzo_unitario": 37.2,
+        "validata_umano": True,
+    }
+    sync = AsyncMock(return_value={"numero": "PREV-2026-0001"})
+
+    with patch("boq_service.sincronizza_preventivo_bozza", new=sync):
+        result = asyncio.run(
+            boq_service.aggiungi_voce_libera(
+                conn,
+                tenant_id,
+                computo_id,
+                "  Lavorazione speciale su misura  ",
+                " mq ",
+                12.5,
+                37.2,
+            )
+        )
+
+    assert result["origine_voce_id"] is None
+    insert_call = conn.fetchrow.await_args
+    assert "origine_voce_id" in insert_call.args[0]
+    assert "null" in insert_call.args[0].lower()
+    assert insert_call.args[4:6] == ("Lavorazione speciale su misura", "mq")
+    sync.assert_awaited_once_with(conn, tenant_id, computo_id)
+
+
 def test_conferma_blocca_il_computo_prima_della_sincronizzazione_finale():
     tenant_id = "a0000000-0000-4000-8000-000000000001"
     computo_id = UUID("10000000-0000-4000-8000-000000000001")

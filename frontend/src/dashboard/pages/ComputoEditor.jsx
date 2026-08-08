@@ -217,6 +217,13 @@ export default function ComputoEditor() {
   const [qta, setQta] = useState(1);
   const [prezzarioId, setPrezzarioId] = useState("");
   const [prezzarioQuery, setPrezzarioQuery] = useState("");
+  const [modalitaVoce, setModalitaVoce] = useState("prezzario");
+  const [voceLibera, setVoceLibera] = useState({
+    descrizione: "",
+    um: "cad",
+    qta: 1,
+    prezzo_unitario: "",
+  });
 
   const { data: computo, isLoading } = useQuery({
     queryKey: ["computo", id],
@@ -237,7 +244,11 @@ export default function ComputoEditor() {
     queryKey: ["prezzario-voci-editor", activePrezz, prezzarioQuery],
     enabled: Boolean(activePrezz),
     queryFn: async () =>
-      (await client.get(`/prezzario/${activePrezz}/voci`, { params: { q: prezzarioQuery || undefined, page_size: 50 } })).data,
+      (
+        await client.get(`/prezzario/${activePrezz}/voci`, {
+          params: { q: prezzarioQuery || undefined, page_size: 50 },
+        })
+      ).data,
   });
   const vociPrezz = vociPrezzData.items || [];
 
@@ -250,13 +261,24 @@ export default function ComputoEditor() {
     ]);
 
   const add = useMutation({
-    mutationFn: async () =>
-      (
+    mutationFn: async () => {
+      if (modalitaVoce === "libera") {
+        return (
+          await client.post(`/computi/${id}/voci-libere`, {
+            descrizione: voceLibera.descrizione.trim(),
+            um: voceLibera.um.trim(),
+            qta: Number(voceLibera.qta),
+            prezzo_unitario: Number(voceLibera.prezzo_unitario),
+          })
+        ).data;
+      }
+      return (
         await client.post(`/computi/${id}/voci`, {
           prezzario_voce_id: voceId,
           qta: Number(qta),
         })
-      ).data,
+      ).data;
+    },
     onSuccess: async () => {
       toast.success(
         computo?.preventivo_bozza_id
@@ -264,6 +286,12 @@ export default function ComputoEditor() {
           : "Voce aggiunta",
       );
       setVoceId("");
+      setVoceLibera({
+        descrizione: "",
+        um: "cad",
+        qta: 1,
+        prezzo_unitario: "",
+      });
       await refresh();
     },
     onError: (error) =>
@@ -554,71 +582,185 @@ export default function ComputoEditor() {
       {computo.tipo === "variante" && <VarianteComparison computoId={id} />}
 
       {!locked && (
-        <div className="grid items-end gap-2 rounded-2xl border border-stroke bg-surface p-4 md:grid-cols-12">
-          <div className="md:col-span-3">
-            <label className="text-[10px] font-display uppercase tracking-wider text-fog">
-              Prezzario
-            </label>
-            <select
-              className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
-              value={activePrezz || ""}
-              onChange={(event) => setPrezzarioId(event.target.value)}
-            >
-              {prezzari.map((prezzario) => (
-                <option key={prezzario.id} value={prezzario.id}>
-                  {prezzario.nome}
-                </option>
-              ))}
-            </select>
+        <div className="rounded-2xl border border-stroke bg-surface p-4">
+          <div className="mb-4 flex flex-wrap gap-2">
+            {[
+              ["prezzario", "Dal prezzario"],
+              ["libera", "Voce libera"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setModalitaVoce(value)}
+                className={`rounded-lg px-3 py-2 text-xs font-display uppercase ${modalitaVoce === value ? "bg-brand text-white" : "border border-stroke bg-surface-2 text-ink"}`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-          <div className="md:col-span-6">
-            <label className="text-[10px] font-display uppercase tracking-wider text-fog">
-              Voce
-            </label>
-            <input
-              type="search"
-              value={prezzarioQuery}
-              onChange={(event) => { setPrezzarioQuery(event.target.value); setVoceId(""); }}
-              placeholder="Cerca codice o descrizione…"
-              className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
-            />
-            <select
-              className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
-              value={voceId}
-              onChange={(event) => setVoceId(event.target.value)}
-            >
-              <option value="">Seleziona…</option>
-              {vociPrezz.map((voce) => (
-                <option key={voce.id} value={voce.id}>
-                  {voce.codice} — {voce.descrizione} (€{" "}
-                  {Number(voce.prezzo_unitario).toFixed(2)})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="md:col-span-1">
-            <label className="text-[10px] font-display uppercase tracking-wider text-fog">
-              Q.tà
-            </label>
-            <input
-              type="number"
-              min="0"
-              step="0.001"
-              value={qta}
-              onChange={(event) => setQta(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
-            />
-          </div>
-          <div className="md:col-span-2">
-            <button
-              type="button"
-              disabled={!voceId || add.isPending}
-              onClick={() => add.mutate()}
-              className="w-full rounded-xl border border-stroke bg-surface-2 px-3 py-2 text-xs font-display uppercase text-ink disabled:opacity-40"
-            >
-              {add.isPending ? "Aggiunta…" : "Aggiungi"}
-            </button>
-          </div>
+
+          {modalitaVoce === "prezzario" ? (
+            <div className="grid items-end gap-2 md:grid-cols-12">
+              <div className="md:col-span-3">
+                <label className="text-[10px] font-display uppercase tracking-wider text-fog">
+                  Prezzario
+                </label>
+                <select
+                  className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
+                  value={activePrezz || ""}
+                  onChange={(event) => setPrezzarioId(event.target.value)}
+                >
+                  {prezzari.map((prezzario) => (
+                    <option key={prezzario.id} value={prezzario.id}>
+                      {prezzario.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="md:col-span-6">
+                <label className="text-[10px] font-display uppercase tracking-wider text-fog">
+                  Voce
+                </label>
+                <input
+                  type="search"
+                  value={prezzarioQuery}
+                  onChange={(event) => {
+                    setPrezzarioQuery(event.target.value);
+                    setVoceId("");
+                  }}
+                  placeholder="Cerca codice o descrizione…"
+                  className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
+                />
+                <select
+                  className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
+                  value={voceId}
+                  onChange={(event) => setVoceId(event.target.value)}
+                >
+                  <option value="">Seleziona…</option>
+                  {vociPrezz.map((voce) => (
+                    <option key={voce.id} value={voce.id}>
+                      {voce.codice} — {voce.descrizione} (€{" "}
+                      {Number(voce.prezzo_unitario).toFixed(2)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="md:col-span-1">
+                <label className="text-[10px] font-display uppercase tracking-wider text-fog">
+                  Q.tà
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  value={qta}
+                  onChange={(event) => setQta(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <button
+                  type="button"
+                  disabled={!voceId || add.isPending}
+                  onClick={() => add.mutate()}
+                  className="w-full rounded-xl border border-stroke bg-surface-2 px-3 py-2 text-xs font-display uppercase text-ink disabled:opacity-40"
+                >
+                  {add.isPending ? "Aggiunta…" : "Aggiungi"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid items-end gap-2 md:grid-cols-12">
+              <div className="md:col-span-5">
+                <label className="text-[10px] font-display uppercase tracking-wider text-fog">
+                  Descrizione nuova voce
+                </label>
+                <input
+                  type="text"
+                  maxLength={500}
+                  value={voceLibera.descrizione}
+                  onChange={(event) =>
+                    setVoceLibera((current) => ({
+                      ...current,
+                      descrizione: event.target.value,
+                    }))
+                  }
+                  placeholder="Scrivi la lavorazione o il materiale…"
+                  className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-[10px] font-display uppercase tracking-wider text-fog">
+                  UM
+                </label>
+                <input
+                  type="text"
+                  maxLength={50}
+                  value={voceLibera.um}
+                  onChange={(event) =>
+                    setVoceLibera((current) => ({
+                      ...current,
+                      um: event.target.value,
+                    }))
+                  }
+                  placeholder="mq, mc, cad…"
+                  className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
+                />
+              </div>
+              <div className="md:col-span-1">
+                <label className="text-[10px] font-display uppercase tracking-wider text-fog">
+                  Q.tà
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  value={voceLibera.qta}
+                  onChange={(event) =>
+                    setVoceLibera((current) => ({
+                      ...current,
+                      qta: event.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-[10px] font-display uppercase tracking-wider text-fog">
+                  Prezzo unitario €
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={voceLibera.prezzo_unitario}
+                  onChange={(event) =>
+                    setVoceLibera((current) => ({
+                      ...current,
+                      prezzo_unitario: event.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-2 text-sm text-ink"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <button
+                  type="button"
+                  disabled={
+                    !voceLibera.descrizione.trim() ||
+                    !voceLibera.um.trim() ||
+                    voceLibera.qta === "" ||
+                    voceLibera.prezzo_unitario === "" ||
+                    add.isPending
+                  }
+                  onClick={() => add.mutate()}
+                  className="w-full rounded-xl border border-stroke bg-surface-2 px-3 py-2 text-xs font-display uppercase text-ink disabled:opacity-40"
+                >
+                  {add.isPending ? "Aggiunta…" : "Aggiungi voce libera"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
