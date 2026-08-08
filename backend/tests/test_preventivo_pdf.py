@@ -54,6 +54,8 @@ def test_professional_quote_contains_brand_customer_and_totals():
     text = "\n".join(page.get_text() for page in document)
     assert len(pdf) > 5000
     assert "G.B. Construction" in text
+    assert "PROPOSTA" in text
+    assert "ECONOMICA" in text
     assert "Mario Rossi" in text
     assert "PREV-2026-0042" in text
     assert "TOTALE OFFERTA" in text
@@ -66,9 +68,12 @@ def test_long_quote_repeats_table_header_and_numbers_pages():
     document = fitz.open(stream=pdf, filetype="pdf")
     assert document.page_count >= 3
     pages_with_table = 0
+    assert "PROPOSTA" in document[0].get_text()
+    assert "INVESTIMENTO" in document[0].get_text()
     for index, page in enumerate(document, 1):
         text = page.get_text()
         pages_with_table += "DESCRIZIONE DELLE OPERE" in text
-        assert f"Pagina {index}" in text
+        if index > 1:
+            assert f"Pagina {index}" in text
     assert pages_with_table >= 2
     document.close()
