@@ -11,6 +11,7 @@ from uuid import UUID
 import asyncpg
 from fastapi import HTTPException
 
+import fasi_lavorazione
 from engines.metriche import MetricheComputo, assert_nessun_prezzo, estrai_metriche
 
 
@@ -44,6 +45,8 @@ class VoceComputo:
     qta: float
     prezzo_unitario: float
     ordine: int
+    fase: str
+    fase_ordine: int
     generata_da_ai: bool = True
     validata_umano: bool = False
     metrica: str = ""
@@ -85,6 +88,12 @@ def genera_voci(
         qta = base * float(regola.moltiplicatore)
         if qta <= 0:
             continue
+        fase_ordine, fase = fasi_lavorazione.classifica(
+            super_categoria=regola.super_categoria,
+            categoria=regola.categoria,
+            sub_categoria=regola.sub_categoria,
+            descrizione=regola.descrizione,
+        )
         out.append(
             VoceComputo(
                 origine_voce_id=regola.prezzario_voce_id,
@@ -97,6 +106,8 @@ def genera_voci(
                 qta=round(qta, 3),
                 prezzo_unitario=float(regola.prezzo_unitario),
                 ordine=regola.ordine,
+                fase=fase,
+                fase_ordine=fase_ordine,
                 metrica=regola.metrica,
             )
         )
@@ -236,11 +247,11 @@ async def genera_computo_da_ai(
             insert into public.computo_voci (
               tenant_id, computo_id, origine_voce_id, ordine,
               super_categoria, categoria, sub_categoria, descrizione, um, tipo,
-              qta, prezzo_unitario, generata_da_ai, validata_umano
+              qta, prezzo_unitario, fase, fase_ordine, generata_da_ai, validata_umano
             ) values (
               $1::uuid, $2::uuid, $3::uuid, $4,
               $5, $6, $7, $8, $9, $10,
-              $11, $12, true, false
+              $11, $12, $13, $14, true, false
             )
             """,
             tenant_id,
@@ -255,6 +266,8 @@ async def genera_computo_da_ai(
             v.tipo,
             v.qta,
             v.prezzo_unitario,
+            v.fase,
+            v.fase_ordine,
         )
 
     totale = await conn.fetchval(

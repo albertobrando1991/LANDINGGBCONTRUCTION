@@ -32,6 +32,7 @@ from pydantic import (
 
 import auth as authlib
 import acca_pdf_parser
+import cronoprogramma
 import boq_service
 import client_portal_service
 import db as db_pg
@@ -128,6 +129,9 @@ class AggiornaVoceBody(BaseModel):
     prezzo_unitario: Optional[float] = Field(default=None, ge=0)
     descrizione: Optional[str] = Field(default=None, min_length=1, max_length=500)
     validata_umano: Optional[bool] = None
+    fase: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    # Stringa vuota ammessa: azzera l'area assegnata alla voce.
+    area: Optional[str] = Field(default=None, max_length=120)
 
 
 class RiordinaBody(BaseModel):
@@ -700,6 +704,29 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             )
             return {"validate": n}
 
+    @api.post("/computi/{computo_id}/riclassifica")
+    async def riclassifica(
+        request: Request, computo_id: str, forza: bool = False
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            n = await boq_service.riclassifica_computo(
+                conn, tenant["id"], computo_id, forza=forza
+            )
+            return {"riclassificate": n}
+
+    @api.get("/computi/{computo_id}/controlli")
+    async def controlli_computo(request: Request, computo_id: str):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            computo = await boq_service.get_computo(conn, tenant["id"], computo_id)
+            return {
+                "controlli": computo["controlli"],
+                "riepilogo_fasi": computo["riepilogo_fasi"],
+                "n_senza_fase": computo["n_senza_fase"],
+                "cronoprogramma": cronoprogramma.stima(computo["voci"]),
+            }
+
     @api.post("/computi/{computo_id}/conferma")
     async def conferma(request: Request, computo_id: str):
         user = await _user(request, db)
@@ -1117,7 +1144,11 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         return m.model_dump()
 
     @api.get("/preventivi/{preventivo_id}/pdf")
-    async def preventivo_pdf(request: Request, preventivo_id: str):
+    async def preventivo_pdf(
+        request: Request,
+        preventivo_id: str,
+        dettaglio: Literal["analitico", "sintetico"] = "analitico",
+    ):
         from fastapi.responses import Response
         import json
 
@@ -1154,7 +1185,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             if isinstance(prev.get("snapshot_voci"), str):
                 prev["snapshot_voci"] = json.loads(prev["snapshot_voci"])
             tenant_pdf = {**tenant, "piva": prev.pop("tenant_piva", None)}
-            pdf = genera_pdf_preventivo(prev, tenant_pdf)
+            pdf = genera_pdf_preventivo(prev, tenant_pdf, dettaglio=dettaglio)
             return Response(
                 content=pdf,
                 media_type="application/pdf",

@@ -12,11 +12,14 @@ import {
   Trash2,
 } from "lucide-react";
 import client from "@/lib/api";
-import { moveVoceIds } from "@/lib/computo";
+import { moveVoceIds, raggruppaVociPerFase } from "@/lib/computo";
 import { toast } from "sonner";
 import VarianteComparison from "@/dashboard/components/VarianteComparison";
 
 const LOCKED_STATES = new Set(["confermato", "archiviato"]);
+
+const euro = (value) =>
+  `€ ${Number(value || 0).toLocaleString("it-IT", { minimumFractionDigits: 2 })}`;
 
 function IconButton({ label, disabled, onClick, children, danger = false }) {
   return (
@@ -40,8 +43,10 @@ function IconButton({ label, disabled, onClick, children, danger = false }) {
 function VoceRow({
   voce,
   index,
+  numero,
   total,
   locked,
+  fasi,
   saving,
   removing,
   validating,
@@ -56,6 +61,7 @@ function VoceRow({
     qta: String(voce.qta),
     prezzo_unitario: String(voce.prezzo_unitario),
   });
+  const [area, setArea] = useState(voce.area || "");
 
   useEffect(() => {
     setDraft({
@@ -64,6 +70,8 @@ function VoceRow({
       prezzo_unitario: String(voce.prezzo_unitario),
     });
   }, [voce.descrizione, voce.prezzo_unitario, voce.qta]);
+
+  useEffect(() => setArea(voce.area || ""), [voce.area]);
 
   const description = draft.descrizione.trim();
   const quantity = Number(draft.qta);
@@ -85,6 +93,7 @@ function VoceRow({
         voce.generata_da_ai && !voce.validata_umano ? "bg-brand/5" : ""
       }`}
     >
+      <td className="w-14 px-3 py-2 align-top text-xs text-fog">{numero}</td>
       <td className="min-w-[280px] px-3 py-2">
         <input
           aria-label={`Descrizione voce ${index + 1}`}
@@ -97,6 +106,34 @@ function VoceRow({
             }))
           }
           className="w-full rounded-lg border border-stroke bg-surface-2 px-2 py-1.5 text-sm text-ink disabled:border-transparent disabled:bg-transparent"
+        />
+      </td>
+      <td className="min-w-[210px] px-3 py-2">
+        <select
+          aria-label={`Fase voce ${index + 1}`}
+          value={voce.fase || ""}
+          disabled={locked}
+          onChange={(event) => onSave({ fase: event.target.value })}
+          className="w-full rounded-lg border border-stroke bg-surface-2 px-2 py-1.5 text-xs text-ink disabled:border-transparent disabled:bg-transparent"
+        >
+          {!voce.fase && <option value="">Da classificare</option>}
+          {fasi.map((nome) => (
+            <option key={nome} value={nome}>
+              {nome}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label={`Area voce ${index + 1}`}
+          value={area}
+          maxLength={120}
+          disabled={locked}
+          placeholder="Area / ambiente…"
+          onChange={(event) => setArea(event.target.value)}
+          onBlur={() => {
+            if ((voce.area || "") !== area) onSave({ area });
+          }}
+          className="mt-1 w-full rounded-lg border border-stroke bg-surface-2 px-2 py-1 text-xs text-fog disabled:border-transparent disabled:bg-transparent"
         />
       </td>
       <td className="px-3 py-2 text-fog">{voce.um}</td>
@@ -361,6 +398,27 @@ export default function ComputoEditor() {
       toast.error(error?.response?.data?.detail || "Errore validazione voci"),
   });
 
+  const riclassifica = useMutation({
+    mutationFn: async (forza) =>
+      (
+        await client.post(`/computi/${id}/riclassifica`, null, {
+          params: { forza: Boolean(forza) },
+        })
+      ).data,
+    onSuccess: async (data) => {
+      toast.success(
+        data.riclassificate
+          ? `Assegnata la fase a ${data.riclassificate} voci`
+          : "Tutte le voci hanno già una fase",
+      );
+      await refresh();
+    },
+    onError: (error) =>
+      toast.error(
+        error?.response?.data?.detail || "Errore classificazione in fasi",
+      ),
+  });
+
   const duplicate = useMutation({
     mutationFn: async ({ tipo, variante = false }) =>
       variante
@@ -401,17 +459,18 @@ export default function ComputoEditor() {
   });
 
   const previewPdf = useMutation({
-    mutationFn: async () =>
+    mutationFn: async (dettaglio = "analitico") =>
       (
         await client.get(`/preventivi/${computo.preventivo_bozza_id}/pdf`, {
+          params: { dettaglio },
           responseType: "blob",
         })
       ).data,
-    onSuccess: (blob) => {
+    onSuccess: (blob, dettaglio) => {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `${computo.preventivo_bozza_numero || "preventivo-bozza"}.pdf`;
+      anchor.download = `${computo.preventivo_bozza_numero || "preventivo-bozza"}-${dettaglio || "analitico"}.pdf`;
       anchor.click();
       URL.revokeObjectURL(url);
     },
@@ -433,6 +492,11 @@ export default function ComputoEditor() {
   const voci = computo.voci || [];
   const daValidare = Number(totali.n_da_validare || 0);
   const locked = LOCKED_STATES.has(computo.stato);
+  const gruppi = raggruppaVociPerFase(voci);
+  const fasiDisponibili = computo.fasi_disponibili || [];
+  const controlli = computo.controlli || [];
+  const senzaFase = Number(computo.n_senza_fase || 0);
+  const crono = computo.cronoprogramma || {};
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -458,6 +522,12 @@ export default function ComputoEditor() {
             {daValidare > 0 && (
               <span className="ml-2 text-brand">
                 · {daValidare} voci automatiche da validare
+              </span>
+            )}
+            {crono.giorni_totali > 0 && (
+              <span className="ml-2 text-fog">
+                · Durata stimata {crono.giorni_totali} gg lavorativi (≈{" "}
+                {crono.settimane} settimane)
               </span>
             )}
           </p>
@@ -526,20 +596,43 @@ export default function ComputoEditor() {
               Conferma dati finali
             </button>
           )}
-          {!locked && computo.preventivo_bozza_id && (
+          {!locked && senzaFase > 0 && (
             <button
               type="button"
-              onClick={() => previewPdf.mutate()}
-              disabled={previewPdf.isPending}
-              className="inline-flex items-center gap-2 rounded-xl border border-brand/40 px-3 py-2 text-xs font-display uppercase text-brand disabled:opacity-40"
+              onClick={() => riclassifica.mutate(false)}
+              disabled={riclassifica.isPending}
+              className="rounded-xl border border-brand/40 px-3 py-2 text-xs font-display uppercase text-brand disabled:opacity-40"
             >
-              {previewPdf.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FileDown className="h-4 w-4" />
-              )}
-              Anteprima bozza
+              {riclassifica.isPending
+                ? "Classificazione…"
+                : `Classifica ${senzaFase} voci`}
             </button>
+          )}
+          {!locked && computo.preventivo_bozza_id && (
+            <>
+              <button
+                type="button"
+                onClick={() => previewPdf.mutate("analitico")}
+                disabled={previewPdf.isPending}
+                className="inline-flex items-center gap-2 rounded-xl border border-brand/40 px-3 py-2 text-xs font-display uppercase text-brand disabled:opacity-40"
+              >
+                {previewPdf.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileDown className="h-4 w-4" />
+                )}
+                Anteprima analitica
+              </button>
+              <button
+                type="button"
+                onClick={() => previewPdf.mutate("sintetico")}
+                disabled={previewPdf.isPending}
+                className="inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 text-xs font-display uppercase text-ink disabled:opacity-40"
+                title="Versione per il cliente: fasi e importi, senza quantità e prezzi unitari"
+              >
+                <FileDown className="h-4 w-4" /> Anteprima sintetica
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -575,6 +668,28 @@ export default function ComputoEditor() {
             eliminare singole voci. Totali e PDF vengono sincronizzati sulla
             stessa bozza. Conferma i dati soltanto quando il controllo è
             concluso.
+          </p>
+        </div>
+      )}
+
+      {controlli.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 px-5 py-4">
+          <p className="text-xs font-display uppercase tracking-wider text-amber-400">
+            Controlli di coerenza · {controlli.length}
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {controlli.map((controllo) => (
+              <li key={controllo.codice} className="text-xs leading-5 text-fog">
+                <span className="text-ink">{controllo.messaggio}</span>{" "}
+                <span className="text-fog/70">
+                  (attesa: {controllo.fasi_attese.join(" o ")})
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] text-fog/70">
+            Avvisi non bloccanti: servono a non dimenticare lavorazioni
+            collegate.
           </p>
         </div>
       )}
@@ -765,10 +880,12 @@ export default function ComputoEditor() {
       )}
 
       <div className="overflow-x-auto rounded-2xl border border-stroke">
-        <table className="min-w-[1080px] text-sm">
+        <table className="min-w-[1320px] text-sm">
           <thead className="bg-surface-2 text-[10px] font-display uppercase tracking-wider text-fog">
             <tr>
+              <th className="px-3 py-2 text-left">N.</th>
               <th className="px-3 py-2 text-left">Descrizione</th>
+              <th className="px-3 py-2 text-left">Fase / Area</th>
               <th className="px-3 py-2 text-left">UM</th>
               <th className="px-3 py-2 text-right">Q.tà</th>
               <th className="px-3 py-2 text-right">Prezzo</th>
@@ -777,47 +894,68 @@ export default function ComputoEditor() {
               <th className="px-3 py-2 text-right">Azioni</th>
             </tr>
           </thead>
-          <tbody>
-            {voci.map((voce, index) => (
-              <VoceRow
-                key={voce.id}
-                voce={voce}
-                index={index}
-                total={voci.length}
-                locked={locked}
-                saving={update.isPending && update.variables?.id === voce.id}
-                removing={remove.isPending && remove.variables === voce.id}
-                validating={
-                  validate.isPending && validate.variables?.includes(voce.id)
-                }
-                reordering={reorder.isPending}
-                onSave={(patch) => update.mutate({ id: voce.id, patch })}
-                onRemove={() => {
-                  if (
-                    window.confirm(
-                      `Eliminare la voce “${voce.descrizione}” dal computo?`,
-                    )
-                  ) {
-                    remove.mutate(voce.id);
+          {gruppi.map((gruppo, gruppoIndex) => (
+            <tbody key={gruppo.fase}>
+              <tr className="bg-surface-2/70">
+                <td
+                  colSpan={9}
+                  className="border-t border-stroke px-3 py-2 text-xs font-display uppercase tracking-wider text-ink"
+                >
+                  <span className="text-brand">
+                    {String(gruppoIndex + 1).padStart(2, "0")}
+                  </span>{" "}
+                  {gruppo.fase}
+                  <span className="ml-3 normal-case tracking-normal text-fog">
+                    {gruppo.voci.length} lavorazioni · {gruppo.incidenza}% ·{" "}
+                    {euro(gruppo.totale)}
+                  </span>
+                </td>
+              </tr>
+              {gruppo.voci.map((voce) => (
+                <VoceRow
+                  key={voce.id}
+                  voce={voce}
+                  index={voce.__index}
+                  numero={`${gruppoIndex + 1}.${voce.__posizione}`}
+                  total={voci.length}
+                  locked={locked}
+                  fasi={fasiDisponibili}
+                  saving={update.isPending && update.variables?.id === voce.id}
+                  removing={remove.isPending && remove.variables === voce.id}
+                  validating={
+                    validate.isPending && validate.variables?.includes(voce.id)
                   }
-                }}
-                onValidate={() => validate.mutate([voce.id])}
-                onMove={(delta) =>
-                  reorder.mutate(moveVoceIds(voci, index, delta))
-                }
-              />
-            ))}
-            {voci.length === 0 && (
+                  reordering={reorder.isPending}
+                  onSave={(patch) => update.mutate({ id: voce.id, patch })}
+                  onRemove={() => {
+                    if (
+                      window.confirm(
+                        `Eliminare la voce “${voce.descrizione}” dal computo?`,
+                      )
+                    ) {
+                      remove.mutate(voce.id);
+                    }
+                  }}
+                  onValidate={() => validate.mutate([voce.id])}
+                  onMove={(delta) =>
+                    reorder.mutate(moveVoceIds(voci, voce.__index, delta))
+                  }
+                />
+              ))}
+            </tbody>
+          ))}
+          {voci.length === 0 && (
+            <tbody>
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={9}
                   className="px-4 py-10 text-center text-sm text-fog"
                 >
                   Nessuna voce nel computo.
                 </td>
               </tr>
-            )}
-          </tbody>
+            </tbody>
+          )}
         </table>
       </div>
     </div>

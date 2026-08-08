@@ -4,7 +4,6 @@ from __future__ import annotations
 import io
 import json
 from datetime import date, datetime
-from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +24,14 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+import cronoprogramma
+import fasi_lavorazione
+import preventivo_pdf_blocchi as blocchi
+import preventivo_struttura
+
 LOGO_PATH = Path(__file__).resolve().parent / "assets" / "email-logo.png"
 COVER_PATH = Path(__file__).resolve().parent / "assets" / "document-cover.jpg"
+LIVELLI_DETTAGLIO = ("analitico", "sintetico")
 
 
 def _as_dict(value: Any) -> dict:
@@ -48,18 +53,9 @@ def _color(value: Any, fallback: str) -> colors.Color:
         return colors.HexColor(fallback)
 
 
-def _text(value: Any, fallback: str = "-") -> str:
-    return escape(str(value or fallback))
-
-
-def _money(value: Any) -> str:
-    raw = f"{float(value or 0):,.2f}"
-    return "EUR " + raw.replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def _number(value: Any, decimals: int = 2) -> str:
-    raw = f"{float(value or 0):,.{decimals}f}"
-    return raw.replace(",", "X").replace(".", ",").replace("X", ".")
+_text = blocchi.testo
+_money = blocchi.importo
+_number = blocchi.numero
 
 
 def _date_it(value: Any) -> str:
@@ -196,7 +192,9 @@ def _cover_decorator(
     return draw
 
 
-def genera_pdf_preventivo(preventivo: dict, tenant: dict) -> bytes:
+def genera_pdf_preventivo(
+    preventivo: dict, tenant: dict, *, dettaglio: str = "analitico"
+) -> bytes:
     theme = _as_dict(tenant.get("theme"))
     contatti = _as_dict(tenant.get("contatti"))
     primary = _color(theme.get("primary"), "#B8202E")
@@ -254,6 +252,25 @@ def genera_pdf_preventivo(preventivo: dict, tenant: dict) -> bytes:
             "QuoteRight", parent=base["Normal"], fontName="Helvetica-Bold",
             fontSize=9, leading=11, alignment=TA_RIGHT, textColor=graphite,
         ),
+        "fase_numero": ParagraphStyle(
+            "QuotePhaseNumber", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=13, leading=15, textColor=secondary,
+        ),
+        "fase_titolo": ParagraphStyle(
+            "QuotePhaseTitle", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=9, leading=12, textColor=colors.white,
+        ),
+        "fase_importo": ParagraphStyle(
+            "QuotePhaseAmount", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=9.5, leading=12, alignment=TA_RIGHT, textColor=colors.white,
+        ),
+    }
+    palette = {
+        "primary": primary,
+        "secondary": secondary,
+        "graphite": graphite,
+        "soft": soft,
+        "line": line,
     }
 
     is_gb = "gbconstruction" in str(tenant.get("slug") or "").lower()
@@ -320,44 +337,26 @@ def genera_pdf_preventivo(preventivo: dict, tenant: dict) -> bytes:
     snapshot = preventivo.get("snapshot_voci") or []
     if isinstance(snapshot, str):
         snapshot = json.loads(snapshot)
-    rows = [[
-        Paragraph("#", styles["table_head"]),
-        Paragraph("DESCRIZIONE DELLE OPERE", styles["table_head"]),
-        Paragraph("UM", styles["table_head"]),
-        Paragraph("Q.TÀ", styles["table_head"]),
-        Paragraph("PREZZO", styles["table_head"]),
-        Paragraph("IMPORTO", styles["table_head"]),
-    ]]
-    for index, item in enumerate(snapshot, 1):
-        qta = float(item.get("qta") or 0)
-        price = float(item.get("prezzo_unitario") or 0)
-        total = float(item.get("totale") or round(qta * price, 2))
-        code = item.get("sub_categoria") or item.get("codice")
-        description = _text(item.get("descrizione"), "Voce senza descrizione")
-        if code:
-            description = f"<b>{_text(code)}</b><br/>{description}"
-        rows.append([
-            str(index), Paragraph(description, styles["table"]), _text(item.get("um")),
-            _number(qta, 3), _money(price), _money(total),
-        ])
-    works = Table(
-        rows, repeatRows=1,
-        colWidths=[8 * mm, 81 * mm, 12 * mm, 18 * mm, 25 * mm, 28 * mm],
-    )
-    works.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), graphite),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("ALIGN", (0, 1), (0, -1), "CENTER"),
-        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("GRID", (0, 0), (-1, -1), 0.25, line),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FAF9F7")]),
-        ("LEFTPADDING", (0, 0), (-1, -1), 1.7 * mm),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 1.7 * mm),
-        ("TOPPADDING", (0, 0), (-1, -1), 2.2 * mm),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2 * mm),
-    ]))
+    sintetico = str(dettaglio or "analitico").lower() == "sintetico"
+
+    # Senza fasi (preventivi anteriori alla classificazione) resta l'elenco piatto.
+    classificato = any(voce.get("fase") for voce in snapshot)
+    if classificato:
+        gruppi = [
+            {**gruppo, "voci": preventivo_struttura.aggrega_voci_gemelle(gruppo["voci"])}
+            for gruppo in fasi_lavorazione.raggruppa_per_fase(snapshot)
+        ]
+        opere = blocchi.quadro_economico(gruppi, styles, palette)
+        costruttore = (
+            blocchi.sezione_fase_sintetica if sintetico else blocchi.sezione_fase
+        )
+        for indice, gruppo in enumerate(gruppi, 1):
+            opere.extend(costruttore(indice, gruppo, styles, palette))
+    else:
+        gruppi = []
+        opere = blocchi.tabella_voci_piatta(
+            preventivo_struttura.aggrega_voci_gemelle(snapshot), styles, palette
+        )
 
     subtotal = float(preventivo.get("totale_imponibile") or 0)
     discount = float(preventivo.get("sconto_percentuale") or 0)
@@ -414,7 +413,8 @@ def genera_pdf_preventivo(preventivo: dict, tenant: dict) -> bytes:
                 )),
                 Paragraph(
                     "Una proposta costruita intorno al progetto.<br/>"
-                    "Ogni lavorazione è descritta, misurata e valorizzata con trasparenza.",
+                    "Le lavorazioni sono raccolte nelle fasi di cantiere che le "
+                    "eseguono, cosi da leggere subito dove va ogni euro.",
                     ParagraphStyle(
                         "QuoteEditorialIntro", parent=styles["body"], fontSize=12,
                         leading=16, textColor=graphite,
@@ -431,9 +431,27 @@ def genera_pdf_preventivo(preventivo: dict, tenant: dict) -> bytes:
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 5 * mm),
             ]),
         ),
-        Paragraph("Dettaglio economico delle lavorazioni", styles["section"]),
-        works, Spacer(1, 5 * mm), totals,
+        *opere,
+        Spacer(1, 5 * mm),
+        totals,
     ]
+    if classificato:
+        story.extend(
+            blocchi.cronoprogramma(cronoprogramma.stima(snapshot), styles, palette)
+        )
+    story.extend(
+        blocchi.piano_pagamenti(
+            preventivo_struttura.piano_pagamenti(
+                snapshot, preventivo.get("totale_documento")
+            ),
+            styles,
+            palette,
+        )
+    )
+    if classificato:
+        story.extend(
+            blocchi.esclusioni(preventivo_struttura.esclusioni(snapshot), styles, palette)
+        )
     if preventivo.get("note"):
         story.extend([
             Paragraph("Note specifiche", styles["section"]),

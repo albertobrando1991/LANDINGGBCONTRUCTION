@@ -48,6 +48,96 @@ def _tenant():
     }
 
 
+FASI_DEMO = (
+    ("Demolizioni e rimozioni", 15),
+    ("Impianto elettrico e speciali", 45),
+    ("Pavimenti e rivestimenti", 70),
+)
+
+
+def _sample_a_fasi(items=6):
+    """Snapshot classificato, con voci ripetute per verificare l'aggregazione."""
+    voci = []
+    for index in range(items):
+        fase, ordine = FASI_DEMO[index % len(FASI_DEMO)]
+        voci.append(
+            {
+                "fase": fase,
+                "fase_ordine": ordine,
+                "area": "Bagno" if index % 2 else "Cucina",
+                "descrizione": f"Lavorazione tipo {index % len(FASI_DEMO)} a regola d'arte",
+                "um": "mq",
+                "qta": 10,
+                "prezzo_unitario": 125,
+                "totale": 1250,
+            }
+        )
+    return {**_sample(items=1), "snapshot_voci": voci}
+
+
+def _testo(pdf):
+    document = fitz.open(stream=pdf, filetype="pdf")
+    try:
+        return "\n".join(page.get_text() for page in document)
+    finally:
+        document.close()
+
+
+def test_quote_groups_items_by_fase_with_economic_overview():
+    text = _testo(genera_pdf_preventivo(_sample_a_fasi(), _tenant()))
+
+    assert "Quadro economico per fase di lavorazione" in text
+    # Ordine cronologico di cantiere, non ordine di inserimento.
+    assert text.index("DEMOLIZIONI E RIMOZIONI") < text.index("PAVIMENTI E RIVESTIMENTI")
+    assert "IMPIANTO ELETTRICO E SPECIALI" in text
+    assert "1.1" in text
+
+
+def test_quote_merges_twin_items_and_lists_their_areas():
+    text = _testo(genera_pdf_preventivo(_sample_a_fasi(), _tenant()))
+    assert "2 posizioni" in text
+    assert "Bagno" in text and "Cucina" in text
+
+
+def test_quote_adds_payment_plan_and_exclusions():
+    text = _testo(genera_pdf_preventivo(_sample_a_fasi(), _tenant()))
+
+    assert "Piano dei pagamenti" in text
+    assert "Alla firma del contratto" in text
+    assert "Alla consegna dei lavori" in text
+    assert "Prestazioni non comprese" in text
+    # Le fasi presenti non possono comparire tra le esclusioni.
+    assert "Fornitura e posa di pavimenti e rivestimenti" not in text
+    assert "Massetti, sottofondi e isolamenti termo-acustici" in text
+
+
+def test_quote_adds_indicative_schedule():
+    text = _testo(genera_pdf_preventivo(_sample_a_fasi(), _tenant()))
+
+    assert "Cronoprogramma indicativo" in text
+    assert "giorni lavorativi" in text
+    assert "AVANZAMENTO" in text
+    # Il disclaimer va sempre stampato: la stima non e contrattuale.
+    assert "contrattuale" in text
+
+
+def test_synthetic_detail_hides_quantities_and_unit_prices():
+    text = _testo(
+        genera_pdf_preventivo(_sample_a_fasi(), _tenant(), dettaglio="sintetico")
+    )
+
+    assert "Quadro economico per fase di lavorazione" in text
+    assert "DEMOLIZIONI E RIMOZIONI" in text
+    assert "DESCRIZIONE DELLE OPERE" not in text
+
+
+def test_unclassified_snapshot_falls_back_to_flat_table():
+    text = _testo(genera_pdf_preventivo(_sample(), _tenant()))
+
+    assert "Dettaglio economico delle lavorazioni" in text
+    assert "Quadro economico per fase di lavorazione" not in text
+
+
 def test_professional_quote_contains_brand_customer_and_totals():
     pdf = genera_pdf_preventivo(_sample(), _tenant())
     document = fitz.open(stream=pdf, filetype="pdf")

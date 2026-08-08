@@ -1,4 +1,4 @@
-import { moveVoceIds } from "./computo";
+import { moveVoceIds, raggruppaVociPerFase } from "./computo";
 
 const voci = [{ id: "a" }, { id: "b" }, { id: "c" }];
 
@@ -10,4 +10,36 @@ test("sposta una voce mantenendo l'ordine completo", () => {
 test("non sposta una voce oltre i limiti", () => {
   expect(moveVoceIds(voci, 0, -1)).toEqual(["a", "b", "c"]);
   expect(moveVoceIds(voci, 2, 1)).toEqual(["a", "b", "c"]);
+});
+
+const vociFasi = [
+  { id: "a", fase: "Pavimenti e rivestimenti", fase_ordine: 70, totale: 300 },
+  { id: "b", fase: "Demolizioni e rimozioni", fase_ordine: 15, totale: 100 },
+  { id: "c", fase: "Pavimenti e rivestimenti", fase_ordine: 70, totale: 100 },
+];
+
+test("raggruppa per fase in ordine di cantiere con subtotali e incidenza", () => {
+  const gruppi = raggruppaVociPerFase(vociFasi);
+
+  expect(gruppi.map((gruppo) => gruppo.fase)).toEqual([
+    "Demolizioni e rimozioni",
+    "Pavimenti e rivestimenti",
+  ]);
+  expect(gruppi.map((gruppo) => gruppo.totale)).toEqual([100, 400]);
+  expect(gruppi.map((gruppo) => gruppo.incidenza)).toEqual([20, 80]);
+});
+
+test("conserva l'indice piatto necessario al riordino", () => {
+  const gruppi = raggruppaVociPerFase(vociFasi);
+
+  expect(gruppi[0].voci[0].__index).toBe(1);
+  expect(gruppi[1].voci.map((voce) => voce.__index)).toEqual([0, 2]);
+  expect(gruppi[1].voci.map((voce) => voce.__posizione)).toEqual([1, 2]);
+});
+
+test("le voci senza fase finiscono in Da classificare", () => {
+  const gruppi = raggruppaVociPerFase([{ id: "x", qta: 2, prezzo_unitario: 50 }]);
+
+  expect(gruppi[0].fase).toBe("Da classificare");
+  expect(gruppi[0].totale).toBe(100);
 });

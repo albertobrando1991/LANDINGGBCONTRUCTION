@@ -11,6 +11,10 @@ from uuid import UUID
 import asyncpg
 from fastapi import HTTPException
 
+import cronoprogramma
+import fasi_lavorazione
+import preventivo_struttura
+
 
 LOCKED_COMPUTO_STATES = {"confermato", "archiviato"}
 PREVENTIVO_TRANSITIONS = {
@@ -324,16 +328,17 @@ async def aggiungi_voce(
         "select coalesce(max(ordine), 0) + 10 from public.computo_voci where computo_id = $1::uuid",
         computo_id,
     )
+    fase_ordine, fase = fasi_lavorazione.classifica_voce(dict(voce))
     row = await conn.fetchrow(
         """
         insert into public.computo_voci (
           tenant_id, computo_id, origine_voce_id, ordine,
           super_categoria, categoria, sub_categoria, descrizione, um, tipo,
-          qta, prezzo_unitario, generata_da_ai, validata_umano
+          qta, prezzo_unitario, fase, fase_ordine, generata_da_ai, validata_umano
         ) values (
           $1::uuid, $2::uuid, $3::uuid, $4,
           $5, $6, $7, $8, $9, $10,
-          $11, $12, false, true
+          $11, $12, $13, $14, false, true
         ) returning *
         """,
         tenant_id,
@@ -348,6 +353,8 @@ async def aggiungi_voce(
         voce["tipo"],
         qta,
         float(voce["prezzo_unitario"]),
+        fase,
+        fase_ordine,
     )
     result = _d(row)
     await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
@@ -376,26 +383,30 @@ async def aggiungi_voce_libera(
         tenant_id,
     )
     um_pulita = um.strip()
+    testo = descrizione.strip()
+    fase_ordine, fase = fasi_lavorazione.classifica(descrizione=testo)
     row = await conn.fetchrow(
         """
         insert into public.computo_voci (
           tenant_id, computo_id, origine_voce_id, ordine,
           super_categoria, categoria, sub_categoria, descrizione, um, tipo,
-          qta, prezzo_unitario, generata_da_ai, validata_umano
+          qta, prezzo_unitario, fase, fase_ordine, generata_da_ai, validata_umano
         ) values (
           $1::uuid, $2::uuid, null, $3,
           'Voci libere', 'Voci libere', null, $4, $5, $6,
-          $7, $8, false, true
+          $7, $8, $9, $10, false, true
         ) returning *
         """,
         tenant_id,
         computo_id,
         ordine,
-        descrizione.strip(),
+        testo,
         um_pulita,
         "a_corpo" if um_pulita.lower() in {"corpo", "a corpo"} else "a_misura",
         qta,
         prezzo_unitario,
+        fase,
+        fase_ordine,
     )
     result = _d(row)
     await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
@@ -414,6 +425,20 @@ async def aggiorna_voce(
             continue
         args.append(v)
         sets.append(f"{k} = ${len(args)}")
+
+    if campi.get("fase") is not None:
+        try:
+            fase_ordine, fase = fasi_lavorazione.normalizza_fase(campi["fase"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        args.extend([fase, fase_ordine])
+        sets.append(f"fase = ${len(args)-1}, fase_ordine = ${len(args)}")
+
+    # Stringa vuota = azzera l'area, quindi non passa dal filtro sui None.
+    if campi.get("area") is not None:
+        args.append(str(campi["area"]).strip() or None)
+        sets.append(f"area = ${len(args)}")
+
     if not sets:
         raise HTTPException(status_code=400, detail="Nessun campo da aggiornare")
     args.extend([voce_id, tenant_id, computo_id])
@@ -539,12 +564,14 @@ async def duplica_computo(
         insert into public.computo_voci (
           tenant_id, computo_id, origine_voce_id, parent_voce_id, ordine,
           super_categoria, categoria, sub_categoria, descrizione, um, tipo,
-          qta, prezzo_unitario, generata_da_ai, validata_umano
+          qta, prezzo_unitario, fase, fase_ordine, area,
+          generata_da_ai, validata_umano
         )
         select tenant_id, $1::uuid, origine_voce_id,
                case when $4::boolean then id else null end, ordine,
                super_categoria, categoria, sub_categoria, descrizione, um, tipo,
-               qta, prezzo_unitario, generata_da_ai, validata_umano
+               qta, prezzo_unitario, fase, fase_ordine, area,
+               generata_da_ai, validata_umano
         from public.computo_voci
         where computo_id = $2::uuid and tenant_id = $3::uuid
         """,
@@ -611,6 +638,7 @@ async def importa_computo_acca(
         ).append(candidate)
 
     matched_count = 0
+    unclassified_count = 0
     total_gb = Decimal("0")
     for item in parsed["voci"]:
         code = str(item.get("codice") or f"ACCA-{item['numero']:03d}")
@@ -620,24 +648,34 @@ async def importa_computo_acca(
         price = Decimal(str(match["prezzo_unitario"] if match else item["prezzo_unitario"]))
         quantity = Decimal(str(item["qta"]))
         total_gb += (quantity * price).quantize(Decimal("0.01"))
+        super_categoria = match["super_categoria"] if match else "Importazione ACCA"
+        categoria = match["categoria"] if match else "Computo PriMus"
+        fase_ordine, fase = fasi_lavorazione.classifica(
+            super_categoria=super_categoria,
+            categoria=categoria,
+            sub_categoria=code,
+            descrizione=item["descrizione"],
+        )
+        if fase_ordine == fasi_lavorazione.FASE_NON_CLASSIFICATA:
+            unclassified_count += 1
         await conn.execute(
             """
             insert into public.computo_voci (
               tenant_id, computo_id, origine_voce_id, ordine,
               super_categoria, categoria, sub_categoria, descrizione, um, tipo,
-              qta, prezzo_unitario,
+              qta, prezzo_unitario, fase, fase_ordine,
               generata_da_ai, validata_umano
             ) values (
               $1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
-              $7, $8, $9, $10, $11, $12, $13, $14
+              $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
             )
             """,
             tenant_id,
             computo_id,
             match["id"] if match else None,
             int(item["numero"]) * 10,
-            match["super_categoria"] if match else "Importazione ACCA",
-            match["categoria"] if match else "Computo PriMus",
+            super_categoria,
+            categoria,
             code,
             item["descrizione"],
             item["um"],
@@ -646,6 +684,8 @@ async def importa_computo_acca(
             ),
             item["qta"],
             price,
+            fase,
+            fase_ordine,
             not bool(match),
             bool(match),
         )
@@ -659,7 +699,8 @@ async def importa_computo_acca(
         (
             f"Importato da PDF ACCA: {filename} | "
             f"Prezzi GB abbinati: {matched_count}/{parsed['n_voci']} | "
-            f"Da verificare: {pending_count}"
+            f"Da verificare: {pending_count} | "
+            f"Fasi da classificare a mano: {unclassified_count}"
         ),
         "bozza" if pending_count == 0 else "ai_da_revisionare",
         computo_id,
@@ -673,6 +714,7 @@ async def importa_computo_acca(
         "totale_gb": float(total_gb),
         "n_prezzi_gb": matched_count,
         "n_da_verificare": pending_count,
+        "n_da_classificare": unclassified_count,
         "criterio": "codice tariffa + unita di misura, match univoco",
     }
     result["automazione"] = {
@@ -887,7 +929,7 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
         """
         select * from public.computo_voci
         where computo_id = $1::uuid and tenant_id = $2::uuid
-        order by ordine, descrizione
+        order by coalesce(fase_ordine, 99), ordine, descrizione
         """,
         computo_id,
         tenant_id,
@@ -903,7 +945,63 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
     out = _d(c)
     out["voci"] = [_d(v) for v in voci]
     out["totali"] = _d(totali) if totali else {"totale": 0, "n_voci": 0, "n_da_validare": 0}
+    out["riepilogo_fasi"] = _riepilogo(fasi_lavorazione.raggruppa_per_fase(out["voci"]))
+    out["riepilogo_aree"] = _riepilogo(fasi_lavorazione.raggruppa_per_area(out["voci"]))
+    out["controlli"] = preventivo_struttura.controlli_coerenza(out["voci"])
+    out["cronoprogramma"] = cronoprogramma.stima(out["voci"])
+    out["fasi_disponibili"] = [nome for _, nome in fasi_lavorazione.FASI]
+    out["n_senza_fase"] = sum(1 for v in out["voci"] if not v.get("fase"))
     return out
+
+
+def _riepilogo(gruppi: list[dict]) -> list[dict]:
+    """Quadro sintetico senza ripetere le voci gia presenti nella risposta."""
+    return [
+        {chiave: valore for chiave, valore in gruppo.items() if chiave != "voci"}
+        for gruppo in gruppi
+    ]
+
+
+async def riclassifica_computo(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    computo_id: str,
+    *,
+    forza: bool = False,
+) -> int:
+    """Assegna la fase alle voci del computo. Senza forza tocca solo quelle vuote."""
+    await _assert_computo_editabile(conn, tenant_id, computo_id)
+    voci = await conn.fetch(
+        """
+        select id, super_categoria, categoria, sub_categoria, descrizione, fase
+        from public.computo_voci
+        where computo_id = $1::uuid and tenant_id = $2::uuid
+        """,
+        computo_id,
+        tenant_id,
+    )
+    aggiornate = 0
+    for voce in voci:
+        if voce["fase"] and not forza:
+            continue
+        fase_ordine, fase = fasi_lavorazione.classifica_voce(dict(voce))
+        if fase == voce["fase"]:
+            continue
+        await conn.execute(
+            """
+            update public.computo_voci set fase = $1, fase_ordine = $2
+            where id = $3::uuid and tenant_id = $4::uuid and computo_id = $5::uuid
+            """,
+            fase,
+            fase_ordine,
+            voce["id"],
+            tenant_id,
+            computo_id,
+        )
+        aggiornate += 1
+    if aggiornate:
+        await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
+    return aggiornate
 
 
 def _importi_preventivo(computo: dict, sconto: float, iva: float) -> dict:

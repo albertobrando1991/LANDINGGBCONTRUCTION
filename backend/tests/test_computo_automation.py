@@ -152,11 +152,13 @@ def test_import_acca_applica_prezzo_gb_solo_su_match_sicuro():
     assert result["importazione"]["totale_pdf"] == 100.0
     assert result["importazione"]["totale_gb"] == 1450.0
     assert result["automazione"]["pronto_preventivo"] is True
+    assert result["importazione"]["n_da_classificare"] == 0
     insert_voice = conn.execute.await_args_list[0]
     assert "insert into public.computo_voci" in insert_voice.args[0]
     assert insert_voice.args[3] == str(VOCE_ID)
     assert insert_voice.args[12] == Decimal("145.00")
-    assert insert_voice.args[13:] == (False, True)
+    assert insert_voice.args[13:15] == ("Demolizioni e rimozioni", 15)
+    assert insert_voice.args[15:] == (False, True)
 
 
 def test_preventivo_automatico_persist_client_id():
