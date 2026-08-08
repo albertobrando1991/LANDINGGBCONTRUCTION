@@ -134,7 +134,11 @@ function VoceRow({
         € {Number(valid ? quantity * unitPrice : voce.totale || 0).toFixed(2)}
       </td>
       <td className="min-w-[130px] px-3 py-2 text-center text-xs">
-        {voce.generata_da_ai ? (
+        {voce.origine_voce_id ? (
+          <span className="inline-flex items-center gap-1 text-success">
+            <Check className="h-3.5 w-3.5" /> Prezzo GB
+          </span>
+        ) : voce.generata_da_ai ? (
           voce.validata_umano ? (
             <span className="inline-flex items-center gap-1 text-success">
               <Check className="h-3.5 w-3.5" /> Validata
@@ -389,6 +393,24 @@ export default function ComputoEditor() {
               </span>
             )}
           </p>
+          <p className="mt-1 text-xs text-fog">
+            Cliente:{" "}
+            <span className="text-ink">
+              {computo.cliente || "Non associato"}
+            </span>
+            {computo.prezzario_nome && (
+              <>
+                {" "}
+                - Listino:{" "}
+                <span className="text-ink">{computo.prezzario_nome}</span>
+              </>
+            )}
+          </p>
+          {computo.note && (
+            <p className="mt-2 border-l-2 border-brand/70 pl-3 text-xs leading-5 text-fog">
+              {computo.note}
+            </p>
+          )}
           {locked && (
             <p className="mt-2 text-xs text-fog">
               Il computo è bloccato. Crea una variante per modificarne le voci.
@@ -452,9 +474,7 @@ export default function ComputoEditor() {
         </div>
       </div>
 
-      {computo.tipo === "variante" && (
-        <VarianteComparison computoId={id} />
-      )}
+      {computo.tipo === "variante" && <VarianteComparison computoId={id} />}
 
       {!locked && (
         <div className="grid items-end gap-2 rounded-2xl border border-stroke bg-surface p-4 md:grid-cols-12">

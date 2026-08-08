@@ -1,115 +1,454 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { Loader2, Plus, Upload } from "lucide-react";
-import { useRef } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FileText,
+  Loader2,
+  Plus,
+  Upload,
+  X,
+} from "lucide-react";
 import client from "@/lib/api";
 import { toast } from "sonner";
+
+const INITIAL_IMPORT = {
+  file: null,
+  leadId: "",
+  cantiereId: "",
+  prezzarioId: "",
+  autoPreventivo: true,
+  sconto: 0,
+  iva: 10,
+};
+
+function ImportComputoModal({ open, pending, onClose, onSubmit }) {
+  const [form, setForm] = useState(INITIAL_IMPORT);
+  const { data: leads = [], isLoading: loadingLeads } = useQuery({
+    queryKey: ["leads", "computo-import"],
+    queryFn: async () => (await client.get("/leads")).data,
+    enabled: open,
+  });
+  const { data: cantieri = [], isLoading: loadingCantieri } = useQuery({
+    queryKey: ["campo-cantieri", "computo-import"],
+    queryFn: async () => (await client.get("/campo/cantieri")).data,
+    enabled: open,
+  });
+  const { data: prezzari = [], isLoading: loadingPrezzari } = useQuery({
+    queryKey: ["prezzari"],
+    queryFn: async () => (await client.get("/prezzario")).data,
+    enabled: open,
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    setForm((current) => ({
+      ...INITIAL_IMPORT,
+      prezzarioId:
+        current.prezzarioId ||
+        prezzari.find((prezzario) => prezzario.is_default)?.id ||
+        prezzari[0]?.id ||
+        "",
+    }));
+  }, [open, prezzari]);
+
+  if (!open) return null;
+  const loadingOptions = loadingLeads || loadingCantieri || loadingPrezzari;
+  const canSubmit =
+    form.file && form.leadId && form.prezzarioId && !pending && !loadingOptions;
+
+  const submit = (event) => {
+    event.preventDefault();
+    if (!canSubmit) return;
+    onSubmit(form);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="import-computo-title"
+    >
+      <form
+        onSubmit={submit}
+        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto border border-stroke bg-surface shadow-2xl"
+      >
+        <div className="flex items-start justify-between border-b border-stroke px-5 py-4">
+          <div>
+            <p className="text-[10px] font-display uppercase tracking-[0.2em] text-brand">
+              Elaborazione automatica
+            </p>
+            <h2
+              id="import-computo-title"
+              className="mt-1 text-2xl font-display uppercase text-ink"
+            >
+              Nuovo computo da PDF ACCA
+            </h2>
+            <p className="mt-1 text-sm text-fog">
+              Associa cliente e listino GB una sola volta: il sistema estrae,
+              valorizza e prepara il preventivo.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={pending}
+            aria-label="Chiudi importazione"
+            className="flex h-11 w-11 items-center justify-center border border-stroke text-fog hover:text-ink disabled:opacity-40"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid gap-5 p-5 md:grid-cols-2">
+          <label className="md:col-span-2">
+            <span className="text-[10px] font-display uppercase tracking-wider text-fog">
+              Computo metrico ACCA / PriMus
+            </span>
+            <span className="mt-2 flex min-h-24 cursor-pointer items-center gap-4 border border-dashed border-brand/60 bg-brand/5 px-4 py-3 focus-within:outline focus-within:outline-2 focus-within:outline-brand">
+              <FileText className="h-7 w-7 shrink-0 text-brand" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-ink">
+                  {form.file?.name || "Seleziona il PDF del computo"}
+                </span>
+                <span className="mt-1 block text-xs text-fog">
+                  PDF ACCA, massimo 15 MB. Il totale deve quadrare al centesimo.
+                </span>
+              </span>
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                className="sr-only"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    file: event.target.files?.[0] || null,
+                  }))
+                }
+              />
+            </span>
+          </label>
+
+          <label>
+            <span className="text-[10px] font-display uppercase tracking-wider text-fog">
+              Cliente / lead obbligatorio
+            </span>
+            <select
+              value={form.leadId}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  leadId: event.target.value,
+                }))
+              }
+              className="mt-1 h-11 w-full border border-stroke bg-surface-2 px-3 text-sm text-ink"
+            >
+              <option value="">Seleziona il cliente...</option>
+              {leads.map((lead) => (
+                <option key={lead.id} value={lead.id}>
+                  {lead.nome} - {lead.email || lead.citta || "senza recapito"}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span className="text-[10px] font-display uppercase tracking-wider text-fog">
+              Cantiere facoltativo
+            </span>
+            <select
+              value={form.cantiereId}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  cantiereId: event.target.value,
+                }))
+              }
+              className="mt-1 h-11 w-full border border-stroke bg-surface-2 px-3 text-sm text-ink"
+            >
+              <option value="">Intervento non ancora aperto</option>
+              {cantieri.map((cantiere) => (
+                <option key={cantiere.id} value={cantiere.id}>
+                  {cantiere.cliente} - {cantiere.indirizzo || cantiere.stato}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span className="text-[10px] font-display uppercase tracking-wider text-fog">
+              Listino prezzi GB
+            </span>
+            <select
+              value={form.prezzarioId}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  prezzarioId: event.target.value,
+                }))
+              }
+              className="mt-1 h-11 w-full border border-stroke bg-surface-2 px-3 text-sm text-ink"
+            >
+              <option value="">Seleziona il listino...</option>
+              {prezzari.map((prezzario) => (
+                <option key={prezzario.id} value={prezzario.id}>
+                  {prezzario.nome}
+                  {prezzario.is_default ? " - predefinito" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label>
+              <span className="text-[10px] font-display uppercase tracking-wider text-fog">
+                Sconto %
+              </span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={form.sconto}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    sconto: event.target.value,
+                  }))
+                }
+                className="mt-1 h-11 w-full border border-stroke bg-surface-2 px-3 text-right text-sm text-ink"
+              />
+            </label>
+            <label>
+              <span className="text-[10px] font-display uppercase tracking-wider text-fog">
+                IVA %
+              </span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={form.iva}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    iva: event.target.value,
+                  }))
+                }
+                className="mt-1 h-11 w-full border border-stroke bg-surface-2 px-3 text-right text-sm text-ink"
+              />
+            </label>
+          </div>
+
+          <label className="md:col-span-2 flex cursor-pointer items-start gap-3 border border-stroke bg-surface-2 p-4">
+            <input
+              type="checkbox"
+              checked={form.autoPreventivo}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  autoPreventivo: event.target.checked,
+                }))
+              }
+              className="mt-1 h-4 w-4 rounded border-stroke text-brand focus:ring-brand"
+            />
+            <span>
+              <span className="flex items-center gap-2 text-sm font-semibold text-ink">
+                <CheckCircle2 className="h-4 w-4 text-success" />
+                Genera automaticamente il preventivo professionale
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-fog">
+                Il sistema procede soltanto se ogni codice ACCA trova una sola
+                voce GB con la stessa unità di misura. Ambiguità e voci mancanti
+                vengono fermate nell’editor, senza approvazioni automatiche.
+              </span>
+            </span>
+          </label>
+
+          <div className="md:col-span-2 flex items-start gap-3 border-l-2 border-amber-400 bg-amber-400/5 px-4 py-3 text-xs leading-5 text-fog">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+            La precisione è protetta da tre controlli: quadratura del PDF,
+            numerazione completa delle voci e corrispondenza univoca codice +
+            UM.
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse gap-2 border-t border-stroke px-5 py-4 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={pending}
+            className="min-h-11 border border-stroke px-5 text-xs font-display uppercase text-fog hover:text-ink disabled:opacity-40"
+          >
+            Annulla
+          </button>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="inline-flex min-h-11 items-center justify-center gap-2 bg-brand px-5 text-xs font-display uppercase tracking-wider text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {pending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            {pending ? "Elaborazione in corso..." : "Importa ed elabora"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 export default function Computi() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const fileInputRef = useRef(null);
+  const [importOpen, setImportOpen] = useState(false);
   const { data: computi = [], isLoading } = useQuery({
     queryKey: ["computi"],
     queryFn: async () => (await client.get("/computi")).data,
   });
 
   const crea = useMutation({
-    mutationFn: async () => (await client.post("/computi", { tipo: "estimativo" })).data,
-    onSuccess: (c) => {
-      toast.success("Computo creato");
-      qc.invalidateQueries({ queryKey: ["computi"] });
-      navigate(`/dashboard/computi/${c.id}`);
-    },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Errore creazione"),
-  });
-
-  const importa = useMutation({
-    mutationFn: async (file) => {
-      const form = new FormData();
-      form.append("file", file);
-      return (await client.post("/computi/importa-pdf", form)).data;
-    },
+    mutationFn: async () =>
+      (await client.post("/computi", { tipo: "estimativo" })).data,
     onSuccess: (computo) => {
-      const count = computo.importazione?.n_voci || computo.voci?.length || 0;
-      toast.success(`${count} voci ACCA estratte. Verifica e conferma il computo.`);
+      toast.success("Computo creato");
       qc.invalidateQueries({ queryKey: ["computi"] });
       navigate(`/dashboard/computi/${computo.id}`);
     },
-    onError: (e) => toast.error(e?.response?.data?.detail || "Importazione PDF non riuscita"),
+    onError: (error) =>
+      toast.error(error?.response?.data?.detail || "Errore creazione"),
   });
 
-  const handlePdf = (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (file) importa.mutate(file);
-  };
+  const importa = useMutation({
+    mutationFn: async (options) => {
+      const form = new FormData();
+      form.append("file", options.file);
+      form.append("lead_id", options.leadId);
+      if (options.cantiereId) form.append("cantiere_id", options.cantiereId);
+      form.append("prezzario_id", options.prezzarioId);
+      form.append("auto_preventivo", String(options.autoPreventivo));
+      form.append("sconto", String(options.sconto || 0));
+      form.append("iva", String(options.iva || 0));
+      return (await client.post("/computi/importa-pdf", form)).data;
+    },
+    onSuccess: (computo) => {
+      const extraction = computo.importazione || {};
+      setImportOpen(false);
+      qc.invalidateQueries({ queryKey: ["computi"] });
+      qc.invalidateQueries({ queryKey: ["preventivi"] });
+      if (computo.preventivo) {
+        toast.success(
+          `${extraction.n_voci || 0} voci estratte e valorizzate. Preventivo ${computo.preventivo.numero} creato.`,
+        );
+        navigate("/dashboard/preventivi");
+        return;
+      }
+      if (Number(extraction.n_da_verificare || 0) > 0) {
+        toast.warning(
+          `${extraction.n_prezzi_gb || 0}/${extraction.n_voci || 0} prezzi GB abbinati. Verifica le voci evidenziate.`,
+        );
+      } else {
+        toast.success("Computo importato e pronto per la conferma");
+      }
+      navigate(`/dashboard/computi/${computo.id}`);
+    },
+    onError: (error) =>
+      toast.error(
+        error?.response?.data?.detail || "Importazione PDF non riuscita",
+      ),
+  });
 
   if (isLoading) {
-    return <div className="p-6 text-fog text-sm font-display uppercase tracking-widest">Caricamento computi…</div>;
+    return (
+      <div className="p-6 text-sm font-display uppercase tracking-widest text-fog">
+        Caricamento computi...
+      </div>
+    );
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 p-4 md:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl uppercase text-ink">Computi</h1>
-          <p className="text-fog text-sm">Estimativi, esecutivi e bozze AI da validare</p>
+          <h1 className="text-2xl font-display uppercase text-ink">Computi</h1>
+          <p className="text-sm text-fog">
+            Importazione ACCA, prezzi GB, controllo e preventivo automatico
+          </p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
-          <input ref={fileInputRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={handlePdf} />
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importa.isPending}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-brand text-brand text-xs font-display uppercase tracking-wider disabled:opacity-50"
+            onClick={() => setImportOpen(true)}
+            className="inline-flex min-h-11 items-center gap-2 border border-brand px-3 py-2 text-xs font-display uppercase tracking-wider text-brand"
           >
-            {importa.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            Importa PDF ACCA
+            <Upload className="h-4 w-4" /> Importa ed elabora
           </button>
           <button
             type="button"
             onClick={() => crea.mutate()}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-brand text-white text-xs font-display uppercase tracking-wider"
+            className="inline-flex min-h-11 items-center gap-2 bg-brand px-3 py-2 text-xs font-display uppercase tracking-wider text-white"
           >
-            <Plus className="w-4 h-4" /> Nuovo computo
+            <Plus className="h-4 w-4" /> Nuovo manuale
           </button>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-stroke">
+      <div className="overflow-x-auto border border-stroke">
         <table className="min-w-full text-sm">
-          <thead className="bg-surface-2 text-fog font-display uppercase text-[10px] tracking-wider">
+          <thead className="bg-surface-2 text-[10px] font-display uppercase tracking-wider text-fog">
             <tr>
-              <th className="text-left px-3 py-2">ID</th>
-              <th className="text-left px-3 py-2">Tipo</th>
-              <th className="text-left px-3 py-2">Stato</th>
-              <th className="text-right px-3 py-2">Totale</th>
-              <th className="text-right px-3 py-2">Voci</th>
-              <th className="text-right px-3 py-2">Da validare</th>
+              <th className="px-3 py-2 text-left">Computo</th>
+              <th className="px-3 py-2 text-left">Cliente</th>
+              <th className="px-3 py-2 text-left">Tipo</th>
+              <th className="px-3 py-2 text-left">Stato</th>
+              <th className="px-3 py-2 text-right">Totale</th>
+              <th className="px-3 py-2 text-right">Voci</th>
+              <th className="px-3 py-2 text-right">Da verificare</th>
             </tr>
           </thead>
           <tbody>
-            {computi.map((c) => (
-              <tr key={c.id} className="border-t border-stroke/60 hover:bg-surface-2/40">
+            {computi.map((computo) => (
+              <tr
+                key={computo.id}
+                className="border-t border-stroke/60 hover:bg-surface-2/40"
+              >
                 <td className="px-3 py-2">
-                  <Link to={`/dashboard/computi/${c.id}`} className="text-brand font-mono text-xs">
-                    {String(c.id).slice(0, 8)}…
+                  <Link
+                    to={`/dashboard/computi/${computo.id}`}
+                    className="font-mono text-xs text-brand"
+                  >
+                    {computo.numero || `${String(computo.id).slice(0, 8)}...`}
                   </Link>
                 </td>
-                <td className="px-3 py-2 text-fog">{c.tipo}</td>
+                <td className="px-3 py-2 text-ink">
+                  {computo.cliente || "Non associato"}
+                </td>
+                <td className="px-3 py-2 text-fog">{computo.tipo}</td>
                 <td className="px-3 py-2">
-                  <span className="px-2 py-0.5 rounded-full bg-surface-2 border border-stroke text-[10px] uppercase tracking-wider text-ink">
-                    {c.stato}
+                  <span className="border border-stroke bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wider text-ink">
+                    {computo.stato}
                   </span>
                 </td>
-                <td className="px-3 py-2 text-right text-ink">€ {Number(c.totale || 0).toLocaleString("it-IT", { minimumFractionDigits: 2 })}</td>
-                <td className="px-3 py-2 text-right text-fog">{c.n_voci || 0}</td>
+                <td className="px-3 py-2 text-right text-ink">
+                  €{" "}
+                  {Number(computo.totale || 0).toLocaleString("it-IT", {
+                    minimumFractionDigits: 2,
+                  })}
+                </td>
+                <td className="px-3 py-2 text-right text-fog">
+                  {computo.n_voci || 0}
+                </td>
                 <td className="px-3 py-2 text-right">
-                  {Number(c.n_da_validare || 0) > 0 ? (
-                    <span className="text-brand font-display text-xs">{c.n_da_validare}</span>
+                  {Number(computo.n_da_validare || 0) > 0 ? (
+                    <span className="font-display text-xs text-brand">
+                      {computo.n_da_validare}
+                    </span>
                   ) : (
-                    <span className="text-fog">0</span>
+                    <span className="text-success">0</span>
                   )}
                 </td>
               </tr>
@@ -117,6 +456,13 @@ export default function Computi() {
           </tbody>
         </table>
       </div>
+
+      <ImportComputoModal
+        open={importOpen}
+        pending={importa.isPending}
+        onClose={() => setImportOpen(false)}
+        onSubmit={(options) => importa.mutate(options)}
+      />
     </div>
   );
 }

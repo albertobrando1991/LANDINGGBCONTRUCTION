@@ -14,6 +14,7 @@ from uuid import UUID
 from fastapi import (
     APIRouter,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -517,28 +518,86 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
 
     @api.post("/computi/importa-pdf", status_code=201)
     async def importa_computo_pdf(
-        request: Request, file: UploadFile = File(...)
+        request: Request,
+        file: UploadFile = File(...),
+        lead_id: Optional[str] = Form(default=None),
+        cantiere_id: Optional[str] = Form(default=None),
+        prezzario_id: Optional[str] = Form(default=None),
+        auto_preventivo: bool = Form(default=True),
+        sconto: float = Form(default=0),
+        iva: float = Form(default=10),
     ):
         user = await _user(request, db)
         filename = (file.filename or "computo-acca.pdf").strip()
         if not filename.lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail="Carica un file PDF")
-        data = await file.read(15 * 1024 * 1024 + 1)
-        if len(data) > 15 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="PDF troppo grande (massimo 15 MB)")
-        parsed = acca_pdf_parser.parse_acca_pdf(data)
+        if sconto < 0 or sconto > 100:
+            raise HTTPException(status_code=400, detail="Sconto non valido")
+        if iva < 0 or iva > 100:
+            raise HTTPException(status_code=400, detail="IVA non valida")
         async with get_tenant_conn(request, user) as (conn, tenant):
             if tenant.get("role") not in {"owner", "admin", "staff", "operations"}:
                 raise HTTPException(
                     status_code=403,
                     detail="Permessi insufficienti per importare un computo",
                 )
-            return await boq_service.importa_computo_acca(
+            data = await file.read(15 * 1024 * 1024 + 1)
+            if len(data) > 15 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=413, detail="PDF troppo grande (massimo 15 MB)"
+                )
+            parsed = acca_pdf_parser.parse_acca_pdf(data)
+            canonical_lead_id = None
+            if lead_id and lead_id.strip():
+                canonical_lead_id = await lead_bridge.resolve_lead_id(
+                    conn, db, tenant["id"], lead_id.strip()
+                )
+            canonical_cantiere_id = (
+                str(tenancy.uuid_or_400(cantiere_id.strip(), "Cantiere"))
+                if cantiere_id and cantiere_id.strip()
+                else None
+            )
+            canonical_prezzario_id = (
+                str(tenancy.uuid_or_400(prezzario_id.strip(), "Prezzario"))
+                if prezzario_id and prezzario_id.strip()
+                else None
+            )
+            result = await boq_service.importa_computo_acca(
                 conn,
                 tenant["id"],
                 filename=filename[:255],
                 parsed=parsed,
+                lead_id=canonical_lead_id,
+                cantiere_id=canonical_cantiere_id,
+                prezzario_id=canonical_prezzario_id,
             )
+            result["preventivo"] = None
+            if auto_preventivo and result["automazione"]["pronto_preventivo"]:
+                importazione = result["importazione"]
+                automazione = result["automazione"]
+                await boq_service.conferma_computo(conn, tenant["id"], result["id"])
+                preventivo = await boq_service.computo_to_preventivo(
+                    conn,
+                    tenant["id"],
+                    result["id"],
+                    sconto=sconto,
+                    iva=iva,
+                    autore=actor_name(user),
+                )
+                result = await boq_service.get_computo(
+                    conn, tenant["id"], result["id"]
+                )
+                result["importazione"] = importazione
+                result["automazione"] = automazione
+                result["preventivo"] = preventivo
+                result["stato_flusso"] = "preventivo_creato"
+            else:
+                result["stato_flusso"] = (
+                    "revisione_richiesta"
+                    if result["automazione"]["richiede_revisione"]
+                    else "computo_pronto"
+                )
+            return result
 
     @api.get("/computi/{computo_id}")
     async def get_computo(request: Request, computo_id: str):
@@ -1036,17 +1095,19 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             row = await conn.fetchrow(
                 """
                 select p.*,
-                       l.nome as cliente_nome,
-                       l.email as cliente_email,
-                       l.telefono as cliente_telefono,
-                       l.indirizzo as cliente_indirizzo,
-                       l.citta as cliente_citta,
+                       coalesce(l.nome, cl.nome) as cliente_nome,
+                       coalesce(l.email, cl.email) as cliente_email,
+                       coalesce(l.telefono, cl.telefono) as cliente_telefono,
+                       coalesce(l.indirizzo, cl.indirizzo) as cliente_indirizzo,
+                       coalesce(l.citta, cl.citta) as cliente_citta,
                        ca.indirizzo as cantiere_indirizzo,
                        t.piva as tenant_piva
                 from public.preventivi p
                 join public.tenants t on t.id = p.tenant_id
                 left join public.leads l
                   on l.id = p.lead_id and l.tenant_id = p.tenant_id
+                left join public.clienti cl
+                  on cl.id = p.cliente_id and cl.tenant_id = p.tenant_id
                 left join public.computi co
                   on co.id = p.computo_id and co.tenant_id = p.tenant_id
                 left join public.cantieri ca
@@ -1107,18 +1168,30 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                     status_code=409,
                     detail="Puoi inviare soltanto un preventivo in bozza",
                 )
-            lead = None
-            if preventivo.get("lead_id"):
-                lead = await conn.fetchrow(
-                    """
-                    select nome, email from public.leads
-                    where id = $1::uuid and tenant_id = $2::uuid
-                    """,
-                    preventivo["lead_id"],
-                    tenant["id"],
-                )
+            contact = await conn.fetchrow(
+                """
+                select coalesce(l.nome, cl.nome) as nome,
+                       coalesce(l.email, cl.email) as email,
+                       coalesce(l.telefono, cl.telefono) as telefono,
+                       coalesce(l.indirizzo, cl.indirizzo) as indirizzo,
+                       coalesce(l.citta, cl.citta) as citta,
+                       ca.indirizzo as cantiere_indirizzo
+                from public.preventivi p
+                left join public.leads l
+                  on l.id = p.lead_id and l.tenant_id = p.tenant_id
+                left join public.clienti cl
+                  on cl.id = p.cliente_id and cl.tenant_id = p.tenant_id
+                left join public.computi co
+                  on co.id = p.computo_id and co.tenant_id = p.tenant_id
+                left join public.cantieri ca
+                  on ca.id = co.cantiere_id and ca.tenant_id = p.tenant_id
+                where p.id = $1::uuid and p.tenant_id = $2::uuid
+                """,
+                preventivo_id,
+                tenant["id"],
+            )
             raw_recipient = str(
-                body.destinatario or (lead["email"] if lead else "") or ""
+                body.destinatario or (contact["email"] if contact else "") or ""
             ).strip()
             try:
                 destinatario = str(EMAIL_ADDRESS_ADAPTER.validate_python(raw_recipient))
@@ -1128,7 +1201,9 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 )
 
             ragione_sociale = tenant.get("ragione_sociale") or "GB Construction"
-            nome_cliente = str((lead["nome"] if lead else "") or "Cliente").strip()
+            nome_cliente = str(
+                (contact["nome"] if contact else "") or "Cliente"
+            ).strip()
             oggetto = (
                 body.oggetto or ""
             ).strip() or f"Preventivo {preventivo['numero']} - {ragione_sociale}"
@@ -1141,6 +1216,17 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             )
             pdf_data = dict(preventivo)
             pdf_data["stato"] = "inviato"
+            if contact:
+                pdf_data.update(
+                    {
+                        "cliente_nome": contact["nome"],
+                        "cliente_email": contact["email"],
+                        "cliente_telefono": contact["telefono"],
+                        "cliente_indirizzo": contact["indirizzo"],
+                        "cliente_citta": contact["citta"],
+                        "cantiere_indirizzo": contact["cantiere_indirizzo"],
+                    }
+                )
             pdf = genera_pdf_preventivo(pdf_data, tenant)
             idempotency_seed = f"{tenant['id']}:{preventivo_id}:invio-iniziale".encode(
                 "utf-8"

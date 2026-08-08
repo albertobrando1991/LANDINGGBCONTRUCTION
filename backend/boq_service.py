@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
@@ -39,6 +40,188 @@ def _d(row: asyncpg.Record | None) -> dict | None:
         elif isinstance(v, Decimal):
             out[k] = float(v)
     return out
+
+
+def _normalizza_codice(value: Any) -> str:
+    """Normalizza i codici tariffa senza introdurre matching descrittivi incerti."""
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _abbina_voce_acca(item: dict, candidates_by_code: dict[str, list[dict]]) -> dict | None:
+    """Accetta soltanto un match univoco per codice e unita di misura."""
+    raw_code = str(item.get("codice") or "").strip()
+    if not raw_code or raw_code.upper().startswith("ACCA-") or not item.get("coerente"):
+        return None
+    matches = [
+        candidate
+        for candidate in candidates_by_code.get(_normalizza_codice(raw_code), [])
+        if str(candidate.get("um") or "").lower() == str(item.get("um") or "").lower()
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+async def _ensure_cliente_for_lead(
+    conn: asyncpg.Connection, tenant_id: str, lead: asyncpg.Record | dict
+) -> str:
+    """Crea o riusa l'anagrafica cliente collegata al lead, nella transazione corrente."""
+    if lead.get("cliente_id"):
+        return str(lead["cliente_id"])
+
+    email = str(lead.get("email") or "").strip().lower()
+    lock_identity = email or str(lead["id"])
+    await conn.execute(
+        "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+        f"cliente:{tenant_id}:{lock_identity}",
+    )
+    refreshed = await conn.fetchrow(
+        """
+        select id, cliente_id, nome, email, telefono, citta, indirizzo
+        from public.leads
+        where id = $1::uuid and tenant_id = $2::uuid
+        """,
+        lead["id"],
+        tenant_id,
+    )
+    if not refreshed:
+        raise HTTPException(status_code=404, detail="Cliente/lead non trovato")
+    if refreshed["cliente_id"]:
+        return str(refreshed["cliente_id"])
+
+    cliente_id = None
+    if email and not email.endswith("@invalid.local"):
+        cliente_id = await conn.fetchval(
+            """
+            select id from public.clienti
+            where tenant_id = $1::uuid and lower(email) = $2
+            order by created_at, id
+            limit 1
+            """,
+            tenant_id,
+            email,
+        )
+    if not cliente_id:
+        cliente_id = await conn.fetchval(
+            """
+            insert into public.clienti (
+              tenant_id, nome, email, telefono, citta, indirizzo
+            ) values ($1::uuid, $2, $3, $4, $5, $6)
+            returning id
+            """,
+            tenant_id,
+            refreshed["nome"],
+            refreshed["email"],
+            refreshed["telefono"],
+            refreshed["citta"],
+            refreshed["indirizzo"],
+        )
+    await conn.execute(
+        """
+        update public.leads set cliente_id = $1::uuid
+        where id = $2::uuid and tenant_id = $3::uuid and cliente_id is null
+        """,
+        cliente_id,
+        refreshed["id"],
+        tenant_id,
+    )
+    return str(cliente_id)
+
+
+async def _resolve_import_context(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    *,
+    lead_id: Optional[str],
+    cantiere_id: Optional[str],
+    prezzario_id: Optional[str],
+) -> dict:
+    lead = None
+    if lead_id:
+        lead = await conn.fetchrow(
+            """
+            select id, cliente_id, nome, email, telefono, citta, indirizzo
+            from public.leads
+            where id = $1::uuid and tenant_id = $2::uuid
+            """,
+            lead_id,
+            tenant_id,
+        )
+        if not lead:
+            raise HTTPException(status_code=404, detail="Cliente/lead non trovato")
+
+    cantiere = None
+    if cantiere_id:
+        cantiere = await conn.fetchrow(
+            """
+            select id, lead_id, cliente_id from public.cantieri
+            where id = $1::uuid and tenant_id = $2::uuid
+            """,
+            cantiere_id,
+            tenant_id,
+        )
+        if not cantiere:
+            raise HTTPException(status_code=404, detail="Cantiere non trovato")
+        if lead and cantiere["lead_id"] and str(cantiere["lead_id"]) != str(lead["id"]):
+            raise HTTPException(
+                status_code=409,
+                detail="Il cantiere selezionato appartiene a un altro cliente",
+            )
+        if not lead_id and cantiere["lead_id"]:
+            lead_id = str(cantiere["lead_id"])
+
+    if lead_id and not lead:
+        lead = await conn.fetchrow(
+            """
+            select id, cliente_id, nome, email, telefono, citta, indirizzo
+            from public.leads
+            where id = $1::uuid and tenant_id = $2::uuid
+            """,
+            lead_id,
+            tenant_id,
+        )
+        if not lead:
+            raise HTTPException(status_code=404, detail="Cliente/lead non trovato")
+
+    if prezzario_id:
+        exists = await conn.fetchval(
+            """
+            select exists(
+              select 1 from public.prezzari
+              where id = $1::uuid and tenant_id = $2::uuid
+            )
+            """,
+            prezzario_id,
+            tenant_id,
+        )
+        if not exists:
+            raise HTTPException(status_code=404, detail="Prezzario non trovato")
+
+    cliente_id = None
+    if cantiere and cantiere["cliente_id"]:
+        cliente_id = str(cantiere["cliente_id"])
+        if lead and lead["cliente_id"] and str(lead["cliente_id"]) != cliente_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Lead e cantiere risultano associati a clienti diversi",
+            )
+        if lead and not lead["cliente_id"]:
+            await conn.execute(
+                """
+                update public.leads set cliente_id = $1::uuid
+                where id = $2::uuid and tenant_id = $3::uuid
+                  and cliente_id is null
+                """,
+                cliente_id,
+                lead["id"],
+                tenant_id,
+            )
+    elif lead:
+        cliente_id = await _ensure_cliente_for_lead(conn, tenant_id, lead)
+    return {
+        "lead_id": lead_id,
+        "cantiere_id": cantiere_id,
+        "prezzario_id": prezzario_id,
+        "cliente_id": cliente_id,
+    }
 
 
 async def _assert_computo_editabile(
@@ -324,49 +507,120 @@ async def importa_computo_acca(
     *,
     filename: str,
     parsed: dict,
+    lead_id: Optional[str] = None,
+    cantiere_id: Optional[str] = None,
+    prezzario_id: Optional[str] = None,
 ) -> dict:
-    """Salva atomicamente un computo ACCA verificato come bozza da revisionare."""
-    computo = await crea_computo(conn, tenant_id, tipo="estimativo")
-    computo_id = computo["id"]
-    await conn.execute(
-        """
-        update public.computi
-        set note = $1, stato = 'ai_da_revisionare'
-        where id = $2::uuid and tenant_id = $3::uuid
-        """,
-        f"Importato da PDF ACCA: {filename}",
-        computo_id,
+    """Importa ACCA e applica prezzi GB solo con match deterministici univoci."""
+    context = await _resolve_import_context(
+        conn,
         tenant_id,
+        lead_id=lead_id,
+        cantiere_id=cantiere_id,
+        prezzario_id=prezzario_id,
     )
+    computo = await crea_computo(
+        conn,
+        tenant_id,
+        lead_id=context["lead_id"],
+        cantiere_id=context["cantiere_id"],
+        prezzario_id=context["prezzario_id"],
+        tipo="estimativo",
+    )
+    computo_id = computo["id"]
+    selected_prezzario_id = computo.get("prezzario_id")
+    price_rows = []
+    if selected_prezzario_id:
+        price_rows = await conn.fetch(
+            """
+            select id, codice, super_categoria, categoria, sub_categoria,
+                   descrizione, um, tipo, prezzo_unitario
+            from public.prezzario_voci
+            where tenant_id = $1::uuid and prezzario_id = $2::uuid
+              and attiva = true and codice is not null
+            order by created_at desc, id
+            """,
+            tenant_id,
+            selected_prezzario_id,
+        )
+    candidates_by_code: dict[str, list[dict]] = {}
+    for row in price_rows:
+        candidate = _d(row)
+        candidates_by_code.setdefault(
+            _normalizza_codice(candidate.get("codice")), []
+        ).append(candidate)
+
+    matched_count = 0
+    total_gb = Decimal("0")
     for item in parsed["voci"]:
         code = str(item.get("codice") or f"ACCA-{item['numero']:03d}")
+        match = _abbina_voce_acca(item, candidates_by_code)
+        if match:
+            matched_count += 1
+        price = Decimal(str(match["prezzo_unitario"] if match else item["prezzo_unitario"]))
+        quantity = Decimal(str(item["qta"]))
+        total_gb += (quantity * price).quantize(Decimal("0.01"))
         await conn.execute(
             """
             insert into public.computo_voci (
-              tenant_id, computo_id, ordine, super_categoria, categoria,
-              sub_categoria, descrizione, um, tipo, qta, prezzo_unitario,
+              tenant_id, computo_id, origine_voce_id, ordine,
+              super_categoria, categoria, sub_categoria, descrizione, um, tipo,
+              qta, prezzo_unitario,
               generata_da_ai, validata_umano
             ) values (
-              $1::uuid, $2::uuid, $3, 'Importazione ACCA', 'Computo PriMus',
-              $4, $5, $6, $7, $8, $9, true, false
+              $1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
+              $7, $8, $9, $10, $11, $12, $13, $14
             )
             """,
             tenant_id,
             computo_id,
+            match["id"] if match else None,
             int(item["numero"]) * 10,
+            match["super_categoria"] if match else "Importazione ACCA",
+            match["categoria"] if match else "Computo PriMus",
             code,
             item["descrizione"],
             item["um"],
-            "a_corpo" if item["um"] == "corpo" else "a_misura",
+            match["tipo"] if match else (
+                "a_corpo" if item["um"] == "corpo" else "a_misura"
+            ),
             item["qta"],
-            item["prezzo_unitario"],
+            price,
+            not bool(match),
+            bool(match),
         )
+    pending_count = len(parsed["voci"]) - matched_count
+    await conn.execute(
+        """
+        update public.computi
+        set note = $1, stato = $2
+        where id = $3::uuid and tenant_id = $4::uuid
+        """,
+        (
+            f"Importato da PDF ACCA: {filename} | "
+            f"Prezzi GB abbinati: {matched_count}/{parsed['n_voci']} | "
+            f"Da verificare: {pending_count}"
+        ),
+        "bozza" if pending_count == 0 else "ai_da_revisionare",
+        computo_id,
+        tenant_id,
+    )
     result = await get_computo(conn, tenant_id, computo_id)
     result["importazione"] = {
         "file": filename,
         "n_voci": parsed["n_voci"],
         "totale_pdf": float(parsed["totale_pdf"]),
-        "n_da_verificare": parsed["n_voci"],
+        "totale_gb": float(total_gb),
+        "n_prezzi_gb": matched_count,
+        "n_da_verificare": pending_count,
+        "criterio": "codice tariffa + unita di misura, match univoco",
+    }
+    result["automazione"] = {
+        "pronto_preventivo": pending_count == 0 and bool(context["lead_id"]),
+        "cliente_associato": bool(context["lead_id"] or context["cliente_id"]),
+        "cantiere_associato": bool(context["cantiere_id"]),
+        "prezzario_associato": bool(selected_prezzario_id),
+        "richiede_revisione": pending_count > 0,
     }
     return result
 
@@ -521,7 +775,21 @@ async def valida_voci_ai(
 
 async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str) -> dict:
     c = await conn.fetchrow(
-        "select * from public.computi where id = $1::uuid and tenant_id = $2::uuid",
+        """
+        select c.*, coalesce(l.nome, cl.nome, ca.cliente) as cliente,
+               p.nome as prezzario_nome
+        from public.computi c
+        left join public.leads l
+          on l.id = c.lead_id and l.tenant_id = c.tenant_id
+        left join public.cantieri ca
+          on ca.id = c.cantiere_id and ca.tenant_id = c.tenant_id
+        left join public.clienti cl
+          on cl.id = coalesce(ca.cliente_id, l.cliente_id)
+         and cl.tenant_id = c.tenant_id
+        left join public.prezzari p
+          on p.id = c.prezzario_id and p.tenant_id = c.tenant_id
+        where c.id = $1::uuid and c.tenant_id = $2::uuid
+        """,
         computo_id,
         tenant_id,
     )
@@ -553,10 +821,21 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
 async def lista_computi(conn: asyncpg.Connection, tenant_id: str) -> list[dict]:
     rows = await conn.fetch(
         """
-        select c.*, t.totale, t.n_voci, t.n_da_validare
+        select c.*, t.totale, t.n_voci, t.n_da_validare,
+               coalesce(l.nome, cl.nome, ca.cliente) as cliente,
+               p.nome as prezzario_nome
         from public.computi c
         left join public.computi_totali t
           on t.computo_id = c.id and t.tenant_id = c.tenant_id
+        left join public.leads l
+          on l.id = c.lead_id and l.tenant_id = c.tenant_id
+        left join public.cantieri ca
+          on ca.id = c.cantiere_id and ca.tenant_id = c.tenant_id
+        left join public.clienti cl
+          on cl.id = coalesce(ca.cliente_id, l.cliente_id)
+         and cl.tenant_id = c.tenant_id
+        left join public.prezzari p
+          on p.id = c.prezzario_id and p.tenant_id = c.tenant_id
         where c.tenant_id = $1::uuid
         order by c.created_at desc
         """,
@@ -570,8 +849,10 @@ async def lista_preventivi(conn: asyncpg.Connection, tenant_id: str) -> list[dic
     rows = await conn.fetch(
         """
         select p.id, p.computo_id, p.numero,
-               coalesce(l.nome, 'Cliente non associato') as cliente,
-               l.citta, l.telefono, l.email,
+               coalesce(l.nome, cl.nome, 'Cliente non associato') as cliente,
+               coalesce(l.citta, cl.citta) as citta,
+               coalesce(l.telefono, cl.telefono) as telefono,
+               coalesce(l.email, cl.email) as email,
                coalesce(l.config ->> 'livello', 'computo') as livello,
                p.totale_documento as range_basso,
                p.totale_documento as range_alto,
@@ -604,6 +885,8 @@ async def lista_preventivi(conn: asyncpg.Connection, tenant_id: str) -> list[dic
         from public.preventivi p
         left join public.leads l
           on l.id = p.lead_id and l.tenant_id = p.tenant_id
+        left join public.clienti cl
+          on cl.id = p.cliente_id and cl.tenant_id = p.tenant_id
         where p.tenant_id = $1::uuid
         order by p.created_at desc
         """,
@@ -844,6 +1127,20 @@ async def computo_to_preventivo(
     iva_importo = round(netto * iva / 100, 2)
     totale = round(netto + iva_importo, 2)
 
+    cliente_id = await conn.fetchval(
+        """
+        select coalesce(ca.cliente_id, l.cliente_id)
+        from public.computi co
+        left join public.cantieri ca
+          on ca.id = co.cantiere_id and ca.tenant_id = co.tenant_id
+        left join public.leads l
+          on l.id = co.lead_id and l.tenant_id = co.tenant_id
+        where co.id = $1::uuid and co.tenant_id = $2::uuid
+        """,
+        computo_id,
+        tenant_id,
+    )
+
     anno = datetime.now(timezone.utc).year
     # Serializza la numerazione per tenant senza dipendere dalla policy UPDATE
     # di tenants: anche staff/operations possono creare preventivi mantenendo
@@ -865,17 +1162,19 @@ async def computo_to_preventivo(
     row = await conn.fetchrow(
         """
         insert into public.preventivi (
-          tenant_id, computo_id, lead_id, numero, anno, progressivo, stato,
+          tenant_id, computo_id, lead_id, cliente_id,
+          numero, anno, progressivo, stato,
           totale_imponibile, sconto_percentuale, iva_percentuale, totale_iva,
           totale_documento, snapshot_voci
         ) values (
-          $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, 'bozza',
-          $7, $8, $9, $10, $11, $12::jsonb
+          $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'bozza',
+          $8, $9, $10, $11, $12, $13::jsonb
         ) returning *
         """,
         tenant_id,
         computo_id,
         c.get("lead_id"),
+        cliente_id,
         numero,
         anno,
         progressivo,
