@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>GB CONSTRUCTION - SAL Detail Page</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&amp;family=Oswald:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline": "#aa8986",
+                        "surface-dim": "#131316",
+                        "surface-container-lowest": "#0e0e11",
+                        "on-tertiary-fixed-variant": "#44474d",
+                        "inverse-surface": "#e5e1e6",
+                        "on-tertiary": "#2e3036",
+                        "on-primary-fixed-variant": "#930016",
+                        "error-container": "#93000a",
+                        "on-primary-fixed": "#410005",
+                        "on-error-container": "#ffdad6",
+                        "secondary-fixed": "#ffe08f",
+                        "on-tertiary-fixed": "#191c21",
+                        "error": "#ffb4ab",
+                        "surface-tint": "#ffb3ae",
+                        "inverse-primary": "#b81d28",
+                        "on-tertiary-container": "#e3e5ec",
+                        "primary-fixed": "#ffdad7",
+                        "tertiary-fixed-dim": "#c4c6cd",
+                        "surface-container-high": "#2a2a2d",
+                        "on-error": "#690005",
+                        "construction-brass": "#C3A44F",
+                        "on-surface": "#e5e1e6",
+                        "secondary-fixed-dim": "#e4c36b",
+                        "tertiary-fixed": "#e1e2e9",
+                        "operative-graphite": "#171719",
+                        "on-surface-variant": "#e3bebb",
+                        "on-primary-container": "#ffdedb",
+                        "on-background": "#e5e1e6",
+                        "primary-fixed-dim": "#ffb3ae",
+                        "background": "#131316",
+                        "on-secondary-container": "#ecca71",
+                        "structural-red": "#C4272F",
+                        "outline-variant": "#5b403e",
+                        "tertiary": "#c4c6cd",
+                        "surface-variant": "#353438",
+                        "mineral-black": "#0C0C0F",
+                        "surface-bright": "#39393c",
+                        "secondary": "#e4c36b",
+                        "warm-paper": "#F3F1ED",
+                        "surface-container": "#1f1f22",
+                        "secondary-container": "#6c5400",
+                        "surface": "#131316",
+                        "on-secondary": "#3d2e00",
+                        "surface-container-highest": "#353438",
+                        "primary-container": "#c4272f",
+                        "on-secondary-fixed": "#241a00",
+                        "on-secondary-fixed-variant": "#584400",
+                        "tertiary-container": "#64666d",
+                        "inverse-on-surface": "#303033",
+                        "primary": "#ffb3ae",
+                        "on-primary": "#68000d",
+                        "surface-container-low": "#1b1b1e",
+                        "text-main": "#202226"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "unit": "8px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "64px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Oswald"],
+                        "label-caps": ["Oswald"],
+                        "headline-md": ["Oswald"],
+                        "display-xl": ["Oswald"],
+                        "body-base": ["Montserrat"],
+                        "display-lg": ["Oswald"],
+                        "body-bold": ["Montserrat"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["40px", { "lineHeight": "44px", "letterSpacing": "0", "fontWeight": "600" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.18em", "fontWeight": "600" }],
+                        "headline-md": ["28px", { "lineHeight": "34px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "display-xl": ["80px", { "lineHeight": "74px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-base": ["16px", { "lineHeight": "26px", "letterSpacing": "0", "fontWeight": "400" }],
+                        "display-lg": ["64px", { "lineHeight": "60px", "letterSpacing": "-0.015em", "fontWeight": "700" }],
+                        "body-bold": ["16px", { "lineHeight": "24px", "letterSpacing": "0", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #0e0e11;
+            margin: 0;
+            padding: 2rem;
+        }
+        .a4-page {
+            width: 794px;
+            height: 1123px;
+            background-color: #F3F1ED;
+            color: #202226;
+            position: relative;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: 18mm; /* 68px approx */
+            box-sizing: border-box;
+        }
+
+        .technical-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 16px;
+        }
+
+        .border-technical {
+            border-bottom: 1px solid #171719;
+        }
+    </style>
+</head>
+<body class="antialiased font-body-base bg-surface-container-lowest">
+<div class="a4-page">
+<!-- Running Header -->
+<header class="technical-grid border-technical pb-4 mb-8">
+<div class="col-span-3 font-label-caps text-label-caps text-text-main">
+                GB CONSTRUCTION
+            </div>
+<div class="col-span-4 font-label-caps text-label-caps text-text-main text-center">
+                STATO AVANZAMENTO LAVORI
+            </div>
+<div class="col-span-2 font-label-caps text-label-caps text-text-main text-right">
+                SAL 03
+            </div>
+<div class="col-span-3 font-label-caps text-label-caps text-text-main text-right">
+                PAGINA 02 / 04
+            </div>
+</header>
+<!-- Chapter Marker & Title -->
+<div class="technical-grid mb-10">
+<div class="col-span-2">
+<span class="font-display-xl text-display-xl text-structural-red">02</span>
+</div>
+<div class="col-span-10 flex flex-col justify-center border-l-2 border-structural-red pl-6">
+<h1 class="font-headline-lg text-headline-lg text-operative-graphite uppercase">Avanzamento e Lavorazioni</h1>
+<p class="font-body-base text-body-base text-text-main mt-2 max-w-2xl">
+                    Dettaglio analitico delle lavorazioni eseguite nel periodo di riferimento. I valori indicati rappresentano le stime tecniche approvate dalla direzione lavori e non costituiscono documento fiscale.
+                </p>
+</div>
+</div>
+<!-- Metadata Band -->
+<div class="bg-operative-graphite text-warm-paper p-4 mb-8 flex justify-between items-center">
+<div class="flex gap-8">
+<div>
+<div class="font-label-caps text-label-caps text-outline">CLIENTE</div>
+<div class="font-body-bold text-body-bold">Cliente dimostrativo</div>
+</div>
+<div>
+<div class="font-label-caps text-label-caps text-outline">PROGETTO</div>
+<div class="font-body-bold text-body-bold">Progetto dimostrativo</div>
+</div>
+<div>
+<div class="font-label-caps text-label-caps text-outline">PERIODO</div>
+<div class="font-body-bold text-body-bold">01–31 luglio 2026</div>
+</div>
+</div>
+<div class="border border-structural-red text-structural-red px-3 py-1 font-label-caps text-label-caps uppercase">
+                FAC-SIMILE
+            </div>
+</div>
+<!-- Overall Indicator -->
+<div class="flex justify-end items-baseline border-technical pb-2 mb-6">
+<span class="font-label-caps text-label-caps text-text-main mr-4">STATO CANTIERE</span>
+<span class="font-headline-md text-headline-md text-operative-graphite">AVANZAMENTO COMPLESSIVO 68%</span>
+</div>
+<!-- Technical Table -->
+<div class="mb-8 flex-grow">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b-2 border-operative-graphite font-label-caps text-label-caps text-text-main">
+<th class="py-2 pr-2">Codice</th>
+<th class="py-2 px-2 w-1/3">Lavorazione</th>
+<th class="py-2 px-2 text-right">Contratto</th>
+<th class="py-2 px-2 text-right">Precedente</th>
+<th class="py-2 px-2 text-right">Periodo</th>
+<th class="py-2 px-2 text-right">Cumulato</th>
+<th class="py-2 pl-2 text-right">Avanzamento</th>
+</tr>
+</thead>
+<tbody class="font-body-base text-body-base text-text-main text-sm">
+<tr class="border-b border-gray-300">
+<td class="py-3 pr-2 font-mono">DEMO.001</td>
+<td class="py-3 px-2">Opere di cantierizzazione e sicurezza</td>
+<td class="py-3 px-2 text-right">€ 15.000,00</td>
+<td class="py-3 px-2 text-right">€ 15.000,00</td>
+<td class="py-3 px-2 text-right">€ 0,00</td>
+<td class="py-3 px-2 text-right">€ 15.000,00</td>
+<td class="py-3 pl-2 text-right text-structural-red font-bold">100%</td>
+</tr>
+<tr class="border-b border-gray-300 bg-[#EBE8E2]">
+<td class="py-3 pr-2 font-mono">DEMO.002</td>
+<td class="py-3 px-2">Scavi e fondazioni in c.a.</td>
+<td class="py-3 px-2 text-right">€ 25.000,00</td>
+<td class="py-3 px-2 text-right">€ 25.000,00</td>
+<td class="py-3 px-2 text-right">€ 0,00</td>
+<td class="py-3 px-2 text-right">€ 25.000,00</td>
+<td class="py-3 pl-2 text-right text-structural-red font-bold">100%</td>
+</tr>
+<tr class="border-b border-gray-300">
+<td class="py-3 pr-2 font-mono">DEMO.003</td>
+<td class="py-3 px-2">Strutture in elevazione</td>
+<td class="py-3 px-2 text-right">€ 30.000,00</td>
+<td class="py-3 px-2 text-right">€ 12.000,00</td>
+<td class="py-3 px-2 text-right">€ 8.000,00</td>
+<td class="py-3 px-2 text-right">€ 20.000,00</td>
+<td class="py-3 pl-2 text-right text-structural-red font-bold">66%</td>
+</tr>
+<tr class="border-b border-gray-300 bg-[#EBE8E2]">
+<td class="py-3 pr-2 font-mono">DEMO.004</td>
+<td class="py-3 px-2">Tamponature e tramezzi</td>
+<td class="py-3 px-2 text-right">€ 10.000,00</td>
+<td class="py-3 px-2 text-right">€ 0,00</td>
+<td class="py-3 px-2 text-right">€ 5.000,00</td>
+<td class="py-3 px-2 text-right">€ 5.000,00</td>
+<td class="py-3 pl-2 text-right text-structural-red font-bold">50%</td>
+</tr>
+<tr class="border-b border-gray-300">
+<td class="py-3 pr-2 font-mono">DEMO.005</td>
+<td class="py-3 px-2">Impianti idrico-sanitari (predisposizione)</td>
+<td class="py-3 px-2 text-right">€ 12.000,00</td>
+<td class="py-3 px-2 text-right">€ 0,00</td>
+<td class="py-3 px-2 text-right">€ 3.000,00</td>
+<td class="py-3 px-2 text-right">€ 3.000,00</td>
+<td class="py-3 pl-2 text-right text-structural-red font-bold">25%</td>
+</tr>
+<tr class="border-b-2 border-operative-graphite bg-[#EBE8E2]">
+<td class="py-3 pr-2 font-mono">DEMO.006</td>
+<td class="py-3 px-2">Finiture interne (intonaci)</td>
+<td class="py-3 px-2 text-right">€ 8.000,00</td>
+<td class="py-3 px-2 text-right">€ 0,00</td>
+<td class="py-3 px-2 text-right">€ 0,00</td>
+<td class="py-3 px-2 text-right">€ 0,00</td>
+<td class="py-3 pl-2 text-right text-structural-red font-bold">0%</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Financial Totals -->
+<div class="technical-grid mb-8">
+<div class="col-span-5"></div>
+<div class="col-span-7 bg-operative-graphite p-6 text-warm-paper">
+<div class="flex justify-between border-b border-gray-700 pb-2 mb-2 font-body-base text-body-base text-sm">
+<span>Valore contrattuale</span>
+<span>€ 100.000,00</span>
+</div>
+<div class="flex justify-between border-b border-gray-700 pb-2 mb-2 font-body-base text-body-base text-sm text-gray-400">
+<span>SAL precedenti</span>
+<span>€ 52.000,00</span>
+</div>
+<div class="flex justify-between border-b border-gray-700 pb-2 mb-2 font-body-base text-body-base text-sm">
+<span>SAL del periodo</span>
+<span>€ 16.000,00</span>
+</div>
+<div class="flex justify-between border-b border-gray-700 pb-2 mb-2 font-headline-md text-headline-md text-structural-red">
+<span>Cumulato</span>
+<span>€ 68.000,00</span>
+</div>
+<div class="flex justify-between pt-1 font-body-base text-body-base text-sm text-gray-400">
+<span>Residuo</span>
+<span>€ 32.000,00</span>
+</div>
+</div>
+</div>
+<!-- Warning -->
+<div class="mb-10 text-center font-label-caps text-label-caps text-structural-red uppercase tracking-wider flex items-center justify-center gap-4">
+<span class="h-px bg-structural-red w-12"></span>
+            Dati dimostrativi — verificare quantità e contabilità prima dell’emissione
+            <span class="h-px bg-structural-red w-12"></span>
+</div>
+<!-- Signatures & Notes -->
+<div class="technical-grid mb-auto flex-grow">
+<div class="col-span-6 pr-8">
+<h4 class="font-label-caps text-label-caps text-operative-graphite mb-4">NOTE TECNICHE</h4>
+<ul class="list-disc pl-4 font-body-base text-body-base text-sm text-text-main space-y-2">
+<li>I materiali approvvigionati a piè d'opera non sono computati nel presente SAL.</li>
+<li>Variante V1 approvata in data 15/06 non incide sui capitoli di spesa del presente periodo.</li>
+<li>Prossimo sopralluogo per contabilizzazione fissato al 25/08/2026.</li>
+</ul>
+</div>
+<div class="col-span-6 border-l border-gray-400 pl-8 flex flex-col justify-between">
+<div>
+<div class="font-label-caps text-label-caps text-operative-graphite mb-10 border-b border-dotted border-gray-500 pb-1">Direzione lavori / GB Construction</div>
+</div>
+<div>
+<div class="font-label-caps text-label-caps text-operative-graphite mb-10 border-b border-dotted border-gray-500 pb-1">Cliente per accettazione</div>
+</div>
+</div>
+</div>
+<!-- Footer -->
+<footer class="mt-8 pt-4 border-t border-operative-graphite flex justify-between font-label-caps text-label-caps text-text-main uppercase">
+<span>gbconstruction.it</span>
+<span>Pagina 02 / 04</span>
+</footer>
+</div>
+</body></html>

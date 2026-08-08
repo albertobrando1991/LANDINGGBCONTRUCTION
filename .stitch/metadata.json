@@ -1,0 +1,81 @@
+{
+  "projectId": "6329777266381373848",
+  "title": "GB Construction - Document & Portal System",
+  "screens": [
+    {
+      "id": "09c36913483b4e07a68ce6afdeebd97f",
+      "title": "Copertina Proposta Economica (A4 Portrait)",
+      "deviceType": "DESKTOP",
+      "status": "accepted",
+      "html": ".stitch/designs/quote-cover-a4-09c36913.html",
+      "screenshot": ".stitch/designs/quote-cover-a4-09c36913.png"
+    },
+    {
+      "id": "ac45b936a8564804a9f0397fa491a4ec",
+      "title": "Proposta Economica - Dettaglio Tecnico (A4 Portrait)",
+      "deviceType": "DESKTOP",
+      "status": "accepted",
+      "html": ".stitch/designs/quote-detail-a4-ac45b936.html",
+      "screenshot": ".stitch/designs/quote-detail-a4-ac45b936.png"
+    },
+    {
+      "id": "49208be449a540659beeaeac9f9c6012",
+      "title": "Copertina SAL - Stato Avanzamento Lavori (A4 Portrait)",
+      "deviceType": "DESKTOP",
+      "status": "accepted",
+      "html": ".stitch/designs/sal-cover-a4-49208be4.html",
+      "screenshot": ".stitch/designs/sal-cover-a4-49208be4.png"
+    },
+    {
+      "id": "bfec663390bf41f3b69d353930debdde",
+      "title": "Dettaglio SAL - Stato Avanzamento Lavori (A4)",
+      "deviceType": "DESKTOP",
+      "status": "accepted",
+      "html": ".stitch/designs/sal-detail-a4-bfec6633.html",
+      "screenshot": ".stitch/designs/sal-detail-a4-bfec6633.png"
+    },
+    {
+      "id": "ea5ed05df2874694a470afeffcb0be78",
+      "title": "Dashboard Preventivi (Desktop Viewport)",
+      "deviceType": "DESKTOP",
+      "status": "accepted",
+      "html": ".stitch/designs/preventivi-dashboard-ea5ed05d.html",
+      "screenshot": ".stitch/designs/preventivi-dashboard-ea5ed05d.png"
+    },
+    {
+      "id": "39e58271a396478a86e5e37d74c71bfb",
+      "title": "Editor Computo Metrico (Desktop Viewport)",
+      "deviceType": "DESKTOP",
+      "status": "accepted",
+      "html": ".stitch/designs/computo-editor-39e58271.html",
+      "screenshot": ".stitch/designs/computo-editor-39e58271.png"
+    },
+    {
+      "id": "67ac6de9fe2e410a963803f580c528b6",
+      "title": "Portale Cliente - Residenza Parco Nord",
+      "deviceType": "MOBILE",
+      "status": "accepted-with-local-brand-correction",
+      "html": ".stitch/designs/client-portal-mobile-67ac6de9.html",
+      "screenshot": ".stitch/designs/client-portal-mobile-67ac6de9-local.png"
+    }
+  ],
+  "designSystem": {
+    "assetId": "2e656a0cf8384fc78677f5e7714310e1",
+    "name": "GB Construction",
+    "primaryColor": "#C4272F",
+    "secondaryColor": "#C3A44F",
+    "backgroundColor": "#0C0C0F",
+    "surfaceColor": "#171719",
+    "paperColor": "#F3F1ED",
+    "headlineFontFamily": "Oswald",
+    "bodyFontFamily": "Montserrat",
+    "roundness": "2-4px operational; square editorial structure"
+  },
+  "suggestedNextDesigns": [
+    "Quote technical specifications and project timeline pages",
+    "SAL financial summary and photographic appendix",
+    "Quote-row technical analysis flyout",
+    "Mobile documents and messages tabs",
+    "Computo validation error state and on-site quantity check view"
+  ]
+}

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+
+<html class="light" lang="it"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>GB Construction - Quote</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&amp;family=Oswald:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#ffdad7",
+                        "warm-paper": "#F3F1ED",
+                        "surface-container-lowest": "#0e0e11",
+                        "on-tertiary-fixed": "#191c21",
+                        "tertiary-container": "#64666d",
+                        "surface-variant": "#353438",
+                        "mineral-black": "#0C0C0F",
+                        "on-primary-fixed": "#410005",
+                        "on-surface": "#202226", /* adjusted for ink text */
+                        "secondary": "#e4c36b",
+                        "outline-variant": "#5b403e",
+                        "secondary-fixed": "#ffe08f",
+                        "secondary-fixed-dim": "#e4c36b",
+                        "on-secondary-fixed": "#241a00",
+                        "operative-graphite": "#171719",
+                        "on-secondary-fixed-variant": "#584400",
+                        "surface": "#131316",
+                        "surface-container-high": "#2a2a2d",
+                        "inverse-surface": "#e5e1e6",
+                        "on-error": "#690005",
+                        "surface-tint": "#ffb3ae",
+                        "error": "#ffb4ab",
+                        "tertiary": "#c4c6cd",
+                        "surface-container": "#1f1f22",
+                        "construction-brass": "#C3A44F",
+                        "primary": "#ffb3ae",
+                        "inverse-on-surface": "#303033",
+                        "on-primary": "#68000d",
+                        "background": "#F3F1ED",
+                        "outline": "#aa8986",
+                        "tertiary-fixed-dim": "#c4c6cd",
+                        "on-error-container": "#ffdad6",
+                        "error-container": "#93000a",
+                        "surface-bright": "#39393c",
+                        "on-background": "#e5e1e6",
+                        "inverse-primary": "#b81d28",
+                        "on-tertiary-container": "#e3e5ec",
+                        "on-primary-container": "#ffdedb",
+                        "surface-dim": "#131316",
+                        "on-secondary": "#3d2e00",
+                        "structural-red": "#C4272F",
+                        "surface-container-low": "#1b1b1e",
+                        "on-tertiary": "#2e3036",
+                        "primary-container": "#c4272f",
+                        "on-tertiary-fixed-variant": "#44474d",
+                        "on-surface-variant": "#4d4f55",
+                        "tertiary-fixed": "#e1e2e9",
+                        "on-primary-fixed-variant": "#930016",
+                        "primary-fixed-dim": "#ffb3ae",
+                        "on-secondary-container": "#ecca71",
+                        "secondary-container": "#6c5400",
+                        "surface-container-highest": "#353438"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "unit": "8px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "64px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Oswald"],
+                        "headline-md": ["Oswald"],
+                        "display-lg": ["Oswald"],
+                        "body-bold": ["Montserrat"],
+                        "headline-lg": ["Oswald"],
+                        "body-base": ["Montserrat"],
+                        "display-xl": ["Oswald"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* A4 Portrait Constraints */
+        .a4-page {
+            width: 794px;
+            height: 1123px;
+            background-color: theme('colors.warm-paper');
+            color: theme('colors.on-surface');
+            position: relative;
+            overflow: hidden;
+            box-sizing: border-box;
+            margin: 0 auto;
+        }
+
+        /* Print Styles */
+        @media print {
+            body { background-color: theme('colors.warm-paper'); margin: 0; padding: 0; }
+            .a4-page { width: 100%; height: 100%; border: none; }
+            @page { margin: 0; }
+        }
+
+        /* Custom utilities */
+        .hairline-b { border-bottom: 1px solid theme('colors.on-surface-variant'); }
+        .hairline-t { border-top: 1px solid theme('colors.on-surface-variant'); }
+        .hairline-y { border-top: 1px solid theme('colors.on-surface-variant'); border-bottom: 1px solid theme('colors.on-surface-variant'); }
+    </style>
+</head>
+<body class="bg-warm-paper min-h-screen flex items-start justify-center">
+<div class="a4-page px-[68px] py-[68px] flex flex-col font-body-base">
+<!-- Header -->
+<header class="flex justify-between items-end hairline-b pb-4 mb-8">
+<div class="flex flex-col">
+<span class="font-headline-md text-[20px] text-mineral-black tracking-wider">GB CONSTRUCTION</span>
+<span class="font-label-caps text-construction-brass">PROPOSTA ECONOMICA</span>
+</div>
+<div class="flex flex-col items-end text-on-surface-variant text-[12px]">
+<span class="font-label-caps tracking-widest text-mineral-black">RIF: GB-DEMO-001</span>
+<span>PAGINA 02 / 05</span>
+</div>
+</header>
+<!-- Chapter Marker -->
+<div class="flex items-start gap-6 mb-8">
+<div class="font-display-xl text-[100px] leading-none text-structural-red opacity-90 -mt-4">
+                01
+            </div>
+<div class="flex flex-col pt-2 max-w-lg">
+<h1 class="font-headline-lg text-mineral-black uppercase tracking-wide">AMBITO DEI LAVORI</h1>
+<p class="text-[14px] text-on-surface-variant mt-2 leading-relaxed">
+                    Dettaglio analitico delle lavorazioni previste per il cantiere di riferimento.
+                    I prezzi si intendono al netto di IVA.
+                </p>
+</div>
+</div>
+<!-- Metadata -->
+<div class="grid grid-cols-3 gap-8 py-4 mb-8 hairline-y border-opacity-30">
+<div class="flex flex-col">
+<span class="font-label-caps text-on-surface-variant mb-1 text-[10px]">CLIENTE</span>
+<span class="font-body-bold text-mineral-black text-[14px]">Cliente dimostrativo SPA</span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-caps text-on-surface-variant mb-1 text-[10px]">PROGETTO</span>
+<span class="font-body-bold text-mineral-black text-[14px]">Progetto dimostrativo - Lotto 1</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-label-caps text-construction-brass mb-1 text-[10px]">STATUS</span>
+<span class="font-headline-md text-construction-brass text-[16px] tracking-widest">FAC-SIMILE</span>
+</div>
+</div>
+<!-- BoQ Table -->
+<div class="flex-grow mb-6">
+<table class="w-full text-left text-[13px]">
+<thead>
+<tr class="bg-mineral-black text-warm-paper font-label-caps tracking-wider text-[11px]">
+<th class="py-2 px-2 w-20">COD.</th>
+<th class="py-2 px-2">DESCRIZIONE</th>
+<th class="py-2 px-2 w-12 text-center">U.M.</th>
+<th class="py-2 px-2 w-20 text-right">Q.TÀ</th>
+<th class="py-2 px-2 w-28 text-right">PREZZO UNIT.</th>
+<th class="py-2 px-2 w-28 text-right">IMPORTO</th>
+</tr>
+</thead>
+<tbody class="font-body-base text-mineral-black">
+<tr class="hairline-b border-opacity-20">
+<td class="py-3 px-2 text-on-surface-variant text-[11px]">DEMO.001</td>
+<td class="py-3 px-2">Allestimento cantiere e oneri sicurezza diretti</td>
+<td class="py-3 px-2 text-center">A corpo</td>
+<td class="py-3 px-2 text-right">1,00</td>
+<td class="py-3 px-2 text-right">€ 5.000,00</td>
+<td class="py-3 px-2 text-right font-body-bold">€ 5.000,00</td>
+</tr>
+<tr class="hairline-b border-opacity-20">
+<td class="py-3 px-2 text-on-surface-variant text-[11px]">DEMO.002</td>
+<td class="py-3 px-2">Demolizione tramezzature interne e calo in quota</td>
+<td class="py-3 px-2 text-center">mq</td>
+<td class="py-3 px-2 text-right">150,00</td>
+<td class="py-3 px-2 text-right">€ 35,00</td>
+<td class="py-3 px-2 text-right font-body-bold">€ 5.250,00</td>
+</tr>
+<tr class="hairline-b border-opacity-20">
+<td class="py-3 px-2 text-on-surface-variant text-[11px]">DEMO.003</td>
+<td class="py-3 px-2">Opere murarie: realizzazione nuove tramezze in laterizio</td>
+<td class="py-3 px-2 text-center">mq</td>
+<td class="py-3 px-2 text-right">180,00</td>
+<td class="py-3 px-2 text-right">€ 65,00</td>
+<td class="py-3 px-2 text-right font-body-bold">€ 11.700,00</td>
+</tr>
+<tr class="hairline-b border-opacity-20">
+<td class="py-3 px-2 text-on-surface-variant text-[11px]">DEMO.004</td>
+<td class="py-3 px-2">Adeguamento impianto elettrico sez. piano terra</td>
+<td class="py-3 px-2 text-center">A corpo</td>
+<td class="py-3 px-2 text-right">1,00</td>
+<td class="py-3 px-2 text-right">€ 22.000,00</td>
+<td class="py-3 px-2 text-right font-body-bold">€ 22.000,00</td>
+</tr>
+<tr class="hairline-b border-opacity-20">
+<td class="py-3 px-2 text-on-surface-variant text-[11px]">DEMO.005</td>
+<td class="py-3 px-2">Rifacimento reti idrico-sanitarie blocco A</td>
+<td class="py-3 px-2 text-center">A corpo</td>
+<td class="py-3 px-2 text-right">1,00</td>
+<td class="py-3 px-2 text-right">€ 18.500,00</td>
+<td class="py-3 px-2 text-right font-body-bold">€ 18.500,00</td>
+</tr>
+<tr class="hairline-b border-opacity-20">
+<td class="py-3 px-2 text-on-surface-variant text-[11px]">DEMO.006</td>
+<td class="py-3 px-2">Finiture: rasatura, tinteggiatura e pavimenti</td>
+<td class="py-3 px-2 text-center">mq</td>
+<td class="py-3 px-2 text-right">250,00</td>
+<td class="py-3 px-2 text-right">€ 150,20</td>
+<td class="py-3 px-2 text-right font-body-bold">€ 37.550,00</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Summary -->
+<div class="flex justify-end mb-8">
+<div class="w-80">
+<div class="flex justify-between py-2 text-[13px] hairline-b border-opacity-20">
+<span class="text-on-surface-variant font-label-caps">SUBTOTALE</span>
+<span class="text-mineral-black font-body-bold">€ 100.000,00</span>
+</div>
+<div class="flex justify-between py-2 text-[13px] hairline-b border-opacity-20">
+<span class="text-structural-red font-label-caps">SCONTO COMM.LE (5%)</span>
+<span class="text-structural-red font-body-bold">-€ 5.000,00</span>
+</div>
+<div class="flex justify-between py-2 text-[13px] hairline-b border-opacity-20">
+<span class="text-on-surface-variant font-label-caps">IMPONIBILE</span>
+<span class="text-mineral-black font-body-bold">€ 95.000,00</span>
+</div>
+<div class="flex justify-between py-2 text-[13px] hairline-b border-opacity-20">
+<span class="text-on-surface-variant font-label-caps">IVA (10%)</span>
+<span class="text-mineral-black font-body-bold">€ 9.500,00</span>
+</div>
+<div class="flex justify-between items-center py-4 mt-2 px-2 border-t-2 border-b-2 border-mineral-black">
+<span class="font-headline-md text-mineral-black text-[18px] tracking-wider">TOTALE</span>
+<span class="font-display-lg text-structural-red text-[32px] leading-none">€ 104.500,00</span>
+</div>
+</div>
+</div>
+<!-- Contractual Notes & Signatures -->
+<div class="mt-auto pt-6 flex justify-between gap-12">
+<div class="w-1/2">
+<h3 class="font-label-caps text-mineral-black mb-3 text-[12px]">NOTE CONTRATTUALI</h3>
+<ol class="text-[11px] text-on-surface-variant list-decimal pl-3 space-y-2">
+<li>Validità offerta: 30 giorni dalla data di emissione.</li>
+<li>Termini di pagamento: 30% all'ordine, 60% a SAL, 10% collaudo.</li>
+<li>Oneri di sicurezza e apprestamenti di cantiere inclusi.</li>
+</ol>
+</div>
+<div class="w-1/2 flex gap-8">
+<div class="flex-1 flex flex-col justify-end">
+<div class="h-16 hairline-b border-mineral-black mb-2 flex items-end">
+<span class="text-transparent">Firma</span>
+</div>
+<span class="font-label-caps text-on-surface-variant text-[10px]">GB CONSTRUCTION</span>
+</div>
+<div class="flex-1 flex flex-col justify-end">
+<div class="h-16 hairline-b border-mineral-black mb-2 flex items-end">
+<span class="text-transparent">Firma</span>
+</div>
+<span class="font-label-caps text-on-surface-variant text-[10px]">CLIENTE PER ACCETTAZIONE</span>
+</div>
+</div>
+</div>
+<!-- Footer -->
+<div class="mt-8 pt-4 hairline-t border-opacity-20 flex justify-between text-[10px] text-on-surface-variant font-body-base uppercase">
+<span>gbconstruction.it</span>
+<span>Pagina 02 / 05</span>
+</div>
+</div>
+</body></html>

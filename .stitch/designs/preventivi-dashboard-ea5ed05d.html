@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>GB Construction - Preventivi</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&amp;family=Oswald:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed-dim": "#c4c6cd",
+                        "surface-dim": "#131316",
+                        "secondary-fixed": "#ffe08f",
+                        "primary": "#ffb3ae",
+                        "on-primary-fixed-variant": "#930016",
+                        "on-secondary-fixed": "#241a00",
+                        "on-tertiary-container": "#e3e5ec",
+                        "secondary": "#e4c36b",
+                        "primary-fixed": "#ffdad7",
+                        "on-secondary-container": "#ecca71",
+                        "surface-tint": "#ffb3ae",
+                        "operative-graphite": "#171719",
+                        "tertiary-container": "#64666d",
+                        "tertiary-fixed": "#e1e2e9",
+                        "secondary-container": "#6c5400",
+                        "on-primary-fixed": "#410005",
+                        "on-secondary-fixed-variant": "#584400",
+                        "outline-variant": "#5b403e",
+                        "surface-container-low": "#1b1b1e",
+                        "on-primary": "#68000d",
+                        "inverse-on-surface": "#303033",
+                        "surface-container-high": "#2a2a2d",
+                        "structural-red": "#C4272F",
+                        "surface-variant": "#353438",
+                        "warm-paper": "#F3F1ED",
+                        "on-surface-variant": "#e3bebb",
+                        "secondary-fixed-dim": "#e4c36b",
+                        "surface-container-highest": "#353438",
+                        "surface": "#131316",
+                        "on-tertiary": "#2e3036",
+                        "primary-container": "#c4272f",
+                        "error-container": "#93000a",
+                        "surface-container-lowest": "#0e0e11",
+                        "on-error": "#690005",
+                        "inverse-surface": "#e5e1e6",
+                        "construction-brass": "#C3A44F",
+                        "on-surface": "#e5e1e6",
+                        "on-error-container": "#ffdad6",
+                        "surface-bright": "#39393c",
+                        "on-background": "#e5e1e6",
+                        "surface-container": "#1f1f22",
+                        "on-tertiary-fixed-variant": "#44474d",
+                        "tertiary": "#c4c6cd",
+                        "on-primary-container": "#ffdedb",
+                        "inverse-primary": "#b81d28",
+                        "error": "#ffb4ab",
+                        "on-tertiary-fixed": "#191c21",
+                        "on-secondary": "#3d2e00",
+                        "background": "#131316",
+                        "primary-fixed-dim": "#ffb3ae",
+                        "outline": "#aa8986",
+                        "mineral-black": "#0C0C0F"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "unit": "8px",
+                        "gutter": "24px",
+                        "margin-desktop": "64px",
+                        "margin-mobile": "20px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Oswald"],
+                        "display-lg": ["Oswald"],
+                        "display-xl": ["Oswald"],
+                        "body-bold": ["Montserrat"],
+                        "headline-md": ["Oswald"],
+                        "body-base": ["Montserrat"],
+                        "label-caps": ["Oswald"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["40px", { "lineHeight": "44px", "letterSpacing": "0", "fontWeight": "600" }],
+                        "display-lg": ["64px", { "lineHeight": "60px", "letterSpacing": "-0.015em", "fontWeight": "700" }],
+                        "display-xl": ["80px", { "lineHeight": "74px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-bold": ["16px", { "lineHeight": "24px", "letterSpacing": "0", "fontWeight": "600" }],
+                        "headline-md": ["28px", { "lineHeight": "34px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "body-base": ["16px", { "lineHeight": "26px", "letterSpacing": "0", "fontWeight": "400" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.18em", "fontWeight": "600" }]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.mineral-black');
+            color: theme('colors.on-surface');
+            font-family: 'Montserrat', sans-serif;
+        }
+        h1, h2, h3, h4, h5, h6, .oswald {
+            font-family: 'Oswald', sans-serif;
+        }
+        .text-truncate {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    </style>
+</head>
+<body class="w-[1440px] h-[1024px] mx-auto flex flex-col bg-mineral-black text-on-surface antialiased relative overflow-hidden">
+<!-- TopNavBar -->
+<nav class="bg-surface border-b border-outline-variant flex justify-between items-center h-[56px] px-6 ml-[220px] w-[calc(100%-220px)] absolute top-0 z-40">
+<div class="flex items-center space-x-4">
+<span class="font-headline-md text-headline-md text-primary hidden">GB Construction</span>
+<div class="relative hidden md:block w-64">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="w-full bg-surface-container-high border-outline-variant border text-on-surface pl-10 pr-4 py-1 focus:outline-none focus:border-structural-red focus:ring-1 focus:ring-structural-red text-body-base font-body-base rounded-none" placeholder="Search..." type="text"/>
+</div>
+</div>
+<div class="flex items-center space-x-6">
+<button class="text-on-surface-variant hover:text-primary transition-colors hover:scale-95 duration-100 flex items-center justify-center">
+<span class="material-symbols-outlined text-lg">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors hover:scale-95 duration-100 flex items-center justify-center">
+<span class="material-symbols-outlined text-lg">help_outline</span>
+</button>
+<div class="flex items-center space-x-3 pl-4 border-l border-outline-variant">
+<span class="font-body-bold text-body-bold text-on-surface">Operatore GB</span>
+<img alt="User profile" class="w-8 h-8 rounded-full border border-outline-variant object-cover" data-alt="A small square profile picture of a construction manager in a high-end architectural setting, dimly lit with warm light. Moody and cinematic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCPLsdtCiAN060bPBOXffhbOr7uR1NpSeTvIRsoNmQ2FTrQxgXHYN-f7bWK47tha6pgY6SM5n04uKZX-hegeiA2cGBCCGnMIWoaJVRVo-oNyfXcaMcK2aN9nHci8JkYbOMiOGyXv-Fjx1HLHDWjWx_Kbp8Sxb1n334DZ7m8I-aOUY0cZSPXT2UNYRoOR9JNM3Yu0cquYnO7cWy-Y7iQW7MuAhVuUpDDusYINbrQJq23PxVbuX-JmQNRro6zfjysBHOGvFa_ClBYWeo"/>
+</div>
+</div>
+</nav>
+<!-- SideNavBar -->
+<aside class="bg-mineral-black border-r border-outline-variant absolute left-0 top-0 h-[1024px] w-[220px] flex flex-col p-4 z-50">
+<div class="mb-6 flex flex-col items-start gap-1">
+<div class="font-headline-md text-headline-md font-bold text-structural-red uppercase tracking-tighter">GB Construction</div>
+<div class="font-label-caps text-label-caps uppercase tracking-widest text-on-surface-variant">Staff Portal</div>
+</div>
+<nav class="flex-1 flex flex-col gap-2 mt-2">
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-variant hover:text-on-surface transition-colors font-label-caps text-label-caps uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg">dashboard</span> Panoramica
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-variant hover:text-on-surface transition-colors font-label-caps text-label-caps uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg">construction</span> Cantieri
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-variant hover:text-on-surface transition-colors font-label-caps text-label-caps uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg">architecture</span> Computi metrici
+            </a>
+<!-- ACTIVE TAB -->
+<a class="flex items-center gap-3 px-3 py-2 text-primary border-r-4 border-primary bg-surface-container-high opacity-90 transition-all duration-150 font-label-caps text-label-caps uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg">description</span> Preventivi
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-variant hover:text-on-surface transition-colors font-label-caps text-label-caps uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg">list_alt</span> Listini
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-variant hover:text-on-surface transition-colors font-label-caps text-label-caps uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg">analytics</span> SAL
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-variant hover:text-on-surface transition-colors font-label-caps text-label-caps uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg">payments</span> Economics
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-variant hover:text-on-surface transition-colors font-label-caps text-label-caps uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg">hub</span> Portale cliente
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-variant hover:text-on-surface transition-colors font-label-caps text-label-caps uppercase tracking-widest mt-auto" href="#">
+<span class="material-symbols-outlined text-lg">settings</span> Impostazioni
+            </a>
+</nav>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-[220px] w-[calc(100%-220px)] mt-[56px] h-[calc(1024px-56px-52px)] flex flex-col p-6 overflow-hidden">
+<!-- Header Section -->
+<header class="flex flex-row justify-between items-center mb-6">
+<div class="flex items-baseline gap-4">
+<h1 class="font-display-xl text-[64px] leading-none text-on-surface m-0 p-0">PREVENTIVI</h1>
+<p class="font-body-base text-body-base text-on-surface-variant m-0">Gestione e monitoraggio delle proposte commerciali attive.</p>
+</div>
+<div class="flex gap-4 items-center">
+<button class="border border-construction-brass text-construction-brass hover:bg-construction-brass hover:text-mineral-black px-4 py-2 font-label-caps text-label-caps uppercase tracking-widest transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">upload_file</span> IMPORTA COMPUTO PDF
+                </button>
+<button class="bg-structural-red text-warm-paper hover:bg-opacity-90 px-6 py-2 font-label-caps text-label-caps uppercase tracking-widest transition-colors flex items-center gap-2 shadow-sm">
+<span class="material-symbols-outlined text-sm">add</span> NUOVO PREVENTIVO
+                </button>
+</div>
+</header>
+<!-- Performance Strip -->
+<section class="border-y border-outline-variant py-4 mb-6 flex flex-row divide-x divide-outline-variant">
+<div class="px-6 first:pl-0 last:pr-0 flex-1">
+<div class="font-label-caps text-label-caps text-on-surface-variant mb-1 uppercase tracking-widest">Valore aperto</div>
+<div class="font-headline-lg text-headline-lg text-construction-brass">€ 428.000</div>
+</div>
+<div class="px-6 flex-1">
+<div class="font-label-caps text-label-caps text-on-surface-variant mb-1 uppercase tracking-widest">In attesa</div>
+<div class="font-headline-lg text-headline-lg text-on-surface">7</div>
+</div>
+<div class="px-6 flex-1">
+<div class="font-label-caps text-label-caps text-on-surface-variant mb-1 uppercase tracking-widest">Da sollecitare</div>
+<div class="font-headline-lg text-headline-lg text-structural-red">3</div>
+</div>
+<div class="px-6 last:pr-0 flex-1">
+<div class="font-label-caps text-label-caps text-on-surface-variant mb-1 uppercase tracking-widest">Conversione</div>
+<div class="font-headline-lg text-headline-lg text-on-surface">42%</div>
+</div>
+</section>
+<!-- Main Layout Grid -->
+<div class="flex flex-row gap-8 flex-1 overflow-hidden">
+<!-- Left Column: Data Table -->
+<div class="flex-1 flex flex-col h-full border border-outline-variant bg-surface-container-low">
+<table class="w-full text-left border-collapse">
+<thead class="bg-surface-container-low">
+<tr class="border-b border-structural-red">
+<th class="font-label-caps text-label-caps text-on-surface-variant py-3 px-4 uppercase tracking-widest w-32">Preventivo</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant py-3 px-4 uppercase tracking-widest">Cliente</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant py-3 px-4 uppercase tracking-widest">Progetto</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant py-3 px-4 uppercase tracking-widest text-right">Importo</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant py-3 px-4 uppercase tracking-widest w-32">Stato</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant py-3 px-4 uppercase tracking-widest w-32">Ultima attività</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant py-3 px-4 uppercase tracking-widest w-32">Responsabile</th>
+<th class="font-label-caps text-label-caps text-on-surface-variant py-3 px-4 uppercase tracking-widest text-center w-16">Azioni</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant font-body-base text-body-base">
+<!-- Row 1 -->
+<tr class="h-[48px] hover:bg-surface-variant transition-colors group">
+<td class="py-0 px-4 font-body-bold text-on-surface">GB-DEMO-014</td>
+<td class="py-0 px-4 text-on-surface text-truncate max-w-[120px]">Studio Arch. Rossi</td>
+<td class="py-0 px-4 text-on-surface-variant text-truncate max-w-[180px]">Ristrutturazione Villa D'Este</td>
+<td class="py-0 px-4 font-body-bold text-right text-on-surface">€ 145.000</td>
+<td class="py-0 px-4">
+<span class="inline-block px-2 py-1 bg-surface-variant text-on-surface-variant font-label-caps text-[10px] uppercase tracking-widest border border-outline-variant leading-none">In negoziazione</span>
+</td>
+<td class="py-0 px-4 text-on-surface-variant text-sm text-truncate">Oggi, 10:30</td>
+<td class="py-0 px-4 text-on-surface text-truncate">M. Bianchi</td>
+<td class="py-0 px-4 text-center">
+<button class="text-on-surface-variant hover:text-structural-red transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center w-full">
+<span class="material-symbols-outlined text-xl">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="h-[48px] hover:bg-surface-variant transition-colors group">
+<td class="py-0 px-4 font-body-bold text-on-surface">GB-DEMO-015</td>
+<td class="py-0 px-4 text-on-surface text-truncate max-w-[120px]">Immobiliare S.p.A.</td>
+<td class="py-0 px-4 text-on-surface-variant text-truncate max-w-[180px]">Complesso Residenziale Milano</td>
+<td class="py-0 px-4 font-body-bold text-right text-on-surface">€ 890.000</td>
+<td class="py-0 px-4">
+<span class="inline-block px-2 py-1 bg-surface-container-high text-structural-red border border-structural-red font-label-caps text-[10px] uppercase tracking-widest leading-none">Inviato</span>
+</td>
+<td class="py-0 px-4 text-on-surface-variant text-sm text-truncate">Ieri, 16:45</td>
+<td class="py-0 px-4 text-on-surface text-truncate">A. Conti</td>
+<td class="py-0 px-4 text-center">
+<button class="text-on-surface-variant hover:text-structural-red transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center w-full">
+<span class="material-symbols-outlined text-xl">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="h-[48px] hover:bg-surface-variant transition-colors group opacity-75">
+<td class="py-0 px-4 font-body-bold text-on-surface">GB-DEMO-016</td>
+<td class="py-0 px-4 text-on-surface text-truncate max-w-[120px]">Privato - D. Russo</td>
+<td class="py-0 px-4 text-on-surface-variant text-truncate max-w-[180px]">Rifacimento Tetto e Facciate</td>
+<td class="py-0 px-4 font-body-bold text-right text-on-surface">€ 85.500</td>
+<td class="py-0 px-4">
+<span class="inline-block px-2 py-1 bg-surface-container-lowest text-on-surface-variant font-label-caps text-[10px] uppercase tracking-widest border border-outline-variant border-dashed leading-none">Bozza</span>
+</td>
+<td class="py-0 px-4 text-on-surface-variant text-sm text-truncate">22 Mar 2024</td>
+<td class="py-0 px-4 text-on-surface text-truncate">L. Verdi</td>
+<td class="py-0 px-4 text-center">
+<button class="text-on-surface-variant hover:text-structural-red transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center w-full">
+<span class="material-symbols-outlined text-xl">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="h-[48px] hover:bg-surface-variant transition-colors group">
+<td class="py-0 px-4 font-body-bold text-on-surface">GB-DEMO-017</td>
+<td class="py-0 px-4 text-on-surface text-truncate max-w-[120px]">Comune di Roma</td>
+<td class="py-0 px-4 text-on-surface-variant text-truncate max-w-[180px]">Appalto Manutenzione Straordinaria</td>
+<td class="py-0 px-4 font-body-bold text-right text-on-surface">€ 1.250.000</td>
+<td class="py-0 px-4">
+<span class="inline-block px-2 py-1 bg-construction-brass bg-opacity-10 text-construction-brass border border-construction-brass font-label-caps text-[10px] uppercase tracking-widest leading-none">Accettato</span>
+</td>
+<td class="py-0 px-4 text-on-surface-variant text-sm text-truncate">20 Mar 2024</td>
+<td class="py-0 px-4 text-on-surface text-truncate">M. Bianchi</td>
+<td class="py-0 px-4 text-center">
+<button class="text-on-surface-variant hover:text-structural-red transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center w-full">
+<span class="material-symbols-outlined text-xl">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 5 -->
+<tr class="h-[48px] hover:bg-surface-variant transition-colors group">
+<td class="py-0 px-4 font-body-bold text-on-surface">GB-DEMO-018</td>
+<td class="py-0 px-4 text-on-surface text-truncate max-w-[120px]">Gruppo FCA</td>
+<td class="py-0 px-4 text-on-surface-variant text-truncate max-w-[180px]">Ampliamento Capannone</td>
+<td class="py-0 px-4 font-body-bold text-right text-on-surface">€ 450.000</td>
+<td class="py-0 px-4">
+<span class="inline-block px-2 py-1 bg-surface-variant text-on-surface border border-outline-variant font-label-caps text-[10px] uppercase tracking-widest leading-none">Visualizzato</span>
+</td>
+<td class="py-0 px-4 text-on-surface-variant text-sm text-truncate">18 Mar 2024</td>
+<td class="py-0 px-4 text-on-surface text-truncate">G. Ferrari</td>
+<td class="py-0 px-4 text-center">
+<button class="text-on-surface-variant hover:text-structural-red transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center w-full">
+<span class="material-symbols-outlined text-xl">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 6 -->
+<tr class="h-[48px] hover:bg-surface-variant transition-colors group opacity-50 border-b border-outline-variant">
+<td class="py-0 px-4 font-body-bold text-on-surface">GB-DEMO-019</td>
+<td class="py-0 px-4 text-on-surface text-truncate max-w-[120px]">Retail S.r.l.</td>
+<td class="py-0 px-4 text-on-surface-variant text-truncate max-w-[180px]">Allestimento Negozio Centro</td>
+<td class="py-0 px-4 font-body-bold text-right text-on-surface">€ 65.000</td>
+<td class="py-0 px-4">
+<span class="inline-block px-2 py-1 bg-surface-container-highest text-on-surface-variant border border-outline-variant font-label-caps text-[10px] uppercase tracking-widest line-through leading-none">Scaduto</span>
+</td>
+<td class="py-0 px-4 text-on-surface-variant text-sm text-truncate">10 Mar 2024</td>
+<td class="py-0 px-4 text-on-surface text-truncate">A. Conti</td>
+<td class="py-0 px-4 text-center">
+<button class="text-on-surface-variant hover:text-structural-red transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center w-full">
+<span class="material-symbols-outlined text-xl">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+<!-- Pagination/Export -->
+<div class="mt-auto px-4 py-3 bg-surface border-t border-outline-variant flex justify-between items-center">
+<span class="text-sm font-label-caps text-on-surface-variant uppercase tracking-widest">Showing 1-6 of 42 results</span>
+<div class="flex gap-2">
+<button class="px-3 py-1 bg-surface-container-high border border-outline-variant text-on-surface-variant text-sm hover:text-primary transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">chevron_left</span> Prev
+                        </button>
+<button class="px-3 py-1 bg-surface-container-high border border-outline-variant text-on-surface-variant text-sm hover:text-primary transition-colors flex items-center gap-1">
+                            Next <span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Right Column: Priority Rail -->
+<aside class="w-[260px] flex-shrink-0 flex flex-col gap-6">
+<!-- Commercial Priorities -->
+<div class="bg-surface-container-low border border-outline-variant p-5">
+<h3 class="font-headline-md text-[20px] leading-tight text-on-surface mb-4 border-b border-structural-red pb-2 inline-block">PRIORITÀ COMMERCIALI</h3>
+<ul class="flex flex-col gap-3">
+<li class="flex gap-3 items-start pb-3 border-b border-outline-variant last:border-0 last:pb-0">
+<div class="w-1.5 h-1.5 rounded-full bg-structural-red mt-1.5 shrink-0"></div>
+<div>
+<div class="font-body-bold text-sm text-on-surface">Follow-up Arch. Rossi</div>
+<div class="font-body-base text-xs text-on-surface-variant mt-1 line-clamp-2">Chiamare per discussione varianti computo. GB-DEMO-014.</div>
+<div class="font-label-caps text-[10px] text-structural-red mt-1.5 uppercase tracking-widest">Oggi, 18:00</div>
+</div>
+</li>
+<li class="flex gap-3 items-start pb-3 border-b border-outline-variant last:border-0 last:pb-0">
+<div class="w-1.5 h-1.5 rounded-full bg-construction-brass mt-1.5 shrink-0"></div>
+<div>
+<div class="font-body-bold text-sm text-on-surface">Revisione Bozza D. Russo</div>
+<div class="font-body-base text-xs text-on-surface-variant mt-1 line-clamp-2">Integrare costi noleggio ponteggi. GB-DEMO-016.</div>
+<div class="font-label-caps text-[10px] text-construction-brass mt-1.5 uppercase tracking-widest">Domani, Mattina</div>
+</div>
+</li>
+<li class="flex gap-3 items-start pb-3 border-b border-outline-variant last:border-0 last:pb-0">
+<div class="w-1.5 h-1.5 rounded-full bg-on-surface-variant mt-1.5 shrink-0"></div>
+<div>
+<div class="font-body-bold text-sm text-on-surface">Riunione Kick-off Roma</div>
+<div class="font-body-base text-xs text-on-surface-variant mt-1 line-clamp-2">Preparazione doc post-accettazione. GB-DEMO-017.</div>
+<div class="font-label-caps text-[10px] text-on-surface-variant mt-1.5 uppercase tracking-widest">25 Mar 2024</div>
+</div>
+</li>
+</ul>
+</div>
+<!-- Monthly Target Indicator -->
+<div class="bg-surface-container-low border border-outline-variant p-5 relative overflow-hidden mt-auto">
+<!-- Abstract background detail -->
+<div class="absolute -right-8 -top-8 opacity-5 pointer-events-none">
+<span class="material-symbols-outlined" style="font-size: 100px;">architecture</span>
+</div>
+<h4 class="font-label-caps text-[11px] text-on-surface-variant uppercase tracking-widest mb-3">Target Mensile (Chiusure)</h4>
+<div class="flex items-baseline gap-2 mb-1">
+<span class="font-headline-lg text-headline-md text-on-surface">€ 1.25M</span>
+<span class="font-body-base text-sm text-on-surface-variant">/ € 1.5M</span>
+</div>
+<!-- Progress Bar -->
+<div class="w-full h-1 bg-surface-variant mt-3">
+<div class="h-full bg-construction-brass w-[83%]"></div>
+</div>
+<div class="flex justify-between items-center mt-2">
+<span class="font-label-caps text-[10px] text-construction-brass">83% RAGGIUNTO</span>
+<span class="font-label-caps text-[10px] text-on-surface-variant">7 GG TERMINE</span>
+</div>
+</div>
+</aside>
+</div>
+</main>
+<!-- Footer -->
+<footer class="bg-surface-container-lowest border-t border-outline-variant flex justify-between items-center py-0 px-6 ml-[220px] w-[calc(100%-220px)] h-[52px] absolute bottom-0 z-40">
+<span class="font-label-caps text-label-caps text-on-surface-variant">© 2024 GB Construction. All rights reserved.</span>
+<div class="flex space-x-6">
+<a class="font-label-caps text-label-caps text-on-surface-variant hover:text-construction-brass transition-colors focus:ring-1 focus:ring-primary" href="#">Privacy Policy</a>
+<a class="font-label-caps text-label-caps text-on-surface-variant hover:text-construction-brass transition-colors focus:ring-1 focus:ring-primary" href="#">Technical Support</a>
+<a class="font-label-caps text-label-caps text-on-surface-variant hover:text-construction-brass transition-colors focus:ring-1 focus:ring-primary" href="#">Terms of Service</a>
+</div>
+</footer>
+</body></html>

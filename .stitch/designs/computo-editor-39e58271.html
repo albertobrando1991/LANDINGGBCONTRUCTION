@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="it"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>GB CONSTRUCTION - Computi metrici</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&amp;family=Oswald:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed-variant": "#930016",
+                        "on-tertiary-container": "#e3e5ec",
+                        "secondary-fixed-dim": "#e4c36b",
+                        "surface-dim": "#131316",
+                        "primary-container": "#c4272f",
+                        "inverse-on-surface": "#303033",
+                        "tertiary-container": "#64666d",
+                        "outline": "#aa8986",
+                        "inverse-surface": "#e5e1e6",
+                        "background": "#131316",
+                        "on-secondary-fixed": "#241a00",
+                        "secondary-fixed": "#ffe08f",
+                        "on-tertiary": "#2e3036",
+                        "surface-container": "#1f1f22",
+                        "surface-container-lowest": "#0e0e11",
+                        "on-primary-fixed": "#410005",
+                        "error-container": "#93000a",
+                        "secondary": "#e4c36b",
+                        "inverse-primary": "#b81d28",
+                        "warm-paper": "#F3F1ED",
+                        "on-secondary": "#3d2e00",
+                        "on-secondary-container": "#ecca71",
+                        "tertiary-fixed": "#e1e2e9",
+                        "error": "#ffb4ab",
+                        "primary-fixed": "#ffdad7",
+                        "on-error": "#690005",
+                        "primary-fixed-dim": "#ffb3ae",
+                        "on-surface-variant": "#e3bebb",
+                        "operative-graphite": "#171719",
+                        "surface-container-highest": "#353438",
+                        "on-primary": "#68000d",
+                        "on-tertiary-fixed-variant": "#44474d",
+                        "construction-brass": "#C3A44F",
+                        "surface-container-high": "#2a2a2d",
+                        "on-secondary-fixed-variant": "#584400",
+                        "surface-container-low": "#1b1b1e",
+                        "outline-variant": "#5b403e",
+                        "tertiary-fixed-dim": "#c4c6cd",
+                        "structural-red": "#C4272F",
+                        "surface-variant": "#353438",
+                        "secondary-container": "#6c5400",
+                        "on-background": "#e5e1e6",
+                        "tertiary": "#c4c6cd",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#ffb3ae",
+                        "surface": "#131316",
+                        "on-tertiary-fixed": "#191c21",
+                        "on-primary-container": "#ffdedb",
+                        "surface-bright": "#39393c",
+                        "primary": "#ffb3ae",
+                        "mineral-black": "#0C0C0F",
+                        "on-surface": "#e5e1e6"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "unit": "8px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "64px",
+                        "gutter": "24px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Oswald"],
+                        "headline-lg": ["Oswald"],
+                        "body-bold": ["Montserrat"],
+                        "label-caps": ["Oswald"],
+                        "body-base": ["Montserrat"],
+                        "display-lg": ["Oswald"],
+                        "display-xl": ["Oswald"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["28px", { "lineHeight": "34px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+                        "headline-lg": ["40px", { "lineHeight": "44px", "letterSpacing": "0", "fontWeight": "600" }],
+                        "body-bold": ["16px", { "lineHeight": "24px", "letterSpacing": "0", "fontWeight": "600" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.18em", "fontWeight": "600" }],
+                        "body-base": ["16px", { "lineHeight": "26px", "letterSpacing": "0", "fontWeight": "400" }],
+                        "display-lg": ["64px", { "lineHeight": "60px", "letterSpacing": "-0.015em", "fontWeight": "700" }],
+                        "display-xl": ["80px", { "lineHeight": "74px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Custom scrollbar for dense tables */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #131316;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #353438;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #C4272F;
+        }
+    </style>
+</head>
+<body class="bg-mineral-black text-on-surface font-body-base overflow-hidden h-screen w-screen flex antialiased">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-screen w-[180px] bg-surface-container-lowest border-r border-outline-variant flex flex-col py-unit z-50">
+<div class="px-gutter pb-6 pt-4 flex flex-col items-start border-b border-outline-variant mb-4">
+<span class="font-headline-lg text-headline-lg text-primary tracking-tight leading-none mb-1">GB</span>
+<span class="font-label-caps text-label-caps text-on-surface">CONSTRUCTION</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant mt-2">Technical Portal</span>
+</div>
+<div class="flex-1 overflow-y-auto w-full px-2 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors rounded" href="#">
+<span class="material-symbols-outlined text-[20px]" data-weight="regular">dashboard</span>
+<span class="font-label-caps text-label-caps">Panoramica</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors rounded" href="#">
+<span class="material-symbols-outlined text-[20px]" data-weight="regular">foundation</span>
+<span class="font-label-caps text-label-caps">Cantieri</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 bg-surface-container text-primary font-bold border-r-2 border-primary hover:bg-surface-container-high transition-colors rounded-l opacity-90 transition-opacity" href="#">
+<span class="material-symbols-outlined text-[20px]" data-weight="fill" style="font-variation-settings: 'FILL' 1;">architecture</span>
+<span class="font-label-caps text-label-caps">Computi metrici</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors rounded" href="#">
+<span class="material-symbols-outlined text-[20px]" data-weight="regular">description</span>
+<span class="font-label-caps text-label-caps">Preventivi</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors rounded" href="#">
+<span class="material-symbols-outlined text-[20px]" data-weight="regular">list_alt</span>
+<span class="font-label-caps text-label-caps">Listini</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors rounded" href="#">
+<span class="material-symbols-outlined text-[20px]" data-weight="regular">engineering</span>
+<span class="font-label-caps text-label-caps">SAL</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors rounded" href="#">
+<span class="material-symbols-outlined text-[20px]" data-weight="regular">payments</span>
+<span class="font-label-caps text-label-caps">Economics</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors rounded" href="#">
+<span class="material-symbols-outlined text-[20px]" data-weight="regular">assignment_ind</span>
+<span class="font-label-caps text-label-caps">Portale cliente</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant font-medium hover:bg-surface-container-high transition-colors rounded" href="#">
+<span class="material-symbols-outlined text-[20px]" data-weight="regular">settings</span>
+<span class="font-label-caps text-label-caps">Impostazioni</span>
+</a>
+</div>
+<div class="px-gutter pt-4 mt-auto border-t border-outline-variant flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center overflow-hidden border border-outline-variant">
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]">person</span>
+</div>
+</div>
+</nav>
+<!-- Main Content Canvas -->
+<main class="ml-[180px] flex-1 flex flex-col h-screen w-[calc(100vw-180px)] bg-background relative overflow-hidden">
+<!-- TopNavBar (Embedded logically as page header) -->
+<header class="h-14 bg-surface-container border-b border-outline-variant flex items-center justify-between px-gutter shrink-0 z-40">
+<div class="flex items-center gap-4">
+<span class="font-headline-md text-headline-md text-primary uppercase">COMPUTO METRICO</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant px-2 py-1 bg-surface rounded border border-outline-variant">ID: CM-2023-089</span>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-2 px-4 py-1.5 bg-surface-container-low border border-outline-variant text-on-surface hover:text-primary transition-colors hover:border-outline font-label-caps text-label-caps rounded">
+<span class="material-symbols-outlined text-[16px]">save</span>
+                    SALVA BOZZA
+                </button>
+<button class="flex items-center gap-2 px-6 py-1.5 bg-structural-red text-warm-paper hover:bg-inverse-primary transition-colors font-label-caps text-label-caps rounded shadow-sm">
+<span class="material-symbols-outlined text-[16px]">description</span>
+                    GENERA PREVENTIVO
+                </button>
+</div>
+</header>
+<!-- Import Strip -->
+<div class="h-12 bg-surface-container-low border-b border-outline-variant flex items-center px-gutter justify-between shrink-0">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2 text-on-surface">
+<span class="material-symbols-outlined text-construction-brass text-[18px]">picture_as_pdf</span>
+<span class="font-body-bold text-body-bold text-sm">Computo_metrico_demo.pdf</span>
+</div>
+<div class="h-4 w-px bg-outline-variant"></div>
+<div class="flex items-center gap-4 font-label-caps text-label-caps text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="text-on-surface">42</span> VOCI IMPORTATE</span>
+<span class="flex items-center gap-1 text-secondary-fixed-dim"><span class="material-symbols-outlined text-[14px]">warning</span> 3 DA VERIFICARE</span>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px]">search</span>
+<input class="bg-surface border border-outline-variant rounded pl-8 pr-3 py-1 text-sm font-body-base text-on-surface focus:border-structural-red focus:ring-0 w-48 transition-colors" placeholder="Cerca voce..." type="text"/>
+</div>
+<button class="p-1.5 text-on-surface-variant hover:text-primary transition-colors bg-surface border border-outline-variant rounded">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+</button>
+</div>
+</div>
+<!-- Editor Area (Split Layout) -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Register Canvas (Left) -->
+<div class="flex-1 flex flex-col bg-surface-dim overflow-hidden">
+<!-- Table Header -->
+<div class="grid grid-cols-[40px_1fr_80px_100px_120px_140px] gap-2 px-4 py-2 bg-surface-container-highest border-b border-outline-variant font-label-caps text-label-caps text-on-surface-variant shrink-0 sticky top-0 z-10">
+<div class="text-center">#</div>
+<div>DESCRIZIONE VOCE</div>
+<div class="text-center">U.M.</div>
+<div class="text-right">QUANTITÀ</div>
+<div class="text-right">PREZZO UNIT. (€)</div>
+<div class="text-right">TOTALE (€)</div>
+</div>
+<!-- Table Body -->
+<div class="flex-1 overflow-y-auto pb-12">
+<!-- Category Header 1 -->
+<div class="px-4 py-2 bg-surface-container-low border-b border-outline-variant flex items-center gap-2 sticky top-0 z-0">
+<span class="material-symbols-outlined text-[16px] text-structural-red">folder_open</span>
+<span class="font-headline-md text-[14px] leading-tight text-on-surface uppercase tracking-wide">01. SCAVI E MOVIMENTO TERRA</span>
+</div>
+<!-- Row 1 -->
+<div class="grid grid-cols-[40px_1fr_80px_100px_120px_140px] gap-2 px-4 py-3 border-b border-outline-variant bg-operative-graphite hover:bg-surface-container-low transition-colors group items-start">
+<div class="font-label-caps text-label-caps text-on-surface-variant text-center pt-1">1.1</div>
+<div>
+<textarea class="w-full bg-transparent border-0 p-0 text-sm font-body-base text-on-surface focus:ring-0 resize-none h-10 overflow-hidden leading-snug" rows="2">Scavo di sbancamento in materie di qualsiasi natura e consistenza...</textarea>
+</div>
+<div class="text-center pt-1 font-label-caps text-label-caps text-on-surface-variant">mc</div>
+<div>
+<input class="w-full bg-surface-container border border-outline-variant rounded px-2 py-1 text-right text-sm font-body-bold text-on-surface focus:border-structural-red focus:ring-0 transition-colors" type="text" value="450,00"/>
+</div>
+<div>
+<input class="w-full bg-surface-container border border-outline-variant rounded px-2 py-1 text-right text-sm font-body-bold text-on-surface focus:border-structural-red focus:ring-0 transition-colors" type="text" value="12,50"/>
+</div>
+<div class="text-right pt-1 font-body-bold text-body-bold text-on-surface pr-2">5.625,00</div>
+</div>
+<!-- Row 2 -->
+<div class="grid grid-cols-[40px_1fr_80px_100px_120px_140px] gap-2 px-4 py-3 border-b border-outline-variant bg-operative-graphite hover:bg-surface-container-low transition-colors group items-start">
+<div class="font-label-caps text-label-caps text-on-surface-variant text-center pt-1">1.2</div>
+<div>
+<textarea class="w-full bg-transparent border-0 p-0 text-sm font-body-base text-on-surface focus:ring-0 resize-none h-10 overflow-hidden leading-snug" rows="2">Rinterro con materiale di recupero proveniente dagli scavi, compreso compattamento...</textarea>
+</div>
+<div class="text-center pt-1 font-label-caps text-label-caps text-on-surface-variant">mc</div>
+<div>
+<input class="w-full bg-surface-container border border-outline-variant rounded px-2 py-1 text-right text-sm font-body-bold text-on-surface focus:border-structural-red focus:ring-0 transition-colors" type="text" value="120,00"/>
+</div>
+<div>
+<input class="w-full bg-surface-container border border-outline-variant rounded px-2 py-1 text-right text-sm font-body-bold text-on-surface focus:border-structural-red focus:ring-0 transition-colors" type="text" value="5,20"/>
+</div>
+<div class="text-right pt-1 font-body-bold text-body-bold text-on-surface pr-2">624,00</div>
+</div>
+<!-- Category Header 2 -->
+<div class="px-4 py-2 bg-surface-container-low border-b border-outline-variant flex items-center gap-2 sticky top-0 z-0">
+<span class="material-symbols-outlined text-[16px] text-structural-red">folder_open</span>
+<span class="font-headline-md text-[14px] leading-tight text-on-surface uppercase tracking-wide">02. STRUTTURE IN C.A.</span>
+</div>
+<!-- Row 3 (Warning State) -->
+<div class="grid grid-cols-[40px_1fr_80px_100px_120px_140px] gap-2 px-4 py-3 border-b border-outline-variant bg-operative-graphite border-l-2 border-l-secondary-fixed-dim hover:bg-surface-container-low transition-colors group items-start">
+<div class="font-label-caps text-label-caps text-secondary-fixed-dim text-center pt-1 flex flex-col items-center">
+<span>2.1</span>
+<span class="material-symbols-outlined text-[14px] mt-1">warning</span>
+</div>
+<div>
+<textarea class="w-full bg-transparent border-0 p-0 text-sm font-body-base text-on-surface focus:ring-0 resize-none h-10 overflow-hidden leading-snug" rows="2">Calcestruzzo per fondazioni tipo C25/30 consistenza S4...</textarea>
+<span class="text-[10px] text-secondary-fixed-dim font-label-caps uppercase mt-1 block">Verifica prezzo unitario (discostamento &gt; 15% da listino)</span>
+</div>
+<div class="text-center pt-1 font-label-caps text-label-caps text-on-surface-variant">mc</div>
+<div>
+<input class="w-full bg-surface-container border border-outline-variant rounded px-2 py-1 text-right text-sm font-body-bold text-on-surface focus:border-structural-red focus:ring-0 transition-colors" type="text" value="85,00"/>
+</div>
+<div>
+<input class="w-full bg-secondary-container border border-secondary-fixed-dim rounded px-2 py-1 text-right text-sm font-body-bold text-on-secondary-container focus:border-structural-red focus:ring-0 transition-colors" type="text" value="145,00"/>
+</div>
+<div class="text-right pt-1 font-body-bold text-body-bold text-on-surface pr-2">12.325,00</div>
+</div>
+<!-- Row 4 -->
+<div class="grid grid-cols-[40px_1fr_80px_100px_120px_140px] gap-2 px-4 py-3 border-b border-outline-variant bg-operative-graphite hover:bg-surface-container-low transition-colors group items-start">
+<div class="font-label-caps text-label-caps text-on-surface-variant text-center pt-1">2.2</div>
+<div>
+<textarea class="w-full bg-transparent border-0 p-0 text-sm font-body-base text-on-surface focus:ring-0 resize-none h-10 overflow-hidden leading-snug" rows="2">Acciaio per cemento armato B450C in barre tonde ad aderenza migliorata...</textarea>
+</div>
+<div class="text-center pt-1 font-label-caps text-label-caps text-on-surface-variant">kg</div>
+<div>
+<input class="w-full bg-surface-container border border-outline-variant rounded px-2 py-1 text-right text-sm font-body-bold text-on-surface focus:border-structural-red focus:ring-0 transition-colors" type="text" value="4200,00"/>
+</div>
+<div>
+<input class="w-full bg-surface-container border border-outline-variant rounded px-2 py-1 text-right text-sm font-body-bold text-on-surface focus:border-structural-red focus:ring-0 transition-colors" type="text" value="2,10"/>
+</div>
+<div class="text-right pt-1 font-body-bold text-body-bold text-on-surface pr-2">8.820,00</div>
+</div>
+</div>
+</div>
+<!-- Right Rail (Summary) -->
+<aside class="w-[300px] bg-surface-container-low border-l border-outline-variant flex flex-col shrink-0 z-20 shadow-[-4px_0_12px_rgba(0,0,0,0.2)] relative">
+<div class="p-4 border-b border-outline-variant">
+<h2 class="font-headline-md text-[18px] text-on-surface uppercase tracking-tight">RIEPILOGO COMPUTO</h2>
+</div>
+<div class="flex-1 overflow-y-auto p-4 flex flex-col gap-6">
+<!-- Economic Summary -->
+<div class="flex flex-col gap-2">
+<span class="font-label-caps text-label-caps text-on-surface-variant">TOTALE INVESTIMENTO</span>
+<div class="font-headline-lg text-[32px] text-primary tracking-tight leading-none bg-surface-container-lowest p-3 rounded border border-outline-variant text-right shadow-inner">
+                            € 142.850<span class="text-[18px] text-on-surface-variant">,00</span>
+</div>
+</div>
+<!-- Category Subtotals (Bento style minimal) -->
+<div class="flex flex-col gap-3">
+<span class="font-label-caps text-label-caps text-on-surface-variant">INCIDENZA CATEGORIE</span>
+<div class="bg-surface border border-outline-variant rounded p-3 flex flex-col gap-2">
+<div class="flex justify-between items-center">
+<span class="font-body-base text-sm text-on-surface truncate w-32" title="01. SCAVI E MOVIMENTO TERRA">01. SCAVI</span>
+<span class="font-body-bold text-sm text-on-surface">€ 6.249,00</span>
+</div>
+<div class="w-full h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-construction-brass w-[15%]"></div>
+</div>
+</div>
+<div class="bg-surface border border-outline-variant rounded p-3 flex flex-col gap-2">
+<div class="flex justify-between items-center">
+<span class="font-body-base text-sm text-on-surface truncate w-32" title="02. STRUTTURE IN C.A.">02. STRUTTURE</span>
+<span class="font-body-bold text-sm text-on-surface">€ 21.145,00</span>
+</div>
+<div class="w-full h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-structural-red w-[45%]"></div>
+</div>
+</div>
+</div>
+<!-- Validation Checklist -->
+<div class="mt-auto pt-4 border-t border-outline-variant flex flex-col gap-3">
+<span class="font-label-caps text-label-caps text-on-surface-variant">STATO VALIDAZIONE</span>
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[20px]">check_circle</span>
+<span class="font-body-base text-sm text-on-surface">Verifica formale completata</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary-fixed-dim text-[20px]">error</span>
+<span class="font-body-base text-sm text-on-surface-variant">3 Prezzi unitari da verificare</span>
+</div>
+<div class="flex items-center gap-3 opacity-50">
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">radio_button_unchecked</span>
+<span class="font-body-base text-sm text-on-surface-variant">Approvazione DL pendenza</span>
+</div>
+</div>
+</div>
+<!-- Footer Strip within Right Rail -->
+<div class="p-4 border-t border-outline-variant bg-surface-container flex flex-col gap-2">
+<button class="w-full flex items-center justify-center gap-2 py-2 bg-structural-red text-warm-paper hover:bg-inverse-primary transition-colors font-label-caps text-label-caps rounded">
+<span class="material-symbols-outlined text-[16px]">done_all</span>
+                        VALIDA TUTTE
+                    </button>
+<button class="w-full flex items-center justify-center gap-2 py-2 bg-transparent border border-construction-brass text-construction-brass hover:bg-surface-container-highest transition-colors font-label-caps text-label-caps rounded">
+<span class="material-symbols-outlined text-[16px]">file_download</span>
+                        ESPORTA DATI
+                    </button>
+</div>
+</aside>
+</div>
+</main>
+</body></html>
