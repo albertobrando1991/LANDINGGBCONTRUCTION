@@ -17,6 +17,7 @@ import {
   LogOut,
   MapPin,
   ShieldCheck,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import client, { extractErrorDetail, formatApiErrorDetail } from "@/lib/api";
@@ -290,6 +291,12 @@ function VarianteCard({ variante, onApprove, pending }) {
 export default function ClientPortal() {
   const { user, logout } = useAuth();
   const qc = useQueryClient();
+  const [uploadForm, setUploadForm] = useState({
+    tipo: "contabile_pagamento",
+    titolo: "",
+    riferimento: "",
+    file: null,
+  });
   const {
     data = {},
     isLoading,
@@ -325,6 +332,36 @@ export default function ClientPortal() {
     onError: (error) =>
       toast.error(formatApiErrorDetail(error.response?.data?.detail)),
   });
+  const choosePayment = useMutation({
+    mutationFn: ({ preventivoId, tipo }) =>
+      client.put(`/portal/preventivi/${preventivoId}/modalita-pagamento`, {
+        tipo,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client-portal"] });
+      toast.success("Modalità di pagamento confermata");
+    },
+    onError: async (error) => toast.error(await extractErrorDetail(error)),
+  });
+  const uploadClientDocument = useMutation({
+    mutationFn: async ({ file, tipo, titolo, riferimento, originalId }) => {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("tipo", tipo);
+      form.append("titolo", titolo);
+      if (originalId) form.append("documento_originale_id", originalId);
+      const [kind, value] = String(riferimento || "").split(":");
+      if (kind === "preventivo") form.append("preventivo_id", value);
+      if (kind === "cantiere") form.append("cantiere_id", value);
+      return client.post("/portal/documenti", form);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client-portal"] });
+      setUploadForm((current) => ({ ...current, titolo: "", file: null }));
+      toast.success("Documento caricato nel fascicolo");
+    },
+    onError: async (error) => toast.error(await extractErrorDetail(error)),
+  });
   const openEconomicDocument = async (item) => {
     try {
       const response = await client.get(
@@ -345,6 +382,34 @@ export default function ClientPortal() {
     );
     if (!nome?.trim()) return;
     signDocument.mutate({ item, decisione, nome: nome.trim() });
+  };
+  const openClientDocument = async (item) => {
+    try {
+      const response = await client.get(
+        `/portal/documenti/${item.id}/download`,
+        { responseType: "blob" },
+      );
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = item.nome_file || `${item.titolo}.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(await extractErrorDetail(error));
+    }
+  };
+  const uploadSignedCopy = (item, file) => {
+    if (!file) return;
+    uploadClientDocument.mutate({
+      file,
+      tipo: item.tipo,
+      titolo: `${item.titolo} - copia firmata`,
+      riferimento: item.cantiere_id
+        ? `cantiere:${item.cantiere_id}`
+        : `preventivo:${item.preventivo_id}`,
+      originalId: item.id,
+    });
   };
   const summary = useMemo(() => portalSummary(data), [data]);
   const assets = useMemo(
@@ -417,6 +482,228 @@ export default function ClientPortal() {
               value={summary.variantiDaApprovare}
               accent
             />
+          </div>
+        </section>
+
+        {(data.preventivi_contratti || []).length > 0 && (
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <CircleDollarSign className="h-5 w-5 text-brand" />
+              <h2 className="font-display text-sm font-semibold uppercase">
+                Scelta modalità di pagamento
+              </h2>
+            </div>
+            {(data.preventivi_contratti || []).map((quote) => (
+              <article
+                key={quote.preventivo_id}
+                className="rounded-2xl border border-stroke bg-surface p-5"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-display text-[10px] uppercase tracking-wider text-brand">
+                      {quote.numero_preventivo}
+                    </p>
+                    <h3 className="mt-1 font-display text-lg font-bold uppercase text-ink">
+                      {formatEuro(quote.totale_documento)}
+                    </h3>
+                  </div>
+                  {quote.scelta_pagamento_tipo && (
+                    <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1.5 text-[10px] uppercase text-emerald-400">
+                      <CheckCircle2 className="h-4 w-4" /> scelta confermata
+                    </span>
+                  )}
+                </div>
+                <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                  {(data.modalita_pagamento || []).map((option) => {
+                    const selected =
+                      quote.scelta_pagamento_tipo === option.tipo;
+                    const locked = Boolean(
+                      quote.contratto_stato &&
+                      quote.contratto_stato !== "bozza",
+                    );
+                    return (
+                      <button
+                        key={option.tipo}
+                        type="button"
+                        disabled={locked || choosePayment.isPending}
+                        onClick={() =>
+                          choosePayment.mutate({
+                            preventivoId: quote.preventivo_id,
+                            tipo: option.tipo,
+                          })
+                        }
+                        className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed ${selected ? "border-emerald-500 bg-emerald-500/5" : "border-stroke bg-bg hover:border-brand"}`}
+                      >
+                        <p className="font-display text-xs uppercase text-ink">
+                          {option.titolo}
+                        </p>
+                        <p className="mt-2 text-xs leading-5 text-fog">
+                          {option.sintesi}
+                        </p>
+                        <ul className="mt-3 space-y-1 text-[11px] text-fog">
+                          {(option.condizioni || []).map((term) => (
+                            <li key={term}>• {term}</li>
+                          ))}
+                        </ul>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 rounded-xl border border-stroke bg-bg p-3 text-[11px] leading-5 text-fog">
+                  {(data.condizioni_generali_pagamento || []).map((term) => (
+                    <p key={term}>• {term}</p>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <FileSignature className="h-5 w-5 text-brand" />
+            <h2 className="font-display text-sm font-semibold uppercase">
+              Fascicolo documentale
+            </h2>
+          </div>
+          <p className="font-body text-sm text-fog">
+            Consulta e scarica contratti, SAL, fatture, contabili, ricevute,
+            extra e verbali. Per gli atti da firmare scarica l'originale e
+            ricarica qui la copia sottoscritta.
+          </p>
+          <div className="grid gap-3">
+            {(data.documenti_cliente || []).map((item) => (
+              <article
+                key={item.id}
+                className="rounded-2xl border border-stroke bg-surface p-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-display text-xs uppercase text-ink">
+                      {item.titolo}
+                    </p>
+                    <p className="mt-1 text-[11px] uppercase text-fog">
+                      {String(item.tipo).replaceAll("_", " ")} · {item.stato}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openClientDocument(item)}
+                      className="inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 font-display text-[10px] uppercase text-ink hover:border-brand hover:text-brand"
+                    >
+                      <Download className="h-4 w-4" /> Scarica
+                    </button>
+                    {item.stato === "da_firmare" && (
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-brand px-3 py-2 font-display text-[10px] uppercase text-white">
+                        <Upload className="h-4 w-4" /> Ricarica firmato
+                        <input
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png"
+                          className="hidden"
+                          onChange={(event) =>
+                            uploadSignedCopy(item, event.target.files?.[0])
+                          }
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </article>
+            ))}
+            {(data.documenti_cliente || []).length === 0 && (
+              <div className="rounded-2xl border border-dashed border-stroke p-6 text-sm text-fog">
+                Il fascicolo è pronto. I documenti pubblicati compariranno qui.
+              </div>
+            )}
+          </div>
+          <div className="rounded-2xl border border-stroke bg-surface p-5">
+            <h3 className="font-display text-xs uppercase text-ink">
+              Carica un documento
+            </h3>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <select
+                value={uploadForm.riferimento}
+                onChange={(event) =>
+                  setUploadForm({
+                    ...uploadForm,
+                    riferimento: event.target.value,
+                  })
+                }
+                className="rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink"
+              >
+                <option value="">Seleziona pratica</option>
+                {(data.preventivi_contratti || []).map((item) => (
+                  <option
+                    key={item.preventivo_id}
+                    value={`preventivo:${item.preventivo_id}`}
+                  >
+                    Preventivo {item.numero_preventivo}
+                  </option>
+                ))}
+                {(data.cantieri || []).map((item) => (
+                  <option
+                    key={item.cantiere_id}
+                    value={`cantiere:${item.cantiere_id}`}
+                  >
+                    Cantiere {item.nome_cantiere}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={uploadForm.tipo}
+                onChange={(event) =>
+                  setUploadForm({ ...uploadForm, tipo: event.target.value })
+                }
+                className="rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink"
+              >
+                <option value="contabile_pagamento">Contabile pagamento</option>
+                <option value="fattura">Fattura</option>
+                <option value="sal">SAL firmato</option>
+                <option value="ricevuta">Ricevuta</option>
+                <option value="contratto">Contratto firmato</option>
+                <option value="extra">Extra</option>
+                <option value="verbale">Verbale</option>
+                <option value="altro">Altro</option>
+              </select>
+              <input
+                value={uploadForm.titolo}
+                onChange={(event) =>
+                  setUploadForm({ ...uploadForm, titolo: event.target.value })
+                }
+                placeholder="Titolo documento"
+                className="rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink"
+              />
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+                onChange={(event) =>
+                  setUploadForm({
+                    ...uploadForm,
+                    file: event.target.files?.[0] || null,
+                  })
+                }
+                className="rounded-xl border border-stroke bg-bg px-3 py-2 text-xs text-fog"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={
+                !uploadForm.riferimento ||
+                !uploadForm.titolo ||
+                !uploadForm.file ||
+                uploadClientDocument.isPending
+              }
+              onClick={() => uploadClientDocument.mutate(uploadForm)}
+              className="mt-3 inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-3 font-display text-[10px] uppercase text-white disabled:opacity-40"
+            >
+              {uploadClientDocument.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}{" "}
+              Carica nel fascicolo
+            </button>
           </div>
         </section>
 

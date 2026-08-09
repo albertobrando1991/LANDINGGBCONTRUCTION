@@ -35,6 +35,7 @@ import acca_pdf_parser
 import cronoprogramma
 import boq_service
 import client_portal_service
+import contract_workflow_service
 import db as db_pg
 import email_service
 import economics_service
@@ -48,8 +49,6 @@ import tenancy
 from engines.metriche import estrai_metriche
 from contratto_appalto_pdf import (
     genera_pdf_contratto,
-    numero_contratto,
-    risolvi_indirizzo_lavori,
 )
 from preventivo_pdf import genera_pdf_preventivo
 from sal_pdf import genera_pdf_sal
@@ -380,6 +379,14 @@ class PortaleCondivisioneBody(BaseModel):
     storage_path: str = Field(min_length=10, max_length=1000)
     titolo: str = Field(min_length=1, max_length=200)
     descrizione: Optional[str] = Field(default=None, max_length=1000)
+
+
+class ContrattoBozzaBody(BaseModel):
+    sezioni: List[Dict[str, str]] = Field(min_length=1, max_length=80)
+
+
+class SceltaPagamentoBody(BaseModel):
+    tipo: Literal["sal", "scaglionato_fisso", "due_tranche"]
 
 
 def _request_ip(request: Request) -> str:
@@ -1219,7 +1226,221 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_client_role(tenant)
-            return await client_portal_service.get_portal_dashboard(conn, tenant["id"])
+            dashboard = await client_portal_service.get_portal_dashboard(conn, tenant["id"])
+            dashboard.update(
+                await contract_workflow_service.portal_contract_data(
+                    conn, tenant["id"]
+                )
+            )
+            return dashboard
+
+    @api.put("/portal/preventivi/{preventivo_id}/modalita-pagamento")
+    async def portale_scegli_pagamento(
+        request: Request, preventivo_id: str, body: SceltaPagamentoBody
+    ):
+        user = await _user(request, db)
+        user_id = str(
+            user.get("supabase_user_id") or user.get("sub") or user.get("id") or ""
+        )
+        user_uuid = str(tenancy.uuid_or_400(user_id, "Utente"))
+        preventivo_uuid = str(tenancy.uuid_or_400(preventivo_id, "Preventivo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_client_role(tenant)
+            return await contract_workflow_service.choose_payment(
+                conn,
+                tenant["id"],
+                preventivo_uuid,
+                user_uuid,
+                body.tipo,
+                ip=_request_ip(request),
+                user_agent=request.headers.get("user-agent"),
+            )
+
+    @api.post("/portal/documenti", status_code=201)
+    async def portale_carica_documento(
+        request: Request,
+        file: UploadFile = File(...),
+        tipo: str = Form(...),
+        titolo: str = Form(...),
+        preventivo_id: Optional[str] = Form(default=None),
+        cantiere_id: Optional[str] = Form(default=None),
+        documento_originale_id: Optional[str] = Form(default=None),
+    ):
+        user = await _user(request, db)
+        user_id = str(
+            user.get("supabase_user_id") or user.get("sub") or user.get("id") or ""
+        )
+        user_uuid = str(tenancy.uuid_or_400(user_id, "Utente"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_client_role(tenant)
+            return await contract_workflow_service.register_upload(
+                conn,
+                tenant["id"],
+                user_uuid,
+                file,
+                tipo=tipo,
+                titolo=titolo,
+                preventivo_id=(
+                    str(tenancy.uuid_or_400(preventivo_id, "Preventivo"))
+                    if preventivo_id
+                    else None
+                ),
+                cantiere_id=(
+                    str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+                    if cantiere_id
+                    else None
+                ),
+                originale_id=(
+                    str(tenancy.uuid_or_400(documento_originale_id, "Documento"))
+                    if documento_originale_id
+                    else None
+                ),
+                provenienza="cliente",
+            )
+
+    @api.get("/portal/documenti/{documento_id}/download")
+    async def portale_scarica_documento(request: Request, documento_id: str):
+        user = await _user(request, db)
+        doc_uuid = str(tenancy.uuid_or_400(documento_id, "Documento"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_client_role(tenant)
+            document = await conn.fetchrow(
+                "select * from public.documenti_cliente where tenant_id=$1::uuid and id=$2::uuid",
+                tenant["id"],
+                doc_uuid,
+            )
+            if not document:
+                raise HTTPException(status_code=404, detail="Documento non disponibile")
+            if document["storage_path"]:
+                content, mime, filename = await contract_workflow_service.document_download(
+                    conn, tenant["id"], doc_uuid
+                )
+            else:
+                payload = await contract_workflow_service.validated_contract_payload(
+                    conn, tenant["id"], str(document["preventivo_id"])
+                )
+                tenant_pdf = {**tenant, "piva": payload["tenant_piva"]}
+                content = genera_pdf_contratto(
+                    payload["preventivo"],
+                    tenant_pdf,
+                    sezioni=payload["sezioni"],
+                    piano_pagamenti_override=payload["pagamento"]["rate"],
+                )
+                mime = "application/pdf"
+                filename = f"{payload['contratto']['numero']}.pdf"
+            return Response(
+                content=content,
+                media_type=mime,
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+
+    @api.get("/preventivi/{preventivo_id}/contratto")
+    async def contratto_editor_data(request: Request, preventivo_id: str):
+        user = await _user(request, db)
+        preventivo_uuid = str(tenancy.uuid_or_400(preventivo_id, "Preventivo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            return await contract_workflow_service.get_editor(
+                conn, tenant["id"], preventivo_uuid
+            )
+
+    @api.post("/documenti-cliente", status_code=201)
+    async def staff_carica_documento_cliente(
+        request: Request,
+        file: UploadFile = File(...),
+        tipo: str = Form(...),
+        titolo: str = Form(...),
+        preventivo_id: Optional[str] = Form(default=None),
+        cantiere_id: Optional[str] = Form(default=None),
+    ):
+        user = await _user(request, db)
+        actor_id = str(
+            user.get("supabase_user_id") or user.get("sub") or user.get("id") or ""
+        )
+        actor_uuid = str(tenancy.uuid_or_400(actor_id, "Utente"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            return await contract_workflow_service.register_upload(
+                conn,
+                tenant["id"],
+                actor_uuid,
+                file,
+                tipo=tipo,
+                titolo=titolo,
+                preventivo_id=(
+                    str(tenancy.uuid_or_400(preventivo_id, "Preventivo"))
+                    if preventivo_id
+                    else None
+                ),
+                cantiere_id=(
+                    str(tenancy.uuid_or_400(cantiere_id, "Cantiere"))
+                    if cantiere_id
+                    else None
+                ),
+                originale_id=None,
+                provenienza="azienda",
+            )
+
+    @api.get("/documenti-cliente/{documento_id}/download")
+    async def scarica_documento_cliente(request: Request, documento_id: str):
+        user = await _user(request, db)
+        doc_uuid = str(tenancy.uuid_or_400(documento_id, "Documento"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            content, mime, filename = await contract_workflow_service.document_download(
+                conn, tenant["id"], doc_uuid
+            )
+            return Response(
+                content=content,
+                media_type=mime,
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+
+    @api.post("/preventivi/{preventivo_id}/portale/invita", status_code=201)
+    async def preventivo_portale_invita(
+        request: Request, preventivo_id: str, body: PortaleInvitaBody
+    ):
+        user = await _user(request, db)
+        preventivo_uuid = str(tenancy.uuid_or_400(preventivo_id, "Preventivo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_admin_role(tenant)
+            return await contract_workflow_service.invite_preventivo_client(
+                conn,
+                tenant["id"],
+                preventivo_uuid,
+                email=str(body.email),
+                nome=body.nome,
+            )
+
+    @api.put("/preventivi/{preventivo_id}/contratto/bozza")
+    async def contratto_salva_bozza(
+        request: Request, preventivo_id: str, body: ContrattoBozzaBody
+    ):
+        user = await _user(request, db)
+        actor_id = str(
+            user.get("supabase_user_id") or user.get("sub") or user.get("id") or ""
+        )
+        actor_uuid = str(tenancy.uuid_or_400(actor_id, "Utente"))
+        preventivo_uuid = str(tenancy.uuid_or_400(preventivo_id, "Preventivo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            return await contract_workflow_service.save_draft(
+                conn, tenant["id"], preventivo_uuid, body.sezioni, actor_uuid
+            )
+
+    @api.post("/preventivi/{preventivo_id}/contratto/valida")
+    async def contratto_valida(request: Request, preventivo_id: str):
+        user = await _user(request, db)
+        actor_id = str(
+            user.get("supabase_user_id") or user.get("sub") or user.get("id") or ""
+        )
+        actor_uuid = str(tenancy.uuid_or_400(actor_id, "Utente"))
+        preventivo_uuid = str(tenancy.uuid_or_400(preventivo_id, "Preventivo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            return await contract_workflow_service.validate_contract(
+                conn, tenant["id"], preventivo_uuid, actor_uuid
+            )
 
     @api.post(
         "/portal/cantieri/{cantiere_id}/varianti/{variante_id}/approva",
@@ -1387,61 +1608,17 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_portal_internal_role(tenant)
-            row = await conn.fetchrow(
-                """
-                select p.*,
-                       coalesce(l.nome, cl.nome) as cliente_nome,
-                       coalesce(l.email, cl.email) as cliente_email,
-                       coalesce(l.telefono, cl.telefono) as cliente_telefono,
-                       coalesce(l.indirizzo, cl.indirizzo) as cliente_indirizzo,
-                       coalesce(l.citta, cl.citta) as cliente_citta,
-                       cl.cf as cliente_cf,
-                       cl.piva as cliente_piva,
-                       ca.indirizzo as cantiere_indirizzo,
-                       co.stato as computo_stato,
-                       t.piva as tenant_piva
-                from public.preventivi p
-                join public.tenants t on t.id = p.tenant_id
-                left join public.leads l
-                  on l.id = p.lead_id and l.tenant_id = p.tenant_id
-                left join public.clienti cl
-                  on cl.id = p.cliente_id and cl.tenant_id = p.tenant_id
-                left join public.computi co
-                  on co.id = p.computo_id and co.tenant_id = p.tenant_id
-                left join public.cantieri ca
-                  on ca.id = co.cantiere_id and ca.tenant_id = p.tenant_id
-                where p.id = $1::uuid and p.tenant_id = $2::uuid
-                """,
-                preventivo_id,
-                tenant["id"],
+            payload = await contract_workflow_service.validated_contract_payload(
+                conn, tenant["id"], preventivo_id
             )
-            if not row:
-                raise HTTPException(status_code=404, detail="Preventivo non trovato")
-            preventivo = dict(row)
-            preventivo["cantiere_indirizzo"] = risolvi_indirizzo_lavori(preventivo)
-            if preventivo.get("computo_stato") != "confermato":
-                raise HTTPException(
-                    status_code=409,
-                    detail="Conferma il computo prima di generare il contratto firmato",
-                )
-            if preventivo.get("stato") in {"rifiutato", "scaduto"}:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Non puoi generare un contratto da un preventivo chiuso",
-                )
-            if not preventivo.get("cliente_nome") or not preventivo.get(
-                "cantiere_indirizzo"
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "Completa cliente e indirizzo del cantiere prima di "
-                        "generare il contratto"
-                    ),
-                )
-            tenant_pdf = {**tenant, "piva": preventivo.pop("tenant_piva", None)}
-            pdf = genera_pdf_contratto(preventivo, tenant_pdf)
-            filename = numero_contratto(preventivo.get("numero"))
+            tenant_pdf = {**tenant, "piva": payload["tenant_piva"]}
+            pdf = genera_pdf_contratto(
+                payload["preventivo"],
+                tenant_pdf,
+                sezioni=payload["sezioni"],
+                piano_pagamenti_override=payload["pagamento"]["rate"],
+            )
+            filename = payload["contratto"]["numero"]
             return Response(
                 content=pdf,
                 media_type="application/pdf",

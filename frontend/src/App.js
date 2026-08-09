@@ -10,10 +10,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { TenantProvider } from "@/context/TenantContext";
-import {
-  loadComputiPage,
-  loadComputoEditorPage,
-} from "@/lib/computiPrefetch";
+import { loadComputiPage, loadComputoEditorPage } from "@/lib/computiPrefetch";
 
 const Landing = lazy(() => import("@/landing/Landing"));
 const Login = lazy(() => import("@/dashboard/Login"));
@@ -26,6 +23,7 @@ const LeadDetail = lazy(() => import("@/dashboard/pages/LeadDetail"));
 const Pipeline = lazy(() => import("@/dashboard/pages/Pipeline"));
 const Sopralluoghi = lazy(() => import("@/dashboard/pages/Sopralluoghi"));
 const Preventivi = lazy(() => import("@/dashboard/pages/Preventivi"));
+const ContractEditor = lazy(() => import("@/dashboard/pages/ContractEditor"));
 const Cantieri = lazy(() => import("@/dashboard/pages/Cantieri"));
 const Report = lazy(() => import("@/dashboard/pages/Report"));
 const Settings = lazy(() => import("@/dashboard/pages/Settings"));
@@ -142,6 +140,10 @@ function App() {
                   <Route path="pipeline" element={<Pipeline />} />
                   <Route path="sopralluoghi" element={<Sopralluoghi />} />
                   <Route path="preventivi" element={<Preventivi />} />
+                  <Route
+                    path="preventivi/:id/contratto"
+                    element={<ContractEditor />}
+                  />
                   <Route path="cantieri" element={<Cantieri />} />
                   <Route path="prezzario" element={<Prezzario />} />
                   <Route

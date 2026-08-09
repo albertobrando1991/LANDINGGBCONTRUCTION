@@ -37,6 +37,11 @@ TABELLE_TENANT = [
     "cantiere_clienti",
     "cantiere_condivisioni",
     "varianti_approvazioni",
+    "preventivo_clienti",
+    "scelte_pagamento_cliente",
+    "contratti",
+    "contratto_versioni",
+    "documenti_cliente",
 ]
 
 
@@ -59,6 +64,11 @@ def test_tabelle_tenant_elencate():
     assert "cantiere_clienti" in TABELLE_TENANT
     assert "cantiere_condivisioni" in TABELLE_TENANT
     assert "varianti_approvazioni" in TABELLE_TENANT
+    assert "preventivo_clienti" in TABELLE_TENANT
+    assert "scelte_pagamento_cliente" in TABELLE_TENANT
+    assert "contratti" in TABELLE_TENANT
+    assert "contratto_versioni" in TABELLE_TENANT
+    assert "documenti_cliente" in TABELLE_TENANT
 
 
 def _pg_dsn() -> str | None:
@@ -248,6 +258,7 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
         voce_id,
         user_id,
         client_uuid,
+        portal_client_id,
     ):
         cliente_id = await conn.fetchval(
             "insert into public.clienti (tenant_id, nome) values ($1::uuid, $2) returning id",
@@ -394,6 +405,73 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             preventivo_id,
             f"Preventivo RLS {suffix} creato",
         )
+        await conn.execute(
+            """
+            insert into public.preventivo_clienti (
+              tenant_id, preventivo_id, user_id, email, nome
+            ) values ($1::uuid, $2::uuid, $3::uuid, $4, $5)
+            """,
+            tenant_id,
+            preventivo_id,
+            portal_client_id,
+            f"cliente-{suffix.lower()}@example.test",
+            f"Cliente portale {suffix}",
+        )
+        scelta_id = await conn.fetchval(
+            """
+            insert into public.scelte_pagamento_cliente (
+              tenant_id, preventivo_id, user_id, tipo, condizioni
+            ) values ($1::uuid, $2::uuid, $3::uuid, 'sal', '{"test":true}'::jsonb)
+            returning id
+            """,
+            tenant_id,
+            preventivo_id,
+            portal_client_id,
+        )
+        contratto_id = await conn.fetchval(
+            """
+            insert into public.contratti (
+              tenant_id, preventivo_id, cantiere_id, numero, scelta_pagamento_id
+            ) values ($1::uuid, $2::uuid, $3::uuid, $4, $5::uuid)
+            returning id
+            """,
+            tenant_id,
+            preventivo_id,
+            cantiere_id,
+            f"CTR-RLS-{suffix}",
+            scelta_id,
+        )
+        await conn.execute(
+            """
+            insert into public.contratto_versioni (
+              tenant_id, contratto_id, versione, stato, sezioni,
+              pagamento_snapshot, contenuto_hash
+            ) values (
+              $1::uuid, $2::uuid, 1, 'bozza',
+              '[{"titolo":"Test","testo":"Test RLS"}]'::jsonb,
+              '{}'::jsonb, $3
+            )
+            """,
+            tenant_id,
+            contratto_id,
+            f"hash-{suffix}",
+        )
+        await conn.execute(
+            """
+            insert into public.documenti_cliente (
+              tenant_id, preventivo_id, cantiere_id, contratto_id, tipo,
+              provenienza, stato, titolo, versione
+            ) values (
+              $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'contratto',
+              'azienda', 'da_firmare', $5, 1
+            )
+            """,
+            tenant_id,
+            preventivo_id,
+            cantiere_id,
+            contratto_id,
+            f"Contratto RLS {suffix}",
+        )
         fornitore_id = await conn.fetchval(
             """
             insert into public.fornitori (tenant_id, ragione_sociale, piva)
@@ -473,6 +551,7 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 "c0000000-0000-4000-8000-000000000001",
                 user_a,
                 "e1000000-0000-4000-8000-000000000001",
+                client_a,
             )
             cantiere_a, voce_computo_a, preventivo_a, misura_a, sal_a = fixture_a
             cantiere_b, voce_computo_b, preventivo_b, _, sal_b = await _insert_fixture(
@@ -483,6 +562,7 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 "d0000000-0000-4000-8000-000000000001",
                 user_b,
                 "e2000000-0000-4000-8000-000000000001",
+                client_b,
             )
 
             async def _insert_portal_fixture(tenant_id, cantiere_id, client_id, suffix):

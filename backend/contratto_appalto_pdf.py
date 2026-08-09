@@ -196,7 +196,13 @@ def _footer(ragione: str, numero: str, primary: colors.Color):
     return draw
 
 
-def genera_pdf_contratto(preventivo: dict, tenant: dict) -> bytes:
+def genera_pdf_contratto(
+    preventivo: dict,
+    tenant: dict,
+    *,
+    sezioni: list[dict] | None = None,
+    piano_pagamenti_override: list[dict] | None = None,
+) -> bytes:
     """Genera il contratto già compilato e firmato dall'Appaltatrice GB."""
     theme = _dict(tenant.get("theme"))
     contatti = _dict(tenant.get("contatti"))
@@ -215,8 +221,12 @@ def genera_pdf_contratto(preventivo: dict, tenant: dict) -> bytes:
         snapshot = json.loads(snapshot)
     durata = cronoprogramma.stima(snapshot)
     giorni_lavorativi = int(durata.get("giorni_totali") or 0)
-    piano_pagamenti = preventivo_struttura.piano_pagamenti(
-        snapshot, preventivo.get("totale_documento")
+    piano_pagamenti = (
+        piano_pagamenti_override
+        if piano_pagamenti_override is not None
+        else preventivo_struttura.piano_pagamenti(
+            snapshot, preventivo.get("totale_documento")
+        )
     )
 
     buffer = io.BytesIO()
@@ -503,6 +513,17 @@ def genera_pdf_contratto(preventivo: dict, tenant: dict) -> bytes:
             ],
         ),
     ]
+
+    if sezioni is not None:
+        articles = [
+            (
+                str(sezione.get("titolo") or "SEZIONE").strip(),
+                [str(sezione.get("testo") or "").strip()],
+            )
+            for sezione in sezioni
+            if str(sezione.get("titolo") or "").strip()
+            and str(sezione.get("testo") or "").strip()
+        ]
 
     story: list = [Spacer(1, 252 * mm), PageBreak(), header, Spacer(1, 5 * mm)]
     story.extend(

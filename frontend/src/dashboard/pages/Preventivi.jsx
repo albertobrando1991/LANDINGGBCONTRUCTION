@@ -57,26 +57,8 @@ export default function Preventivi() {
     }
   };
 
-  const downloadContract = async (preventivo) => {
-    try {
-      const response = await client.get(
-        `/preventivi/${preventivo.id}/contratto/pdf`,
-        { responseType: "blob" },
-      );
-      const url = URL.createObjectURL(response.data);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${String(preventivo.numero || "contratto").replace(/^PREV/i, "CTR")}.pdf`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      toast.success("Contratto compilato e firmato generato.");
-    } catch (error) {
-      toast.error(
-        formatApiErrorDetail(error?.response?.data?.detail) ||
-          "Generazione del contratto non riuscita.",
-      );
-    }
-  };
+  const openContract = (preventivo) =>
+    navigate(`/dashboard/preventivi/${preventivo.id}/contratto`);
 
   if (isLoading)
     return (
@@ -236,10 +218,10 @@ export default function Preventivi() {
                         {contrattoGenerabile(preventivo) && (
                           <button
                             type="button"
-                            onClick={() => downloadContract(preventivo)}
-                            aria-label={`Genera contratto firmato per ${preventivo.cliente}`}
+                            onClick={() => openContract(preventivo)}
+                            aria-label={`Apri editor contratto per ${preventivo.cliente}`}
                             className="hover:text-brand"
-                            title="Genera contratto firmato"
+                            title="Modifica e valida contratto"
                           >
                             <FileSignature className="h-4 w-4" />
                           </button>
