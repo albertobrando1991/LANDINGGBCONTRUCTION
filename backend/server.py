@@ -36,6 +36,7 @@ import boq_service
 import db as db_pg
 import tenancy
 from edilos_routes import register_edilos_routes
+from financial_routes import register_financial_routes
 from contextlib import asynccontextmanager
 
 # Railway espone spesso MONGO_PUBLIC_URL / MONGO_URL; fallback locale solo in dev.
@@ -2320,10 +2321,31 @@ async def get_tenant_conn(request: Request, user: dict):
 
 
 register_edilos_routes(api, db, get_tenant_conn)
+register_financial_routes(api, db, get_tenant_conn)
+
+
+_payment_reminders_task: asyncio.Task | None = None
+
+
+async def _payment_reminders_loop() -> None:
+    """Processa la coda senza dipendere da una richiesta aperta nel browser."""
+    while True:
+        try:
+            from system_jobs.payment_reminders import run as run_payment_reminders
+
+            result = await run_payment_reminders()
+            if result.get("candidate"):
+                logger.info("Promemoria economici processati: %s", result)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Promemoria economici non processati: %s", exc)
+        await asyncio.sleep(15 * 60)
 
 
 @app.on_event("startup")
 async def startup():
+    global _payment_reminders_task
     authlib.validate_production_security_configuration()
     try:
         await db_pg.init_pool()
@@ -2336,6 +2358,9 @@ async def startup():
                 logger.info("Prezzario Campania 2026 verificato: %s", sync_result)
             except Exception as sync_exc:
                 logger.warning("Sync Prezzario Campania non eseguito: %s", sync_exc)
+            _payment_reminders_task = asyncio.create_task(
+                _payment_reminders_loop(), name="payment-reminders"
+            )
     except Exception as exc:
         logger.warning("Postgres pool non avviato: %s", exc)
     await db.users.create_index("email", unique=True)
@@ -2393,6 +2418,14 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
+    global _payment_reminders_task
+    if _payment_reminders_task:
+        _payment_reminders_task.cancel()
+        try:
+            await _payment_reminders_task
+        except asyncio.CancelledError:
+            pass
+        _payment_reminders_task = None
     await db_pg.close_pool()
     client.close()
 

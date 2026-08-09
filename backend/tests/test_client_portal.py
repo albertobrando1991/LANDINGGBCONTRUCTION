@@ -55,12 +55,16 @@ def test_dashboard_assembla_righe_variante_senza_perdere_tenant_filter():
             }
         ],
         [{"tenant_id": TENANT_ID, "id": "asset-1", "tipo": "documento"}],
+        [{"tenant_id": TENANT_ID, "incasso_id": "incasso-1", "residuo": 100}],
+        [{"tenant_id": TENANT_ID, "documento_id": "documento-1"}],
     ]
 
     result = asyncio.run(client_portal_service.get_portal_dashboard(conn, TENANT_ID))
 
     assert result["varianti"][0]["righe"][0]["classificazione"] == "nuova"
     assert result["assets"][0]["tipo"] == "documento"
+    assert result["pagamenti"][0]["residuo"] == 100
+    assert result["documenti_economici"][0]["documento_id"] == "documento-1"
     assert all(call.args[-1] == TENANT_ID for call in conn.fetch.await_args_list)
 
 

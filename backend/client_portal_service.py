@@ -100,6 +100,22 @@ async def get_portal_dashboard(conn: asyncpg.Connection, tenant_id: str) -> dict
         """,
         tenant_id,
     )
+    pagamenti = await conn.fetch(
+        """
+        select * from public.portale_pagamenti_cliente
+        where tenant_id = $1::uuid
+        order by data_prevista, numero_rata, incasso_id
+        """,
+        tenant_id,
+    )
+    documenti_economici = await conn.fetch(
+        """
+        select * from public.portale_documenti_economici
+        where tenant_id = $1::uuid
+        order by created_at desc, documento_id
+        """,
+        tenant_id,
+    )
 
     righe_by_variante: dict[str, list[dict]] = {}
     for item in _rows(righe):
@@ -113,6 +129,8 @@ async def get_portal_dashboard(conn: asyncpg.Connection, tenant_id: str) -> dict
         "sal": _rows(sal),
         "varianti": variante_rows,
         "assets": _rows(assets),
+        "pagamenti": _rows(pagamenti),
+        "documenti_economici": _rows(documenti_economici),
     }
 
 

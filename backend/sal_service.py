@@ -397,4 +397,15 @@ async def aggiorna_stato(
             status_code=409,
             detail="Il SAL e stato modificato da un altro operatore",
         )
-    return await get_sal(conn, tenant_id, sal_id)
+    result = await get_sal(conn, tenant_id, sal_id)
+    if nuovo_stato == "approvato":
+        import financial_service
+
+        await financial_service.genera_documento_economico(
+            conn,
+            tenant_id,
+            result["cantiere_id"],
+            tipo="riepilogo_sal",
+            riferimento_id=sal_id,
+        )
+    return result

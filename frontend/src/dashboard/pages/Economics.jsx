@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import client from "@/lib/api";
+import client, { extractErrorDetail } from "@/lib/api";
 import {
   ECONOMICS_CATEGORIES,
   filterEconomics,
@@ -31,8 +31,16 @@ import {
   uploadCantiereDocument,
 } from "@/lib/storage";
 import { useAuth } from "@/context/AuthContext";
+import PaymentControl from "@/dashboard/PaymentControl";
 
-const TABS = ["quadro", "spese", "incassi", "scadenze", "fornitori"];
+const TABS = [
+  "quadro",
+  "pagamenti",
+  "spese",
+  "incassi",
+  "scadenze",
+  "fornitori",
+];
 
 function currency(value) {
   return Number(value || 0).toLocaleString("it-IT", {
@@ -464,7 +472,7 @@ export default function Economics() {
       URL.revokeObjectURL(url);
       toast.success("Export CSV scaricato");
     } catch (error) {
-      toast.error(error?.response?.data?.detail || "Export non disponibile");
+      toast.error(await extractErrorDetail(error));
     }
   };
 
@@ -715,6 +723,8 @@ export default function Economics() {
           )}
         </div>
       )}
+
+      {tab === "pagamenti" && <PaymentControl cantiereId={cantiereId} />}
 
       {tab === "spese" && (
         <div className="overflow-x-auto rounded-2xl border border-stroke">

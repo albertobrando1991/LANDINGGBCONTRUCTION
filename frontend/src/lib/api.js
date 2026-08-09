@@ -56,4 +56,32 @@ export function formatApiErrorDetail(detail) {
   return String(detail);
 }
 
+/**
+ * Con `responseType: "blob"` axios applica lo stesso responseType anche alle
+ * risposte di errore: il body JSON del backend (es. 409 con `detail`) arriva
+ * come Blob binario invece che come oggetto, quindi `error.response.data.detail`
+ * risulta sempre undefined e il messaggio reale non si vede mai. Qui il Blob
+ * viene riletto come testo e riparsato prima di formattare il dettaglio.
+ */
+export async function extractErrorDetail(error) {
+  const data = error?.response?.data;
+  if (typeof Blob !== "undefined" && data instanceof Blob) {
+    try {
+      const text =
+        typeof data.text === "function"
+          ? await data.text()
+          : await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result || ""));
+              reader.onerror = () => reject(reader.error);
+              reader.readAsText(data);
+            });
+      return formatApiErrorDetail(text ? JSON.parse(text)?.detail : null);
+    } catch {
+      return formatApiErrorDetail(null);
+    }
+  }
+  return formatApiErrorDetail(data?.detail);
+}
+
 export default client;

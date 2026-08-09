@@ -6,9 +6,11 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  CircleDollarSign,
   Download,
   FileCheck2,
   FileText,
+  FileSignature,
   HardHat,
   Image as ImageIcon,
   Loader2,
@@ -17,7 +19,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
-import client, { formatApiErrorDetail } from "@/lib/api";
+import client, { extractErrorDetail, formatApiErrorDetail } from "@/lib/api";
 import { formatEuro } from "@/lib/format";
 import {
   createPortalAssetUrl,
@@ -308,6 +310,42 @@ export default function ClientPortal() {
     onError: (error) =>
       toast.error(formatApiErrorDetail(error.response?.data?.detail)),
   });
+  const signDocument = useMutation({
+    mutationFn: ({ item, decisione, nome }) =>
+      client.post(`/documenti-economici/${item.documento_id}/firma`, {
+        decisione,
+        firmatario_nome: nome,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client-portal"] });
+      toast.success(
+        "Decisione registrata con data, identità e hash del documento",
+      );
+    },
+    onError: (error) =>
+      toast.error(formatApiErrorDetail(error.response?.data?.detail)),
+  });
+  const openEconomicDocument = async (item) => {
+    try {
+      const response = await client.get(
+        `/documenti-economici/${item.documento_id}/pdf`,
+        { responseType: "blob" },
+      );
+      const url = URL.createObjectURL(response.data);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      toast.error(await extractErrorDetail(error));
+    }
+  };
+  const decideDocument = (item, decisione) => {
+    const nome = window.prompt(
+      "Inserisci nome e cognome del firmatario",
+      user?.name || "",
+    );
+    if (!nome?.trim()) return;
+    signDocument.mutate({ item, decisione, nome: nome.trim() });
+  };
   const summary = useMemo(() => portalSummary(data), [data]);
   const assets = useMemo(
     () => portalAssetsByType(data.assets || []),
@@ -481,6 +519,111 @@ export default function ClientPortal() {
             ) : (
               <div className="rounded-2xl border border-dashed border-stroke p-6 font-body text-sm text-fog">
                 I SAL approvati compariranno qui.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="grid gap-8 lg:grid-cols-2">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <CircleDollarSign className="h-5 w-5 text-brand" />
+              <h2 className="font-display text-sm font-semibold uppercase">
+                Piano pagamenti
+              </h2>
+            </div>
+            {(data.pagamenti || []).length ? (
+              <div className="space-y-3">
+                {data.pagamenti.map((item) => (
+                  <article
+                    key={item.incasso_id}
+                    className="rounded-2xl border border-stroke bg-surface p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-display text-xs uppercase text-fog">
+                          Rata {item.numero_rata} ·{" "}
+                          {dateLabel(item.data_prevista)}
+                        </p>
+                        <h3 className="mt-1 font-display uppercase text-ink">
+                          {item.descrizione}
+                        </h3>
+                        <p className="mt-1 text-xs text-fog">
+                          {item.modalita_pagamento ||
+                            "Modalità come da contratto"}
+                        </p>
+                      </div>
+                      <p className="font-display text-brand">
+                        {formatEuro(item.importo)}
+                      </p>
+                    </div>
+                    <div className="mt-3 flex justify-between border-t border-stroke pt-3 text-xs text-fog">
+                      <span>Pagato {formatEuro(item.pagato)}</span>
+                      <span>Residuo {formatEuro(item.residuo)}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-stroke p-6 text-sm text-fog">
+                Il piano pagamenti comparirà dopo la conferma del contratto.
+              </div>
+            )}
+          </div>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <FileSignature className="h-5 w-5 text-brand" />
+              <h2 className="font-display text-sm font-semibold uppercase">
+                Note SAL ed extra da sottoscrivere
+              </h2>
+            </div>
+            {(data.documenti_economici || []).length ? (
+              <div className="space-y-3">
+                {data.documenti_economici.map((item) => (
+                  <article
+                    key={item.documento_id}
+                    className="rounded-2xl border border-stroke bg-surface p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => openEconomicDocument(item)}
+                        className="text-left font-display uppercase text-ink hover:text-brand"
+                      >
+                        {item.tipo === "riepilogo_sal"
+                          ? "Nota riepilogo SAL"
+                          : "Autorizzazione lavorazione extra"}
+                      </button>
+                      <span className="text-[10px] uppercase text-fog">
+                        {item.gia_deciso ? "registrata" : "da esaminare"}
+                      </span>
+                    </div>
+                    {!item.gia_deciso && (
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          type="button"
+                          disabled={signDocument.isPending}
+                          onClick={() => decideDocument(item, "sottoscritto")}
+                          className="rounded-lg bg-brand px-3 py-2 text-[10px] font-display uppercase text-white"
+                        >
+                          Sottoscrivi
+                        </button>
+                        <button
+                          type="button"
+                          disabled={signDocument.isPending}
+                          onClick={() => decideDocument(item, "rifiutato")}
+                          className="rounded-lg border border-stroke px-3 py-2 text-[10px] font-display uppercase text-fog"
+                        >
+                          Rifiuta
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-stroke p-6 text-sm text-fog">
+                Nessuna nota economica da esaminare.
               </div>
             )}
           </div>
