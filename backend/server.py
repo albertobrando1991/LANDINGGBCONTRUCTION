@@ -1484,23 +1484,145 @@ async def dashboard_today(user: dict = Depends(current_user)):
     }
 
 
+# Stati da cui una prenotazione sopralluogo può promuovere automaticamente il lead.
+SOPRALLUOGO_AUTO_PROMOTE_FROM = {None, "nuovo", "qualificato", "sopralluogo_fissato"}
+
+
+def _today_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _slot_appointment_payload(slot: dict) -> dict:
+    return {
+        "slot_id": str(slot.get("_id") or slot.get("id") or ""),
+        "date": slot.get("date"),
+        "start": slot.get("start"),
+        "end": slot.get("end"),
+        "tecnico": slot.get("tecnico"),
+        "status": slot.get("status") or "booked",
+    }
+
+
+async def _booked_appointments_by_lead() -> Dict[str, dict]:
+    """Mappa lead_id → appuntamento più imminente (o più recente se tutti passati)."""
+    slots = await db.sopralluogo_slots.find(
+        {"status": "booked", "lead_id": {"$nin": [None, ""]}}
+    ).sort([("date", 1), ("start", 1)]).to_list(1000)
+    today = _today_iso()
+    by_lead: Dict[str, dict] = {}
+    for slot in slots:
+        lead_id = str(slot.get("lead_id") or "").strip()
+        if not lead_id:
+            continue
+        appt = _slot_appointment_payload(slot)
+        existing = by_lead.get(lead_id)
+        if not existing:
+            by_lead[lead_id] = appt
+            continue
+        # Preferisci appuntamenti futuri/oggi; a parità, il più vicino.
+        existing_future = (existing.get("date") or "") >= today
+        candidate_future = (appt.get("date") or "") >= today
+        if candidate_future and not existing_future:
+            by_lead[lead_id] = appt
+        elif candidate_future == existing_future:
+            if (appt.get("date"), appt.get("start")) < (existing.get("date"), existing.get("start")):
+                by_lead[lead_id] = appt
+    return by_lead
+
+
+async def _sync_lead_with_sopralluogo_slot(lead: dict, slot: dict) -> dict:
+    """Allinea stato pipeline e campo sopralluogo sul lead quando c'è uno slot booked."""
+    if not lead or not slot:
+        return lead
+    lead_id = lead.get("_id") or lead.get("id")
+    if not lead_id:
+        return lead
+    oid = lead_id if isinstance(lead_id, ObjectId) else (
+        ObjectId(str(lead_id)) if ObjectId.is_valid(str(lead_id)) else None
+    )
+    if not oid:
+        return lead
+
+    appt = _slot_appointment_payload(slot)
+    set_fields: Dict[str, Any] = {
+        "sopralluogo": appt,
+        "updated_at": now_iso(),
+    }
+    current_status = lead.get("status")
+    if current_status in SOPRALLUOGO_AUTO_PROMOTE_FROM and current_status != "sopralluogo_fatto":
+        if current_status != "sopralluogo_fissato":
+            set_fields["status"] = "sopralluogo_fissato"
+            set_fields["status_changed_at"] = now_iso()
+            set_fields["prossima_azione"] = (
+                f"Sopralluogo il {appt.get('date')} alle {appt.get('start') or ''}".strip()
+            )
+
+    push_op = None
+    if set_fields.get("status") == "sopralluogo_fissato":
+        push_op = {
+            "timeline": {
+                "id": "ev-" + uuid.uuid4().hex[:8],
+                "tipo": "sopralluogo",
+                "testo": (
+                    f"Pipeline aggiornata: sopralluogo fissato "
+                    f"({appt.get('date')} {appt.get('start')}-{appt.get('end')})"
+                ),
+                "ts": now_iso(),
+            }
+        }
+
+    op: Dict[str, Any] = {"$set": set_fields, "$addToSet": {"tags": "Sopralluogo"}}
+    if push_op:
+        op["$push"] = push_op
+    await db.leads.update_one({"_id": oid}, op)
+    updated = await db.leads.find_one({"_id": oid})
+    return updated or lead
+
+
 @api.get("/pipeline")
 async def pipeline(user: dict = Depends(current_user)):
     leads = await db.leads.find({}).sort("status_changed_at", -1).to_list(1000)
-    leads = [serialize(d) for d in leads]
+    appointments = await _booked_appointments_by_lead()
+
+    # Auto-sync: se esiste un appuntamento booked, il lead deve comparire in pipeline
+    # come "sopralluogo fissato" (salvo stati già più avanzati).
+    synced_leads = []
+    for raw in leads:
+        lead = raw
+        lead_id = str(raw.get("_id"))
+        appt = appointments.get(lead_id)
+        if appt and raw.get("status") in (None, "nuovo", "qualificato"):
+            # Ricostruisci uno slot minimo per il sync DB
+            slot_doc = {
+                "_id": appt.get("slot_id"),
+                "date": appt.get("date"),
+                "start": appt.get("start"),
+                "end": appt.get("end"),
+                "tecnico": appt.get("tecnico"),
+                "status": "booked",
+            }
+            lead = await _sync_lead_with_sopralluogo_slot(raw, slot_doc)
+        serialized = serialize(lead)
+        if appt:
+            # Fonte di verità calendario: arricchisce sempre la card pipeline
+            serialized["sopralluogo"] = {
+                **(serialized.get("sopralluogo") or {}),
+                **appt,
+            }
+            serialized["has_sopralluogo"] = True
+        else:
+            serialized["has_sopralluogo"] = bool(serialized.get("sopralluogo"))
+        synced_leads.append(serialized)
+
     cols = []
     for key, label in PIPELINE_STATI:
-        items = [l for l in leads if l.get("status") == key]
+        items = [l for l in synced_leads if l.get("status") == key]
         for it in items:
             it["giorni_in_stato"] = _giorni_da(it.get("status_changed_at", it.get("created_at")))
         valore = sum((l.get("range_alto", 0) + l.get("range_basso", 0)) / 2 for l in items)
         cols.append({"key": key, "label": label, "count": len(items),
                      "valore": round(valore), "leads": items})
     return {"columns": cols}
-
-
-def _today_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 @api.get("/sopralluoghi")
@@ -1528,6 +1650,7 @@ async def sopralluoghi(user: dict = Depends(current_user)):
             "ora": slot.get("start"),
             "ora_fine": slot.get("end"),
             "completato": lead.get("status") == "sopralluogo_fatto",
+            "pipeline_status": lead.get("status"),
             "estimate": lead.get("estimate"),
         })
     return out
@@ -1643,11 +1766,19 @@ async def public_book_sopralluogo(
     if not lead and norm:
         lead = await db.leads.find_one({"email_norm": norm})
     if lead:
-        set_fields = {"sopralluogo": sopr, "updated_at": now_iso()}
+        set_fields: Dict[str, Any] = {
+            "sopralluogo": sopr,
+            "updated_at": now_iso(),
+        }
         # Non far retrocedere un lead gia avanzato: fissa lo stato solo da fasi iniziali.
-        if lead.get("status") in (None, "nuovo", "qualificato", "sopralluogo_fissato"):
+        # Collega automaticamente la pipeline al modulo sopralluoghi.
+        if lead.get("status") in SOPRALLUOGO_AUTO_PROMOTE_FROM:
             set_fields["status"] = "sopralluogo_fissato"
-            set_fields["status_changed_at"] = now_iso()
+            if lead.get("status") != "sopralluogo_fissato":
+                set_fields["status_changed_at"] = now_iso()
+            set_fields["prossima_azione"] = (
+                f"Sopralluogo il {slot['date']} alle {slot.get('start') or ''}".strip()
+            )
         # Mai sovrascrivere l'indirizzo di un cliente esistente da endpoint pubblico: solo se mancante.
         if body.indirizzo and not (lead.get("indirizzo") or "").strip():
             set_fields["indirizzo"] = body.indirizzo.strip()
@@ -1682,6 +1813,78 @@ async def public_book_sopralluogo(
     return {
         "ok": True, "lead_id": lead_id,
         "slot": {"date": slot["date"], "start": slot["start"], "end": slot["end"]},
+        "pipeline_status": "sopralluogo_fissato",
+    }
+
+
+@api.post("/sopralluoghi/{slot_id}/complete")
+async def complete_sopralluogo(slot_id: str, user: dict = Depends(current_user)):
+    """Segna il sopralluogo come svolto e avanza la pipeline a «Sopralluogo fatto»."""
+    oid = object_id_or_400(slot_id, "Slot")
+    slot = await db.sopralluogo_slots.find_one({"_id": oid})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot non trovato")
+    if slot.get("status") != "booked":
+        raise HTTPException(status_code=400, detail="Lo slot non risulta prenotato")
+
+    lead = None
+    lead_id = slot.get("lead_id")
+    if lead_id and ObjectId.is_valid(str(lead_id)):
+        lead = await db.leads.find_one({"_id": ObjectId(str(lead_id))})
+    if not lead:
+        raise HTTPException(
+            status_code=400,
+            detail="Slot senza lead collegato: apri la scheda e collega il cliente.",
+        )
+
+    # Non toccare lead già oltre la fase sopralluogo (preventivo / trattativa / chiuso).
+    advanced = {
+        "preventivo_preparazione",
+        "preventivo_inviato",
+        "follow_up",
+        "in_trattativa",
+        "chiuso_vinto",
+        "chiuso_perso",
+        "sopralluogo_fatto",
+    }
+    set_fields: Dict[str, Any] = {
+        "sopralluogo": {
+            **_slot_appointment_payload(slot),
+            "completato": True,
+            "completato_at": now_iso(),
+            "completato_da": user.get("name"),
+        },
+        "updated_at": now_iso(),
+        "last_contact": now_iso(),
+    }
+    if lead.get("status") not in advanced:
+        set_fields["status"] = "sopralluogo_fatto"
+        set_fields["status_changed_at"] = now_iso()
+        set_fields["prossima_azione"] = "Preparare il preventivo post-sopralluogo"
+
+    event = {
+        "id": "ev-" + uuid.uuid4().hex[:8],
+        "tipo": "sopralluogo",
+        "testo": (
+            f"Sopralluogo completato ({slot.get('date')} {slot.get('start')}-{slot.get('end')}) "
+            f"da {user.get('name')}"
+        ),
+        "ts": now_iso(),
+    }
+    await db.leads.update_one(
+        {"_id": lead["_id"]},
+        {"$set": set_fields, "$push": {"timeline": event}, "$addToSet": {"tags": "Sopralluogo fatto"}},
+    )
+    await db.sopralluogo_slots.update_one(
+        {"_id": oid},
+        {"$set": {"completed": True, "completed_at": now_iso(), "updated_at": now_iso()}},
+    )
+    updated = await db.leads.find_one({"_id": lead["_id"]})
+    return {
+        "ok": True,
+        "lead_id": str(lead["_id"]),
+        "pipeline_status": (updated or {}).get("status") or set_fields.get("status"),
+        "slot_id": str(oid),
     }
 
 

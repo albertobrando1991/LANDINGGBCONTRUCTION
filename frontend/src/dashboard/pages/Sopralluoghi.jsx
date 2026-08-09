@@ -28,16 +28,28 @@ export default function Sopralluoghi() {
   const { data: slots = [], isLoading: loadingSlots } = useQuery({
     queryKey: ["sopralluogo-slots"],
     queryFn: async () => (await client.get("/sopralluoghi/slots")).data,
+    refetchInterval: 20000,
+    refetchOnWindowFocus: true,
   });
   const { data: booked = [], isLoading: loadingBooked } = useQuery({
     queryKey: ["sopralluoghi"],
     queryFn: async () => (await client.get("/sopralluoghi")).data,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
+
+  const invalidateSopralluoghiAndPipeline = () => {
+    qc.invalidateQueries({ queryKey: ["sopralluogo-slots"] });
+    qc.invalidateQueries({ queryKey: ["sopralluoghi"] });
+    // Pipeline collegata: si aggiorna automaticamente con gli appuntamenti
+    qc.invalidateQueries({ queryKey: ["pipeline"] });
+    qc.invalidateQueries({ queryKey: ["today"] });
+  };
 
   const createSlot = useMutation({
     mutationFn: (body) => client.post("/sopralluoghi/slots", body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["sopralluogo-slots"] });
+      invalidateSopralluoghiAndPipeline();
       toast.success("Slot aggiunto");
     },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
@@ -46,8 +58,17 @@ export default function Sopralluoghi() {
   const deleteSlot = useMutation({
     mutationFn: (id) => client.delete(`/sopralluoghi/slots/${id}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["sopralluogo-slots"] });
+      invalidateSopralluoghiAndPipeline();
       toast.success("Slot rimosso");
+    },
+    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
+  });
+
+  const completeAppt = useMutation({
+    mutationFn: (id) => client.post(`/sopralluoghi/${id}/complete`),
+    onSuccess: () => {
+      invalidateSopralluoghiAndPipeline();
+      toast.success("Sopralluogo completato — pipeline aggiornata");
     },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
@@ -59,7 +80,8 @@ export default function Sopralluoghi() {
       <div>
         <h1 className="font-display font-bold uppercase text-3xl text-ink">Sopralluoghi</h1>
         <p className="font-body text-sm text-fog mt-1">
-          Inserisci gli slot liberi: i clienti prenotano direttamente dal calendario in landing.
+          Inserisci gli slot liberi: i clienti prenotano dal calendario in landing.
+          Ogni prenotazione aggiorna automaticamente la pipeline (colonna «Sopralluogo fissato»).
         </p>
       </div>
 
@@ -164,13 +186,33 @@ export default function Sopralluoghi() {
                   <div className="flex items-center gap-2 capitalize"><User className="w-4 h-4 text-brand" /> Tecnico: {s.tecnico}</div>
                   {s.tipo_immobile && <div className="capitalize">Progetto: {s.tipo_immobile}{s.mq ? ` · ${s.mq}mq` : ""}</div>}
                 </div>
-                <div className="flex gap-2 mt-4">
+                <div className="flex flex-wrap gap-2 mt-4">
                   {s.telefono && (
-                    <a href={`tel:${s.telefono}`} className="flex-1 bg-bg border border-stroke rounded-xl py-2 text-center font-display uppercase text-xs text-fog hover:text-ink hover:border-brand transition-colors inline-flex items-center justify-center gap-1"><Phone className="w-3 h-3" /> Chiama</a>
+                    <a href={`tel:${s.telefono}`} className="flex-1 min-w-[7rem] bg-bg border border-stroke rounded-xl py-2 text-center font-display uppercase text-xs text-fog hover:text-ink hover:border-brand transition-colors inline-flex items-center justify-center gap-1"><Phone className="w-3 h-3" /> Chiama</a>
                   )}
                   {s.lead_id && (
-                    <button onClick={() => navigate(`/dashboard/lead/${s.lead_id}`)} className="flex-1 bg-brand text-white rounded-xl py-2 font-display uppercase text-xs hover:scale-[1.02] transition-transform">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/dashboard/lead/${s.lead_id}`)}
+                      className="flex-1 min-w-[7rem] bg-brand text-white rounded-xl py-2 font-display uppercase text-xs hover:scale-[1.02] transition-transform"
+                    >
                       Apri lead
+                    </button>
+                  )}
+                  {s.lead_id && !s.completato && (
+                    <button
+                      type="button"
+                      data-testid={`sopralluogo-complete-${s.id}`}
+                      disabled={completeAppt.isPending}
+                      onClick={() => completeAppt.mutate(s.id)}
+                      className="flex-1 min-w-[7rem] bg-emerald-600/90 text-white rounded-xl py-2 font-display uppercase text-xs hover:bg-emerald-600 disabled:opacity-60 inline-flex items-center justify-center gap-1"
+                    >
+                      {completeAppt.isPending ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      )}
+                      Completato
                     </button>
                   )}
                 </div>
