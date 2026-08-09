@@ -66,6 +66,21 @@ def numero_contratto(numero_preventivo: Any) -> str:
     return f"CTR-{numero}"
 
 
+def risolvi_indirizzo_lavori(preventivo: dict) -> str:
+    """Usa il cantiere; prima della sua apertura ripiega sull'indirizzo cliente."""
+    cantiere = str(preventivo.get("cantiere_indirizzo") or "").strip()
+    if cantiere:
+        return cantiere
+
+    indirizzo = str(preventivo.get("cliente_indirizzo") or "").strip()
+    if not indirizzo:
+        return ""
+    citta = str(preventivo.get("cliente_citta") or "").strip()
+    if citta and citta.casefold() not in indirizzo.casefold():
+        return f"{indirizzo}, {citta}"
+    return indirizzo
+
+
 def _color(value: Any, fallback: str) -> colors.Color:
     try:
         return colors.HexColor(str(value or fallback).strip())

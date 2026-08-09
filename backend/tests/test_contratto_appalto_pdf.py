@@ -1,6 +1,10 @@
 import fitz
 
-from contratto_appalto_pdf import genera_pdf_contratto, numero_contratto
+from contratto_appalto_pdf import (
+    genera_pdf_contratto,
+    numero_contratto,
+    risolvi_indirizzo_lavori,
+)
 
 
 def _preventivo():
@@ -64,6 +68,26 @@ def _text(pdf: bytes) -> tuple[fitz.Document, str]:
 def test_contract_number_tracks_quote_number():
     assert numero_contratto("PREV-2026-0042") == "CTR-2026-0042"
     assert numero_contratto("OFFERTA-9") == "CTR-OFFERTA-9"
+
+
+def test_contract_prefers_linked_site_address():
+    assert risolvi_indirizzo_lavori(_preventivo()) == "Via Toledo 100, Napoli"
+
+
+def test_contract_uses_customer_address_before_site_is_opened():
+    preventivo = {**_preventivo(), "cantiere_indirizzo": None}
+
+    assert risolvi_indirizzo_lavori(preventivo) == "Via Roma 10, Napoli"
+
+
+def test_contract_requires_at_least_a_customer_address():
+    preventivo = {
+        **_preventivo(),
+        "cantiere_indirizzo": None,
+        "cliente_indirizzo": None,
+    }
+
+    assert risolvi_indirizzo_lavori(preventivo) == ""
 
 
 def test_contract_is_branded_compiled_and_signed_for_company():

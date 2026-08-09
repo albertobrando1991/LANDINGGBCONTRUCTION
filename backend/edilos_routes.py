@@ -46,7 +46,11 @@ import rilievo_service
 import sal_service
 import tenancy
 from engines.metriche import estrai_metriche
-from contratto_appalto_pdf import genera_pdf_contratto, numero_contratto
+from contratto_appalto_pdf import (
+    genera_pdf_contratto,
+    numero_contratto,
+    risolvi_indirizzo_lavori,
+)
 from preventivo_pdf import genera_pdf_preventivo
 from sal_pdf import genera_pdf_sal
 
@@ -1414,6 +1418,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             if not row:
                 raise HTTPException(status_code=404, detail="Preventivo non trovato")
             preventivo = dict(row)
+            preventivo["cantiere_indirizzo"] = risolvi_indirizzo_lavori(preventivo)
             if preventivo.get("computo_stato") != "confermato":
                 raise HTTPException(
                     status_code=409,
