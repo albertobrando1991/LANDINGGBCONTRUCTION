@@ -1054,6 +1054,17 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
                 await boq_service.rimuovi_voce(conn, tenant_b, str(voce_computo_b))
             assert exc.value.status_code == 404
             await conn.execute("reset role")
+            # L'approvazione SAL genera ora una nota economica immutabile.
+            # La rimozione seguente prepara esclusivamente il fixture per il
+            # test di cancellazione della voce di computo.
+            await conn.execute(
+                """
+                delete from public.documenti_economici
+                where tenant_id = $1::uuid and cantiere_id = $2::uuid
+                """,
+                tenant_a,
+                cantiere_a,
+            )
             await conn.execute(
                 "delete from public.sal where tenant_id = $1::uuid and cantiere_id = $2::uuid",
                 tenant_a,
