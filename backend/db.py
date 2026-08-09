@@ -14,11 +14,12 @@ _pool: Optional[asyncpg.Pool] = None
 
 def resolve_db_url() -> str | None:
     """DSN Postgres Supabase. Alias supportati (ordine di priorità):
-    CONNECTION_STRING_SUPABASE | SUPABASE_DB_URL | DATABASE_URL
+    CONNECTION_STRING_SUPABASE | SUPABASE_DB_URL | CONNECT_STRINGSUPABASE | DATABASE_URL
     """
     for key in (
         "CONNECTION_STRING_SUPABASE",
         "SUPABASE_DB_URL",
+        "CONNECT_STRINGSUPABASE",
         "DATABASE_URL",
     ):
         val = (os.environ.get(key) or "").strip().strip('"').strip("'")
