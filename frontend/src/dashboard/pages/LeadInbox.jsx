@@ -16,6 +16,7 @@ import client, { formatApiErrorDetail } from "@/lib/api";
 import { formatEuro, relativeDate } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { openEmailCompose } from "@/lib/emailCompose";
+import { LEAD_AUTO_REFRESH_MS, refreshLeadViews } from "@/lib/leadSync";
 import { STATI, priority, initials } from "@/dashboard/leadMeta";
 
 const TABS = [
@@ -56,14 +57,15 @@ export default function LeadInbox() {
           params: { status: tab, q: q || undefined, origine },
         })
       ).data,
-    refetchInterval: 30000,
+    refetchInterval: LEAD_AUTO_REFRESH_MS,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const cleanupTest = useMutation({
     mutationFn: () => client.post("/leads/cleanup-test", { keep_emails: [] }),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["leads"] });
-      qc.invalidateQueries({ queryKey: ["lead-counts"] });
+    onSuccess: async (res) => {
+      await refreshLeadViews(qc);
       toast.success(
         `Eliminati ${res.data.deleted} lead di test (mantenuti ${res.data.kept}).`,
       );

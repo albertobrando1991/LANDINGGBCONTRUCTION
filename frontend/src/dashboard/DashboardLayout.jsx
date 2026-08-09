@@ -34,6 +34,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import client from "@/lib/api";
+import { LEAD_AUTO_REFRESH_MS } from "@/lib/leadSync";
 import { prefetchComputi } from "@/lib/computiPrefetch";
 
 const NAV = [
@@ -202,7 +203,9 @@ export default function DashboardLayout() {
   const { data: leadCounts } = useQuery({
     queryKey: ["lead-counts"],
     queryFn: async () => (await client.get("/leads/counts")).data,
-    refetchInterval: 30000,
+    refetchInterval: LEAD_AUTO_REFRESH_MS,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
   const newLeadCount = leadCounts?.counts?.nuovo || 0;
 

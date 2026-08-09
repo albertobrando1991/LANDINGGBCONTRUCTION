@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
@@ -150,3 +151,68 @@ async def resolve_lead_id(
             detail="Il lead legacy risulta associato a un altro tenant",
         )
     return str(row["id"])
+
+
+async def sync_existing_postgres_lead(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    legacy: dict,
+) -> bool:
+    """Propaga nel mirror Postgres le modifiche fatte da Inbox/Pipeline."""
+    legacy_id = str(legacy.get("_id") or legacy.get("id") or "").strip()
+    if not ObjectId.is_valid(legacy_id):
+        return False
+    status = str(legacy.get("status") or "nuovo")
+    if status not in VALID_STATUSES:
+        status = "nuovo"
+    result = await conn.execute(
+        """
+        update public.leads
+        set status = $1,
+            owner = $2,
+            timeline = $3::jsonb,
+            prossima_azione = $4
+        where legacy_mongo_id = $5 and tenant_id = $6::uuid
+        """,
+        status,
+        legacy.get("owner"),
+        _json(legacy.get("timeline"), []),
+        legacy.get("prossima_azione"),
+        legacy_id,
+        tenant_id,
+    )
+    return result != "UPDATE 0"
+
+
+async def sync_legacy_lead(
+    conn: asyncpg.Connection,
+    mongo_db: Any,
+    tenant_id: str,
+    canonical_lead_id: Optional[str],
+) -> bool:
+    """Propaga nel lead Inbox/Pipeline lo stato prodotto dal ciclo preventivo."""
+    if not canonical_lead_id:
+        return False
+    row = await conn.fetchrow(
+        """
+        select legacy_mongo_id, status, prossima_azione, timeline
+        from public.leads
+        where id = $1::uuid and tenant_id = $2::uuid
+        """,
+        canonical_lead_id,
+        tenant_id,
+    )
+    if not row or not ObjectId.is_valid(str(row["legacy_mongo_id"] or "")):
+        return False
+    result = await mongo_db.leads.update_one(
+        {"_id": ObjectId(str(row["legacy_mongo_id"]))},
+        {
+            "$set": {
+                "status": row["status"],
+                "prossima_azione": row["prossima_azione"],
+                "timeline": row["timeline"] or [],
+                "status_changed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    )
+    return bool(result.matched_count)

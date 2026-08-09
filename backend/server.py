@@ -33,6 +33,7 @@ import email_service
 import meta_leads_service
 import api_security
 import boq_service
+import lead_bridge
 import db as db_pg
 import tenancy
 from edilos_routes import register_edilos_routes
@@ -1244,7 +1245,12 @@ async def get_lead(lead_id: str, user: dict = Depends(current_user)):
 
 
 @api.patch("/leads/{lead_id}")
-async def update_lead(lead_id: str, body: LeadUpdate, user: dict = Depends(current_user)):
+async def update_lead(
+    request: Request,
+    lead_id: str,
+    body: LeadUpdate,
+    user: dict = Depends(current_user),
+):
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="Nessun campo da aggiornare")
@@ -1267,6 +1273,15 @@ async def update_lead(lead_id: str, body: LeadUpdate, user: dict = Depends(curre
         op["$push"] = {"timeline": {"$each": events, "$position": 0}}
     await db.leads.update_one({"_id": ObjectId(lead_id)}, op)
     doc = await db.leads.find_one({"_id": ObjectId(lead_id)})
+    try:
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            await lead_bridge.sync_existing_postgres_lead(
+                conn, tenant["id"], doc
+            )
+    except Exception as exc:
+        # Il mirror viene creato solo quando il lead entra nei flussi EdilOS.
+        # Inbox/Pipeline restano disponibili anche durante un guasto Postgres.
+        logger.warning("Mirror Postgres lead %s non aggiornato: %s", lead_id, exc)
     return serialize(doc)
 
 

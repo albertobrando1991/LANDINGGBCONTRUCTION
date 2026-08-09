@@ -21,12 +21,14 @@ PREVENTIVO_TRANSITIONS = {
     "inviato": {"accettato", "rifiutato", "scaduto"},
 }
 LEAD_STATUS_BY_PREVENTIVO = {
+    "bozza": "preventivo_preparazione",
     "inviato": "preventivo_inviato",
     "accettato": "chiuso_vinto",
     "rifiutato": "chiuso_perso",
     "scaduto": "chiuso_perso",
 }
 LEAD_NEXT_ACTION_BY_PREVENTIVO = {
+    "bozza": "Controllare le voci, confermare il computo e inviare il preventivo",
     "inviato": "Effettuare il follow-up del preventivo entro 5 giorni",
     "accettato": "Pianificare avvio lavori e documentazione contrattuale",
     "rifiutato": "Registrare il motivo del rifiuto e valutare un follow-up",
@@ -1540,7 +1542,7 @@ async def computo_to_preventivo(
         computo_id,
     )
     if existing:
-        return await sincronizza_preventivo_bozza(
+        updated = await sincronizza_preventivo_bozza(
             conn,
             tenant_id,
             computo_id,
@@ -1549,6 +1551,15 @@ async def computo_to_preventivo(
             sconto=sconto,
             iva=iva,
         )
+        await _aggiorna_lead_da_preventivo(
+            conn,
+            tenant_id,
+            updated,
+            "bozza",
+            autore=autore or "sistema",
+            dettaglio=f"Bozza preventivo {updated['numero']} aggiornata",
+        )
+        return updated
 
     terms = _importi_preventivo(c, sconto, iva)
     cliente_id = await _cliente_id_per_computo(conn, tenant_id, computo_id)
@@ -1607,4 +1618,13 @@ async def computo_to_preventivo(
         f"Preventivo {numero} creato dal computo {computo_id}",
         autore or "sistema",
     )
-    return _d(row)
+    created = _d(row)
+    await _aggiorna_lead_da_preventivo(
+        conn,
+        tenant_id,
+        created,
+        "bozza",
+        autore=autore or "sistema",
+        dettaglio=f"Bozza preventivo {numero} creata",
+    )
+    return created

@@ -69,6 +69,15 @@ async def _user(request: Request, db) -> dict:
     return await authlib.get_current_user(request, db)
 
 
+async def _sync_legacy_lead_safely(conn, db, tenant_id: str, lead_id: Any) -> None:
+    try:
+        await lead_bridge.sync_legacy_lead(conn, db, tenant_id, lead_id)
+    except Exception as exc:
+        # La consegna email e la transazione EdilOS non devono essere ripetute
+        # soltanto per un'indisponibilita temporanea del mirror Mongo.
+        logger.warning("Mirror Inbox/Pipeline del lead %s non aggiornato: %s", lead_id, exc)
+
+
 # ---------- Prezzario ----------
 class DuplicaBody(BaseModel):
     nome: str
@@ -689,6 +698,9 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 result["automazione"] = automazione
                 result["preventivo"] = preventivo
                 result["stato_flusso"] = "bozza_preventivo_creata"
+                await _sync_legacy_lead_safely(
+                    conn, db, tenant["id"], preventivo.get("lead_id")
+                )
             else:
                 result["stato_flusso"] = (
                     "revisione_richiesta"
@@ -829,7 +841,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     async def to_preventivo(request: Request, computo_id: str, body: PreventivoBody):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
-            return await boq_service.computo_to_preventivo(
+            preventivo = await boq_service.computo_to_preventivo(
                 conn,
                 tenant["id"],
                 computo_id,
@@ -837,6 +849,10 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 iva=body.iva,
                 autore=actor_name(user),
             )
+            await _sync_legacy_lead_safely(
+                conn, db, tenant["id"], preventivo.get("lead_id")
+            )
+            return preventivo
 
     @api.post("/computi/da-ai")
     async def da_ai(request: Request, body: GeneraDaAiBody):
@@ -1639,13 +1655,17 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     ):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
-            return await boq_service.aggiorna_stato_preventivo(
+            updated = await boq_service.aggiorna_stato_preventivo(
                 conn,
                 tenant["id"],
                 preventivo_id,
                 body.stato,
                 autore=actor_name(user),
             )
+            await _sync_legacy_lead_safely(
+                conn, db, tenant["id"], updated.get("lead_id")
+            )
+            return updated
 
     @api.post("/preventivi/{preventivo_id}/invia")
     async def preventivo_invia(
@@ -1777,6 +1797,9 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 provider_message_id=delivery.get("message_id") or "",
                 idempotency_key=idempotency_key,
                 autore=actor_name(user),
+            )
+            await _sync_legacy_lead_safely(
+                conn, db, tenant["id"], updated.get("lead_id")
             )
             return {
                 "ok": True,

@@ -5,6 +5,7 @@ import { CalendarDays } from "lucide-react";
 import { toast } from "sonner";
 import client from "@/lib/api";
 import { formatEuro } from "@/lib/format";
+import { LEAD_AUTO_REFRESH_MS, refreshLeadViews } from "@/lib/leadSync";
 import { STATI, priority, initials, ageColor } from "@/dashboard/leadMeta";
 
 const WEEKDAYS = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
@@ -50,15 +51,20 @@ export default function Pipeline() {
     queryKey: ["pipeline"],
     queryFn: async () => (await client.get("/pipeline")).data,
     // Aggiornamento automatico: appuntamenti e spostamenti compaiono senza refresh manuale
-    refetchInterval: 15000,
+    refetchInterval: LEAD_AUTO_REFRESH_MS,
     refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const move = useMutation({
-    mutationFn: ({ id, status }) => client.patch(`/leads/${id}`, { status }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["pipeline"] });
-      qc.invalidateQueries({ queryKey: ["sopralluoghi"] });
+    mutationFn: async ({ id, status }) =>
+      (await client.patch(`/leads/${id}`, { status })).data,
+    onSuccess: async (updatedLead) => {
+      await refreshLeadViews(qc, {
+        leadId: updatedLead.id,
+        updatedLead,
+        includeAppointments: true,
+      });
       toast.success("Lead spostato");
     },
   });

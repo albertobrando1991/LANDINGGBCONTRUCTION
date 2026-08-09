@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import client, { formatApiErrorDetail } from "@/lib/api";
+import { LEAD_AUTO_REFRESH_MS, refreshLeadViews } from "@/lib/leadSync";
 
 const WEEKDAYS = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 const MONTHS = [
@@ -34,16 +35,13 @@ export default function Sopralluoghi() {
   const { data: booked = [], isLoading: loadingBooked } = useQuery({
     queryKey: ["sopralluoghi"],
     queryFn: async () => (await client.get("/sopralluoghi")).data,
-    refetchInterval: 15000,
+    refetchInterval: LEAD_AUTO_REFRESH_MS,
     refetchOnWindowFocus: true,
   });
 
   const invalidateSopralluoghiAndPipeline = () => {
     qc.invalidateQueries({ queryKey: ["sopralluogo-slots"] });
-    qc.invalidateQueries({ queryKey: ["sopralluoghi"] });
-    // Pipeline collegata: si aggiorna automaticamente con gli appuntamenti
-    qc.invalidateQueries({ queryKey: ["pipeline"] });
-    qc.invalidateQueries({ queryKey: ["today"] });
+    void refreshLeadViews(qc, { includeAppointments: true });
   };
 
   const createSlot = useMutation({

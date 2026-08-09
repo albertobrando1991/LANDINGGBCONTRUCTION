@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import client, { formatApiErrorDetail } from "@/lib/api";
 import { formatEuro } from "@/lib/format";
+import { refreshLeadViews } from "@/lib/leadSync";
 import {
   azioniPerPreventivo,
   etichettaEventoPreventivo,
@@ -75,6 +76,7 @@ export default function PreventivoLifecycleModal({ preventivo, onClose }) {
       queryClient.invalidateQueries({
         queryKey: ["preventivo-eventi", preventivo?.id],
       }),
+      refreshLeadViews(queryClient),
     ]);
   };
 

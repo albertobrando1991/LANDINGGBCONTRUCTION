@@ -11,6 +11,7 @@ import client, { BACKEND_URL, formatApiErrorDetail } from "@/lib/api";
 import { formatEuro, formatDateTime } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { openEmailCompose } from "@/lib/emailCompose";
+import { refreshLeadViews } from "@/lib/leadSync";
 import { STATI, PIPELINE_ORDER, priority, initials } from "@/dashboard/leadMeta";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -30,8 +31,15 @@ export default function LeadDetail() {
   });
 
   const patch = useMutation({
-    mutationFn: (body) => client.patch(`/leads/${id}`, body),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["lead", id] }); toast.success("Lead aggiornato"); },
+    mutationFn: async (body) => (await client.patch(`/leads/${id}`, body)).data,
+    onSuccess: async (updatedLead) => {
+      await refreshLeadViews(qc, {
+        leadId: id,
+        updatedLead,
+        includeAppointments: true,
+      });
+      toast.success("Lead aggiornato");
+    },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
 
@@ -165,6 +173,17 @@ export default function LeadDetail() {
                 </SelectContent>
               </Select>
             </div>
+            {lead.status === "preventivo_preparazione" && (
+              <button
+                type="button"
+                onClick={() =>
+                  navigate(`/dashboard/computi?lead=${encodeURIComponent(lead.id)}&import=1`)
+                }
+                className="mt-3 w-full rounded-xl bg-brand px-4 py-3 font-display text-xs uppercase tracking-wider text-white hover:brightness-110"
+              >
+                Prepara preventivo per il cliente
+              </button>
+            )}
           </div>
 
           <div className="bg-surface border border-stroke rounded-2xl p-6">

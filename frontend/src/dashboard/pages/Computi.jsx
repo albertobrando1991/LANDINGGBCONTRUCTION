@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -14,6 +14,7 @@ import {
 import client from "@/lib/api";
 import { fetchComputi, prefetchComputo } from "@/lib/computiPrefetch";
 import { toast } from "sonner";
+import { refreshLeadViews } from "@/lib/leadSync";
 
 const INITIAL_IMPORT = {
   file: null,
@@ -25,7 +26,13 @@ const INITIAL_IMPORT = {
   iva: 10,
 };
 
-function ImportComputoModal({ open, pending, onClose, onSubmit }) {
+function ImportComputoModal({
+  open,
+  pending,
+  initialLeadId,
+  onClose,
+  onSubmit,
+}) {
   const [form, setForm] = useState(INITIAL_IMPORT);
   const { data: leads = [], isLoading: loadingLeads } = useQuery({
     queryKey: ["leads", "computo-import"],
@@ -47,13 +54,14 @@ function ImportComputoModal({ open, pending, onClose, onSubmit }) {
     if (!open) return;
     setForm((current) => ({
       ...INITIAL_IMPORT,
+      leadId: initialLeadId || "",
       prezzarioId:
         current.prezzarioId ||
         prezzari.find((prezzario) => prezzario.is_default)?.id ||
         prezzari[0]?.id ||
         "",
     }));
-  }, [open, prezzari]);
+  }, [initialLeadId, open, prezzari]);
 
   if (!open) return null;
   const loadingOptions = loadingLeads || loadingCantieri || loadingPrezzari;
@@ -308,18 +316,28 @@ function ImportComputoModal({ open, pending, onClose, onSubmit }) {
 export default function Computi() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [importOpen, setImportOpen] = useState(false);
+  const [searchParams] = useSearchParams();
+  const requestedLeadId = searchParams.get("lead") || "";
+  const [importOpen, setImportOpen] = useState(
+    searchParams.get("import") === "1",
+  );
   const { data: computi = [], isLoading } = useQuery({
     queryKey: ["computi"],
     queryFn: fetchComputi,
   });
 
   const crea = useMutation({
-    mutationFn: async () =>
-      (await client.post("/computi", { tipo: "estimativo" })).data,
-    onSuccess: (computo) => {
+    mutationFn: async ({ leadId } = {}) =>
+      (
+        await client.post("/computi", {
+          tipo: "estimativo",
+          lead_id: leadId || undefined,
+        })
+      ).data,
+    onSuccess: async (computo) => {
       toast.success("Computo creato");
       qc.invalidateQueries({ queryKey: ["computi"] });
+      await refreshLeadViews(qc, { leadId: requestedLeadId || undefined });
       navigate(`/dashboard/computi/${computo.id}`);
     },
     onError: (error) =>
@@ -338,11 +356,12 @@ export default function Computi() {
       form.append("iva", String(options.iva || 0));
       return (await client.post("/computi/importa-pdf", form)).data;
     },
-    onSuccess: (computo) => {
+    onSuccess: async (computo) => {
       const extraction = computo.importazione || {};
       setImportOpen(false);
       qc.invalidateQueries({ queryKey: ["computi"] });
       qc.invalidateQueries({ queryKey: ["preventivi"] });
+      await refreshLeadViews(qc, { leadId: requestedLeadId || undefined });
       if (computo.preventivo) {
         toast.success(
           `${extraction.n_voci || 0} voci estratte. Bozza ${computo.preventivo.numero} creata: controlla e modifica le singole voci prima della conferma.`,
@@ -406,10 +425,11 @@ export default function Computi() {
           </button>
           <button
             type="button"
-            onClick={() => crea.mutate()}
+            onClick={() => crea.mutate({ leadId: requestedLeadId })}
             className="inline-flex min-h-11 items-center gap-2 bg-brand px-3 py-2 text-xs font-display uppercase tracking-wider text-white"
           >
-            <Plus className="h-4 w-4" /> Nuovo manuale
+            <Plus className="h-4 w-4" />
+            {requestedLeadId ? "Nuovo manuale per il cliente" : "Nuovo manuale"}
           </button>
         </div>
       </div>
@@ -508,6 +528,7 @@ export default function Computi() {
       <ImportComputoModal
         open={importOpen}
         pending={importa.isPending}
+        initialLeadId={requestedLeadId}
         onClose={() => setImportOpen(false)}
         onSubmit={(options) => importa.mutate(options)}
       />
