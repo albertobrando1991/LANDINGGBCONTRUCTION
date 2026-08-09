@@ -42,6 +42,7 @@ import lead_bridge
 import libretto_service
 import mapping_engine
 import prezzario_service
+import rilievo_service
 import sal_service
 import tenancy
 from engines.metriche import estrai_metriche
@@ -207,6 +208,65 @@ class CreaMisuraBody(BaseModel):
         return normalized
 
 
+class CreaRilievoBody(BaseModel):
+    client_uuid: UUID
+    lead_id: Optional[str] = None
+    sopralluogo_legacy_id: Optional[str] = Field(default=None, max_length=100)
+    cliente: str = Field(min_length=2, max_length=200)
+    indirizzo: Optional[str] = Field(default=None, max_length=500)
+    data_rilievo: date = Field(default_factory=date.today)
+    tecnico: Optional[str] = Field(default=None, max_length=200)
+    note: Optional[str] = Field(default=None, max_length=5000)
+
+
+class AggiornaRilievoBody(BaseModel):
+    cliente: Optional[str] = Field(default=None, min_length=2, max_length=200)
+    indirizzo: Optional[str] = Field(default=None, max_length=500)
+    data_rilievo: Optional[date] = None
+    tecnico: Optional[str] = Field(default=None, max_length=200)
+    note: Optional[str] = Field(default=None, max_length=5000)
+    stato: Optional[Literal["bozza", "completato"]] = None
+
+
+class MisuraExtraBody(BaseModel):
+    id: str = Field(min_length=1, max_length=100)
+    etichetta: str = Field(min_length=1, max_length=200)
+    valore: Decimal = Field(ge=0, max_digits=12, decimal_places=3)
+    unita: Literal["m", "mq", "cm", "mm", "cad"] = "m"
+
+
+class SalvaAmbienteRilievoBody(BaseModel):
+    nome: str = Field(min_length=1, max_length=200)
+    tipologia: Optional[str] = Field(default=None, max_length=100)
+    piano: Optional[str] = Field(default=None, max_length=100)
+    ordine: int = Field(default=0, ge=0)
+    lunghezza: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=10, decimal_places=3
+    )
+    larghezza: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=10, decimal_places=3
+    )
+    altezza: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=10, decimal_places=3
+    )
+    superficie: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=12, decimal_places=3
+    )
+    misure_extra: List[MisuraExtraBody] = Field(default_factory=list, max_length=50)
+    note: Optional[str] = Field(default=None, max_length=3000)
+    foto_paths: List[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("foto_paths")
+    @classmethod
+    def valida_foto_ambiente(cls, values: List[str]) -> List[str]:
+        normalized = [str(value).strip() for value in values]
+        if any(not value or len(value) > 700 for value in normalized):
+            raise ValueError("Percorso foto non valido")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("La stessa foto non puo essere indicata piu volte")
+        return normalized
+
+
 class GeneraSalBody(BaseModel):
     periodo_da: date
     periodo_a: date
@@ -339,6 +399,13 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             raise HTTPException(
                 status_code=403,
                 detail="Permessi insufficienti per il libretto di misura",
+            )
+
+    def require_rilievo_role(tenant: dict) -> None:
+        if tenant.get("role") not in rilievo_service.RILIEVO_ROLES:
+            raise HTTPException(
+                status_code=403,
+                detail="Permessi insufficienti per il primo rilievo",
             )
 
     def require_sal_role(tenant: dict) -> None:
@@ -625,6 +692,19 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         async with get_tenant_conn(request, user) as (conn, tenant):
             return await boq_service.get_computo(conn, tenant["id"], computo_id)
 
+    @api.delete("/computi/{computo_id}")
+    async def delete_computo(request: Request, computo_id: str):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            if tenant.get("role") not in {"owner", "admin"}:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Solo owner e admin possono eliminare un computo",
+                )
+            return await boq_service.elimina_computo(
+                conn, tenant["id"], computo_id
+            )
+
     @api.post("/computi/{computo_id}/voci")
     async def add_voce(request: Request, computo_id: str, body: AggiungiVoceBody):
         user = await _user(request, db)
@@ -761,6 +841,108 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 lead_id=lead_id,
                 config_lead=body.config_lead,
                 prezzario_id=body.prezzario_id,
+            )
+
+    # ---------- Primo rilievo Campo ----------
+    @api.get("/campo/rilievi")
+    async def campo_rilievi(request: Request):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_rilievo_role(tenant)
+            return await rilievo_service.lista_rilievi(conn, tenant["id"])
+
+    @api.post("/campo/rilievi", status_code=201)
+    async def crea_rilievo(request: Request, body: CreaRilievoBody):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_rilievo_role(tenant)
+            canonical_lead_id = None
+            if body.lead_id:
+                canonical_lead_id = await lead_bridge.resolve_lead_id(
+                    conn, db, tenant["id"], body.lead_id
+                )
+            return await rilievo_service.crea_rilievo(
+                conn,
+                tenant["id"],
+                client_uuid=str(body.client_uuid),
+                cliente=body.cliente,
+                data_rilievo=body.data_rilievo,
+                lead_id=canonical_lead_id,
+                sopralluogo_legacy_id=body.sopralluogo_legacy_id,
+                indirizzo=body.indirizzo,
+                tecnico=body.tecnico,
+                note=body.note,
+            )
+
+    @api.get("/campo/rilievi/{rilievo_id}")
+    async def get_rilievo(request: Request, rilievo_id: str):
+        user = await _user(request, db)
+        canonical_id = str(tenancy.uuid_or_400(rilievo_id, "Rilievo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_rilievo_role(tenant)
+            return await rilievo_service.get_rilievo(
+                conn, tenant["id"], canonical_id
+            )
+
+    @api.patch("/campo/rilievi/{rilievo_id}")
+    async def patch_rilievo(
+        request: Request, rilievo_id: str, body: AggiornaRilievoBody
+    ):
+        user = await _user(request, db)
+        canonical_id = str(tenancy.uuid_or_400(rilievo_id, "Rilievo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_rilievo_role(tenant)
+            return await rilievo_service.aggiorna_rilievo(
+                conn,
+                tenant["id"],
+                canonical_id,
+                body.model_dump(exclude_unset=True),
+            )
+
+    @api.put("/campo/rilievi/{rilievo_id}/ambienti/{ambiente_client_uuid}")
+    async def salva_ambiente_rilievo(
+        request: Request,
+        rilievo_id: str,
+        ambiente_client_uuid: UUID,
+        body: SalvaAmbienteRilievoBody,
+    ):
+        user = await _user(request, db)
+        canonical_id = str(tenancy.uuid_or_400(rilievo_id, "Rilievo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_rilievo_role(tenant)
+            return await rilievo_service.salva_ambiente(
+                conn,
+                tenant["id"],
+                canonical_id,
+                str(ambiente_client_uuid),
+                nome=body.nome,
+                tipologia=body.tipologia,
+                piano=body.piano,
+                ordine=body.ordine,
+                lunghezza=body.lunghezza,
+                larghezza=body.larghezza,
+                altezza=body.altezza,
+                superficie=body.superficie,
+                misure_extra=[
+                    item.model_dump(mode="json") for item in body.misure_extra
+                ],
+                note=body.note,
+                foto_paths=body.foto_paths,
+            )
+
+    @api.delete("/campo/rilievi/{rilievo_id}/ambienti/{ambiente_client_uuid}")
+    async def archivia_ambiente_rilievo(
+        request: Request, rilievo_id: str, ambiente_client_uuid: UUID
+    ):
+        user = await _user(request, db)
+        canonical_id = str(tenancy.uuid_or_400(rilievo_id, "Rilievo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_rilievo_role(tenant)
+            return await rilievo_service.archivia_ambiente(
+                conn,
+                tenant["id"],
+                canonical_id,
+                str(ambiente_client_uuid),
             )
 
     # ---------- Libretto di misura ----------

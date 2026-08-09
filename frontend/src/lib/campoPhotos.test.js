@@ -9,7 +9,11 @@ jest.mock("./storage", () => ({
   tenantIdFromUser: jest.fn(() => ""),
 }));
 
-import { campoPhotoPath, uploadCampoPhotos } from "./campoPhotos";
+import {
+  campoPhotoPath,
+  rilievoPhotoPath,
+  uploadCampoPhotos,
+} from "./campoPhotos";
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
 const CANTIERE = "20000000-0000-4000-8000-000000000001";
@@ -36,6 +40,17 @@ test("rifiuta identificatori non UUID nel path storage", () => {
       photoId: PHOTO,
     }),
   ).toThrow("Tenant non valido");
+});
+
+test("genera un path foto ambiente tenant-scoped", () => {
+  expect(
+    rilievoPhotoPath({
+      tenantId: TENANT,
+      rilievoId: CANTIERE,
+      ambienteClientUuid: CLIENT,
+      photoId: PHOTO,
+    }),
+  ).toBe(`${TENANT}/rilievo-${CANTIERE}/ambiente-${CLIENT}/${PHOTO}.jpg`);
 });
 
 test("non tenta upload foto senza sessione Supabase interna", async () => {

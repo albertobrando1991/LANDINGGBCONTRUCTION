@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Ruler,
+  ClipboardList,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -43,6 +44,7 @@ import {
 import { canUseTenantStorage } from "@/lib/storage";
 import { useAuth } from "@/context/AuthContext";
 import { useTenant } from "@/context/TenantContext";
+import PrimoRilievo from "@/campo/PrimoRilievo";
 
 function localDate() {
   const now = new Date();
@@ -108,7 +110,6 @@ function PhotoPreview({ photo, onRemove }) {
     </div>
   );
 }
-
 export default function Campo() {
   const { slug } = useTenant();
   const { user } = useAuth();
@@ -124,6 +125,7 @@ export default function Campo() {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [photoProgress, setPhotoProgress] = useState("");
+  const [section, setSection] = useState("rilievi");
   const syncingRef = useRef(false);
   const photoInputRef = useRef(null);
   const photosEnabled = canUseTenantStorage(user);
@@ -495,6 +497,28 @@ export default function Campo() {
         </div>
       </header>
 
+      <div className="border-b border-stroke bg-surface/70">
+        <div className="mx-auto grid max-w-5xl grid-cols-2 gap-2 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => setSection("rilievi")}
+            className={`flex min-h-11 items-center justify-center gap-2 rounded-xl border font-display text-xs uppercase ${section === "rilievi" ? "border-brand bg-brand text-white" : "border-stroke bg-bg text-fog"}`}
+          >
+            <ClipboardList className="h-4 w-4" /> Primo rilievo
+          </button>
+          <button
+            type="button"
+            onClick={() => setSection("libretto")}
+            className={`flex min-h-11 items-center justify-center gap-2 rounded-xl border font-display text-xs uppercase ${section === "libretto" ? "border-brand bg-brand text-white" : "border-stroke bg-bg text-fog"}`}
+          >
+            <Ruler className="h-4 w-4" /> Misure lavori
+          </button>
+        </div>
+      </div>
+
+      {section === "rilievi" ? (
+        <PrimoRilievo isOnline={isOnline} />
+      ) : (
       <main className="mx-auto grid max-w-5xl gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:py-8">
         <section className="campo-panel" aria-labelledby="nuova-misura-title">
           <div className="campo-panel-heading">
@@ -859,6 +883,7 @@ export default function Campo() {
           )}
         </aside>
       </main>
+      )}
     </div>
   );
 }

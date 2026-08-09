@@ -137,6 +137,50 @@ def test_get_computo_riusa_le_voci_per_i_totali():
     }
 
 
+def test_elimina_computo_rimuove_la_sola_bozza_preventivo():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    computo_id = "10000000-0000-4000-8000-000000000001"
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [
+        {"id": UUID(computo_id), "numero": "C-001", "tipo": "estimativo", "stato": "bozza"},
+        {"id": UUID(computo_id), "numero": "C-001"},
+    ]
+    conn.fetchval.side_effect = [False, False, False]
+
+    result = asyncio.run(
+        boq_service.elimina_computo(conn, tenant_id, computo_id)
+    )
+
+    assert result == {"ok": True, "id": computo_id, "numero": "C-001"}
+    assert conn.execute.await_count == 1
+    assert "stato = 'bozza'" in conn.execute.await_args.args[0]
+    assert "tenant_id = $1::uuid" in conn.fetchrow.await_args.args[0]
+
+
+def test_elimina_computo_blocca_preventivo_finalizzato():
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "id": UUID("10000000-0000-4000-8000-000000000001"),
+        "numero": "C-001",
+        "tipo": "estimativo",
+        "stato": "confermato",
+    }
+    conn.fetchval.side_effect = [False, False, True]
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            boq_service.elimina_computo(
+                conn,
+                "a0000000-0000-4000-8000-000000000001",
+                "10000000-0000-4000-8000-000000000001",
+            )
+        )
+
+    assert exc.value.status_code == 409
+    assert "preventivo" in exc.value.detail.lower()
+    conn.execute.assert_not_awaited()
+
+
 def test_metriche_non_contengono_prezzi():
     m = MetricheComputo(mq_calpestabile=80, n_bagni=2)
     assert_nessun_prezzo(m)

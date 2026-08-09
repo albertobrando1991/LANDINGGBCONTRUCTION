@@ -26,6 +26,8 @@ TABELLE_TENANT = [
     "preventivi",
     "preventivo_eventi",
     "libretto_misure",
+    "rilievi",
+    "rilievo_ambienti",
     "sal",
     "sal_righe",
     "fornitori",
@@ -46,6 +48,8 @@ def test_tabelle_tenant_elencate():
     assert "preventivi" in TABELLE_TENANT
     assert "preventivo_eventi" in TABELLE_TENANT
     assert "libretto_misure" in TABELLE_TENANT
+    assert "rilievi" in TABELLE_TENANT
+    assert "rilievo_ambienti" in TABELLE_TENANT
     assert "sal" in TABELLE_TENANT
     assert "sal_righe" in TABELLE_TENANT
     assert "fornitori" in TABELLE_TENANT
@@ -314,6 +318,35 @@ def test_rls_isola_dati_reali_e_vista_aggregata():
             user_id,
             f"Misura {suffix}",
             client_uuid,
+        )
+        rilievo_id = await conn.fetchval(
+            """
+            insert into public.rilievi (
+              tenant_id, lead_id, cantiere_id, client_uuid, cliente,
+              data_rilievo, created_by
+            ) values (
+              $1::uuid, $2::uuid, $3::uuid, gen_random_uuid(), $4,
+              date '2099-01-01', $5::uuid
+            ) returning id
+            """,
+            tenant_id,
+            lead_id,
+            cantiere_id,
+            f"Rilievo {suffix}",
+            user_id,
+        )
+        await conn.execute(
+            """
+            insert into public.rilievo_ambienti (
+              tenant_id, rilievo_id, client_uuid, nome,
+              lunghezza, larghezza, altezza, superficie
+            ) values (
+              $1::uuid, $2::uuid, gen_random_uuid(), $3, 4, 3, 2.7, 12
+            )
+            """,
+            tenant_id,
+            rilievo_id,
+            f"Ambiente {suffix}",
         )
         sal_id = await conn.fetchval(
             """

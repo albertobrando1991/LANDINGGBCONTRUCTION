@@ -7,14 +7,12 @@ import {
   FileText,
   Loader2,
   Plus,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
 import client from "@/lib/api";
-import {
-  fetchComputi,
-  prefetchComputo,
-} from "@/lib/computiPrefetch";
+import { fetchComputi, prefetchComputo } from "@/lib/computiPrefetch";
 import { toast } from "sonner";
 
 const INITIAL_IMPORT = {
@@ -367,6 +365,20 @@ export default function Computi() {
       ),
   });
 
+  const elimina = useMutation({
+    mutationFn: async (computo) =>
+      (await client.delete(`/computi/${computo.id}`)).data,
+    onSuccess: async () => {
+      toast.success("Computo eliminato");
+      await qc.invalidateQueries({ queryKey: ["computi"] });
+      await qc.invalidateQueries({ queryKey: ["preventivi"] });
+    },
+    onError: (error) =>
+      toast.error(
+        error?.response?.data?.detail || "Impossibile eliminare il computo",
+      ),
+  });
+
   if (isLoading) {
     return (
       <div className="p-6 text-sm font-display uppercase tracking-widest text-fog">
@@ -413,6 +425,7 @@ export default function Computi() {
               <th className="px-3 py-2 text-right">Totale</th>
               <th className="px-3 py-2 text-right">Voci</th>
               <th className="px-3 py-2 text-right">Da verificare</th>
+              <th className="px-3 py-2 text-right">Azioni</th>
             </tr>
           </thead>
           <tbody>
@@ -424,12 +437,8 @@ export default function Computi() {
                 <td className="px-3 py-2">
                   <Link
                     to={`/dashboard/computi/${computo.id}`}
-                    onPointerEnter={() =>
-                      void prefetchComputo(qc, computo.id)
-                    }
-                    onPointerDown={() =>
-                      void prefetchComputo(qc, computo.id)
-                    }
+                    onPointerEnter={() => void prefetchComputo(qc, computo.id)}
+                    onPointerDown={() => void prefetchComputo(qc, computo.id)}
                     onFocus={() => void prefetchComputo(qc, computo.id)}
                     className="font-mono text-xs text-brand"
                   >
@@ -462,6 +471,33 @@ export default function Computi() {
                   ) : (
                     <span className="text-success">0</span>
                   )}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <button
+                    type="button"
+                    aria-label={`Elimina computo ${computo.numero || computo.id}`}
+                    title="Elimina computo"
+                    disabled={elimina.isPending}
+                    onClick={() => {
+                      const label =
+                        computo.numero || String(computo.id).slice(0, 8);
+                      if (
+                        window.confirm(
+                          `Eliminare definitivamente il computo ${label}? La bozza preventivo collegata verra eliminata insieme.`,
+                        )
+                      ) {
+                        elimina.mutate(computo);
+                      }
+                    }}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-500/30 text-red-400 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    {elimina.isPending &&
+                    elimina.variables?.id === computo.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </button>
                 </td>
               </tr>
             ))}

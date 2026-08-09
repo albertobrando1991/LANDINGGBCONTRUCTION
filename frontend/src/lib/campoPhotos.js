@@ -4,6 +4,7 @@ import { canUseTenantStorage, tenantIdFromUser } from "./storage";
 
 export const CAMPO_PHOTO_BUCKET = "foto-cantiere";
 export const MAX_CAMPO_PHOTOS = 5;
+export const MAX_RILIEVO_PHOTOS = 12;
 export const MAX_CAMPO_PHOTO_SOURCE_BYTES = 20 * 1024 * 1024;
 export const MAX_CAMPO_PHOTO_EDGE = 1600;
 
@@ -106,6 +107,24 @@ export function campoPhotoPath({ tenantId, cantiereId, clientUuid, photoId }) {
   return `${tenantId}/cantiere-${cantiereId}/libretto-${clientUuid}/${photoId}.jpg`;
 }
 
+export function rilievoPhotoPath({
+  tenantId,
+  rilievoId,
+  ambienteClientUuid,
+  photoId,
+}) {
+  for (const [label, value] of [
+    ["Tenant", tenantId],
+    ["Rilievo", rilievoId],
+    ["Ambiente", ambienteClientUuid],
+    ["Foto", photoId],
+  ]) {
+    if (!UUID_RE.test(String(value || "")))
+      throw new Error(`${label} non valido.`);
+  }
+  return `${tenantId}/rilievo-${rilievoId}/ambiente-${ambienteClientUuid}/${photoId}.jpg`;
+}
+
 function resumableEndpoint() {
   const url = new URL(SUPABASE_URL);
   if (url.hostname.endsWith(".supabase.co")) {
@@ -184,4 +203,55 @@ export async function uploadCampoPhotos({
     );
   }
   return paths;
+}
+
+export async function uploadRilievoPhotos({
+  user,
+  rilievoId,
+  ambienteClientUuid,
+  photos,
+  onProgress,
+}) {
+  if (!photos?.length) return [];
+  if (!supabaseConfigured || !supabase || !canUseTenantStorage(user)) {
+    throw new Error("Le foto richiedono una sessione Supabase interna valida.");
+  }
+  const tenantId = tenantIdFromUser(user);
+  const { data, error } = await supabase.auth.getSession();
+  const accessToken = data?.session?.access_token;
+  if (error || !accessToken)
+    throw new Error("Sessione Storage non disponibile.");
+
+  const paths = [];
+  for (let index = 0; index < photos.length; index += 1) {
+    const photo = photos[index];
+    const path = rilievoPhotoPath({
+      tenantId,
+      rilievoId,
+      ambienteClientUuid,
+      photoId: photo.id,
+    });
+    paths.push(
+      await uploadOne({
+        path,
+        photo,
+        accessToken,
+        onProgress: (uploaded, total) =>
+          onProgress?.({ index, count: photos.length, uploaded, total }),
+      }),
+    );
+  }
+  return paths;
+}
+
+export async function createRilievoPhotoUrls(paths) {
+  if (!paths?.length || !supabaseConfigured || !supabase) return [];
+  const { data, error } = await supabase.storage
+    .from(CAMPO_PHOTO_BUCKET)
+    .createSignedUrls(paths, 5 * 60);
+  if (error) throw new Error(error.message || "Foto non disponibili.");
+  return (data || []).map((item, index) => ({
+    path: paths[index],
+    url: item.signedUrl,
+  }));
 }

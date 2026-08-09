@@ -326,6 +326,93 @@ async def crea_computo(
     return _d(row)
 
 
+async def elimina_computo(
+    conn: asyncpg.Connection, tenant_id: str, computo_id: str
+) -> dict:
+    computo = await conn.fetchrow(
+        """
+        select id, numero, tipo, stato
+        from public.computi
+        where id = $1::uuid and tenant_id = $2::uuid
+        for update
+        """,
+        computo_id,
+        tenant_id,
+    )
+    if not computo:
+        raise HTTPException(status_code=404, detail="Computo non trovato")
+
+    child_variant = await conn.fetchval(
+        """
+        select exists(
+          select 1 from public.computi
+          where tenant_id = $1::uuid and parent_computo_id = $2::uuid
+        )
+        """,
+        tenant_id,
+        computo_id,
+    )
+    if child_variant:
+        raise HTTPException(
+            status_code=409,
+            detail="Elimina prima le varianti collegate a questo computo",
+        )
+
+    approved_variant = await conn.fetchval(
+        """
+        select exists(
+          select 1 from public.varianti_approvazioni
+          where tenant_id = $1::uuid and variante_id = $2::uuid
+        )
+        """,
+        tenant_id,
+        computo_id,
+    )
+    if approved_variant:
+        raise HTTPException(
+            status_code=409,
+            detail="La variante e gia stata approvata dal cliente e non puo essere eliminata",
+        )
+
+    protected_quote = await conn.fetchval(
+        """
+        select exists(
+          select 1 from public.preventivi
+          where tenant_id = $1::uuid and computo_id = $2::uuid
+            and stato <> 'bozza'
+        )
+        """,
+        tenant_id,
+        computo_id,
+    )
+    if protected_quote:
+        raise HTTPException(
+            status_code=409,
+            detail="Il computo ha un preventivo gia inviato o finalizzato e non puo essere eliminato",
+        )
+
+    await conn.execute(
+        """
+        delete from public.preventivi
+        where tenant_id = $1::uuid and computo_id = $2::uuid and stato = 'bozza'
+        """,
+        tenant_id,
+        computo_id,
+    )
+    deleted = await conn.fetchrow(
+        """
+        delete from public.computi
+        where tenant_id = $1::uuid and id = $2::uuid
+        returning id, numero
+        """,
+        tenant_id,
+        computo_id,
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Computo non trovato")
+    return {"ok": True, "id": str(deleted["id"]), "numero": deleted["numero"]}
+
+
 async def aggiungi_voce(
     conn: asyncpg.Connection,
     tenant_id: str,
