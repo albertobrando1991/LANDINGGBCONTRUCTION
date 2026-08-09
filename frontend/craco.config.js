@@ -54,6 +54,13 @@ const webpackConfig = {
       return cracoWebpackConfig;
     },
   },
+  jest: {
+    configure: {
+      moduleNameMapper: {
+        "^@/(.*)$": "<rootDir>/src/$1",
+      },
+    },
+  },
 };
 
 webpackConfig.devServer = (devServerConfig) => {
@@ -72,7 +79,11 @@ webpackConfig.devServer = (devServerConfig) => {
     },
   ];
 
-  if (config.enableHealthCheck && setupHealthEndpoints && healthPluginInstance) {
+  if (
+    config.enableHealthCheck &&
+    setupHealthEndpoints &&
+    healthPluginInstance
+  ) {
     const originalSetupMiddlewares = devServerConfig.setupMiddlewares;
 
     devServerConfig.setupMiddlewares = (middlewares, devServer) => {

@@ -73,10 +73,14 @@ const NAV = [
   },
 ];
 
+const MOBILE_QUICK_NAV = NAV.filter((item) =>
+  ["/dashboard", "/dashboard/inbox", "/dashboard/cantieri"].includes(item.to),
+);
+
 function SidebarContent({ user, onNav, onComputiIntent }) {
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-6 h-16 border-b border-stroke">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-stroke px-6 pr-16">
         <div className="w-9 h-9 rounded-full p-[2px] accent-metallic">
           <div className="w-full h-full rounded-full bg-bg flex items-center justify-center font-display font-bold text-sm text-ink">
             GB
@@ -87,8 +91,9 @@ function SidebarContent({ user, onNav, onComputiIntent }) {
         </span>
       </div>
       <nav
-        className="flex-1 px-3 py-4 space-y-1 overflow-y-auto"
+        className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-4"
         aria-label="Navigazione dashboard"
+        style={{ WebkitOverflowScrolling: "touch" }}
       >
         {NAV.filter(
           (n) =>
@@ -110,7 +115,7 @@ function SidebarContent({ user, onNav, onComputiIntent }) {
               n.to === "/dashboard/computi" ? onComputiIntent : undefined
             }
             className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-xl font-display uppercase text-xs tracking-wider transition-colors ${
+              `flex min-h-12 touch-manipulation items-center gap-3 rounded-xl px-3 py-2.5 font-display text-xs uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
                 isActive
                   ? "bg-brand/15 text-brand"
                   : "text-fog hover:bg-surface-2 hover:text-ink"
@@ -138,6 +143,53 @@ function SidebarContent({ user, onNav, onComputiIntent }) {
   );
 }
 
+function MobileBottomNav({ newLeadCount, onOpenMenu, menuOpen }) {
+  return (
+    <nav
+      aria-label="Navigazione rapida mobile"
+      className="fixed inset-x-0 bottom-0 z-[80] border-t border-stroke bg-bg/95 px-[env(safe-area-inset-left)] pb-safe backdrop-blur-xl lg:hidden"
+    >
+      <div className="grid min-h-16 grid-cols-4 px-1">
+        {MOBILE_QUICK_NAV.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) =>
+              `relative flex min-h-14 touch-manipulation flex-col items-center justify-center gap-1 rounded-xl px-1 font-display text-[10px] uppercase tracking-wide focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+                isActive ? "text-brand" : "text-fog active:bg-surface-2"
+              }`
+            }
+          >
+            <item.Icon className="h-5 w-5" aria-hidden="true" />
+            <span>
+              {item.label === "Cantieri attivi" ? "Cantieri" : item.label}
+            </span>
+            {item.to === "/dashboard/inbox" && newLeadCount > 0 && (
+              <span className="absolute right-[22%] top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[9px] text-white">
+                {newLeadCount > 99 ? "99+" : newLeadCount}
+              </span>
+            )}
+          </NavLink>
+        ))}
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          data-testid="sidebar-toggle-bottom"
+          aria-label="Apri tutte le sezioni"
+          aria-expanded={menuOpen}
+          aria-controls="dashboard-mobile-nav"
+          aria-haspopup="dialog"
+          className="flex min-h-14 touch-manipulation flex-col items-center justify-center gap-1 rounded-xl px-1 font-display text-[10px] uppercase tracking-wide text-ink active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          <Menu className="h-5 w-5" aria-hidden="true" />
+          <span>Menu</span>
+        </button>
+      </div>
+    </nav>
+  );
+}
+
 export default function DashboardLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -146,7 +198,7 @@ export default function DashboardLayout() {
   const [open, setOpen] = useState(false);
   const drawerRef = useRef(null);
   const drawerCloseRef = useRef(null);
-  const sidebarToggleRef = useRef(null);
+  const drawerReturnFocusRef = useRef(null);
   const { data: leadCounts } = useQuery({
     queryKey: ["lead-counts"],
     queryFn: async () => (await client.get("/leads/counts")).data,
@@ -182,9 +234,14 @@ export default function DashboardLayout() {
     navigate("/login");
   };
 
+  const openMobileDrawer = (event) => {
+    drawerReturnFocusRef.current = event.currentTarget;
+    setOpen(true);
+  };
+
   useEffect(() => {
     if (!open) return undefined;
-    const toggleButton = sidebarToggleRef.current;
+    const toggleButton = drawerReturnFocusRef.current;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     drawerCloseRef.current?.focus();
@@ -228,15 +285,21 @@ export default function DashboardLayout() {
 
       {/* Mobile drawer */}
       {open && (
-        <div className="lg:hidden fixed inset-0 z-50 flex" role="presentation">
-          <div
-            className="absolute inset-0 bg-black/60"
+        <div
+          className="fixed inset-0 z-[100] flex lg:hidden"
+          role="presentation"
+        >
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="Chiudi menu dashboard"
+            className="absolute inset-0 touch-manipulation bg-black/70 backdrop-blur-[2px]"
             onClick={() => setOpen(false)}
-            aria-hidden="true"
           />
           <aside
+            id="dashboard-mobile-nav"
             ref={drawerRef}
-            className="relative w-64 bg-surface border-r border-stroke"
+            className="relative h-[100dvh] w-[min(20rem,calc(100vw-2rem))] max-w-[88vw] overflow-hidden border-r border-stroke bg-surface pb-safe pt-safe shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-label="Menu dashboard"
@@ -246,9 +309,9 @@ export default function DashboardLayout() {
               type="button"
               onClick={() => setOpen(false)}
               aria-label="Chiudi menu dashboard"
-              className="absolute top-4 right-4 text-fog"
+              className="absolute right-2 top-[max(0.5rem,env(safe-area-inset-top))] z-10 inline-flex min-h-12 min-w-12 touch-manipulation items-center justify-center rounded-xl text-fog active:bg-surface-2 active:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
             >
-              <X className="w-5 h-5" aria-hidden="true" />
+              <X className="h-6 w-6" aria-hidden="true" />
             </button>
             <SidebarContent
               user={user}
@@ -261,24 +324,28 @@ export default function DashboardLayout() {
 
       <div className="flex-1 lg:ml-64 min-w-0">
         {/* Topbar */}
-        <header className="h-16 sticky top-0 z-40 bg-bg/90 backdrop-blur-md border-b border-stroke flex items-center justify-between px-4 md:px-8">
-          <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-[70] flex min-h-16 items-center justify-between border-b border-stroke bg-bg/95 py-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md md:px-8 md:py-0">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-3">
             <button
-              ref={sidebarToggleRef}
               type="button"
-              className="lg:hidden text-ink"
-              onClick={() => setOpen(true)}
+              className="relative z-10 inline-flex min-h-12 min-w-12 shrink-0 touch-manipulation items-center justify-center rounded-xl border border-stroke bg-surface text-ink shadow-sm active:scale-95 active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand lg:hidden"
+              onClick={openMobileDrawer}
               data-testid="sidebar-toggle"
               aria-label="Apri menu dashboard"
+              aria-expanded={open}
+              aria-controls="dashboard-mobile-nav"
+              aria-haspopup="dialog"
             >
               <Menu className="w-6 h-6" aria-hidden="true" />
             </button>
-            <div className="font-display uppercase tracking-wider text-sm text-fog">
-              Dashboard <span className="text-stroke mx-1">/</span>{" "}
+            <div className="min-w-0 truncate font-display text-[11px] uppercase tracking-wider text-fog sm:text-sm">
+              <span className="hidden sm:inline">
+                Dashboard <span className="mx-1 text-stroke">/</span>{" "}
+              </span>
               <span className="text-ink">{crumb}</span>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-3">
             <div className="hidden md:flex items-center gap-2 bg-surface border border-stroke rounded-full px-4 py-2 text-fog text-sm w-64">
               <Search className="w-4 h-4" aria-hidden="true" />
               <label htmlFor="dashboard-search" className="sr-only">
@@ -300,7 +367,7 @@ export default function DashboardLayout() {
             </div>
             <button
               type="button"
-              className="relative text-fog hover:text-ink"
+              className="relative inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-xl text-fog hover:text-ink active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               onClick={() => navigate("/dashboard/inbox?status=nuovo")}
               aria-label={
                 newLeadCount
@@ -321,7 +388,7 @@ export default function DashboardLayout() {
                   type="button"
                   data-testid="account-menu"
                   aria-label="Apri menu account"
-                  className="rounded-full overflow-hidden border border-stroke"
+                  className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center overflow-hidden rounded-full border border-stroke focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                 >
                   <Avatar name={user?.name} photo={user?.photo} size={36} />
                 </button>
@@ -346,10 +413,16 @@ export default function DashboardLayout() {
           </div>
         </header>
 
-        <main className="p-4 md:p-8 max-w-7xl mx-auto">
+        <main className="mx-auto max-w-7xl p-3 pb-24 sm:p-4 sm:pb-24 md:p-8 lg:pb-8">
           <Outlet />
         </main>
       </div>
+
+      <MobileBottomNav
+        newLeadCount={newLeadCount}
+        onOpenMenu={openMobileDrawer}
+        menuOpen={open}
+      />
 
       <EmailComposeModal />
     </div>
