@@ -398,10 +398,12 @@ def cronoprogramma(piano: dict, styles: dict, palette: dict) -> list:
         Spacer(1, 2 * mm),
         Paragraph(
             f"Durata stimata complessiva: <b>{totale} giorni lavorativi</b> "
-            f"(circa {numero(piano['settimane'], 1)} settimane), al netto di sospensioni. "
-            "La stima deriva dal peso economico di ogni fase e non ha valore "
-            "contrattuale: tempi definitivi, sovrapposizioni e data di avvio "
-            "vengono fissati nel programma lavori allegato al contratto.",
+            f"(circa {numero(piano['settimane'], 1)} settimane / "
+            f"{numero(piano.get('mesi'), 1)} mesi), al netto di sospensioni. "
+            "La stima considera superficie, complessita delle fasi, "
+            "sovrapposizione controllata delle squadre e tempi tecnici di "
+            "maturazione. Il programma definitivo e la data di avvio vengono "
+            "fissati nel cronoprogramma allegato al contratto.",
             styles["small"],
         ),
     ]

@@ -62,3 +62,76 @@ def test_computo_senza_voci_non_produce_cronoprogramma():
     piano = cronoprogramma.stima([])
     assert piano["blocchi"] == []
     assert piano["giorni_totali"] == 0
+
+
+def _voce_100mq(fase, ordine, totale, descrizione="", um="corpo", qta=1):
+    return {
+        "fase": fase,
+        "fase_ordine": ordine,
+        "totale": totale,
+        "descrizione": descrizione,
+        "um": um,
+        "qta": qta,
+    }
+
+
+def _ristrutturazione_completa_100mq(massetto="Massetto cementizio tradizionale"):
+    return [
+        _voce_100mq("Allestimento cantiere e sicurezza", 5, 1500),
+        _voce_100mq(*DEMOLIZIONI, 5600),
+        _voce_100mq("Strutture e opere murarie", 25, 9000),
+        _voce_100mq(*IDRICO, 4000),
+        _voce_100mq(*ELETTRICO, 8000),
+        _voce_100mq("Impianto termico e climatizzazione", 55, 6000),
+        _voce_100mq(
+            "Massetti, sottofondi e isolamenti",
+            60,
+            6000,
+            descrizione=massetto,
+            um="mq",
+            qta=100,
+        ),
+        _voce_100mq("Intonaci, cartongesso e controsoffitti", 65, 6000),
+        _voce_100mq(
+            *PAVIMENTI,
+            12000,
+            descrizione="Pavimento interno in gres",
+            um="mq",
+            qta=100,
+        ),
+        _voce_100mq("Serramenti e opere da vetraio", 75, 7000),
+        _voce_100mq("Tinteggiature e finiture", 80, 7000),
+        _voce_100mq("Pulizie e consegna", 92, 1000),
+    ]
+
+
+def test_ristrutturazione_completa_100mq_dura_circa_quattro_cinque_mesi():
+    piano = cronoprogramma.stima(_ristrutturazione_completa_100mq())
+
+    assert piano["profilo"] == "ristrutturazione_completa"
+    assert piano["superficie_stimata_mq"] == 100
+    assert 90 <= piano["giorni_totali"] <= 110
+    assert 4.0 <= piano["mesi"] <= 5.1
+    assert piano["giorni_attesa_tecnica"] > 0
+    assert any(blocco["tecnica"] for blocco in piano["blocchi"])
+
+
+def test_massetto_rapido_riduce_solo_l_attesa_tecnica():
+    tradizionale = cronoprogramma.stima(_ristrutturazione_completa_100mq())
+    rapido = cronoprogramma.stima(
+        _ristrutturazione_completa_100mq(
+            "Massetto MAPECEM PRONTO a presa e asciugamento rapido"
+        )
+    )
+
+    assert rapido["giorni_attesa_tecnica"] < tradizionale["giorni_attesa_tecnica"]
+    assert rapido["giorni_totali"] < tradizionale["giorni_totali"]
+
+
+def test_intervento_parziale_non_viene_gonfiato_al_profilo_completo():
+    piano = cronoprogramma.stima(
+        [_voce_100mq("Tinteggiature e finiture", 80, 3500)]
+    )
+
+    assert piano["profilo"] == "intervento_parziale"
+    assert piano["giorni_totali"] == 5
