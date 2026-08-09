@@ -155,6 +155,36 @@ def test_genera_sal_rifiuta_periodo_senza_misure_valorizzate():
     assert "c.stato = 'confermato'" in conn.fetch.await_args.args[0]
 
 
+def test_genera_sal_spiega_perche_le_misure_libere_non_entrano():
+    conn = AsyncMock()
+    conn.fetchval.side_effect = [True, None]
+    conn.fetchrow.side_effect = [
+        None,
+        {
+            "misure_libere": 2,
+            "misure_computo_non_confermato": 0,
+            "misure_periodo": 2,
+        },
+    ]
+    conn.fetch.return_value = []
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            sal_service.genera_sal(
+                conn,
+                TENANT_ID,
+                CANTIERE_ID,
+                periodo_da=date(2026, 8, 1),
+                periodo_a=date(2026, 8, 31),
+            )
+        )
+
+    assert exc.value.status_code == 409
+    assert "2 misure libere" in exc.value.detail
+    assert "unità di misura e prezzo" in exc.value.detail
+    assert "libretto_misure" in conn.fetchrow.await_args.args[0]
+
+
 def test_aggiorna_stato_rifiuta_sal_gia_approvato():
     conn = AsyncMock()
     conn.fetchrow.return_value = {

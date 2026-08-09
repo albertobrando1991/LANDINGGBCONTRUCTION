@@ -147,12 +147,56 @@ async def genera_sal(
         periodo_a,
     )
     if not righe:
+        diagnostica = await conn.fetchrow(
+            """
+            select
+              count(*) filter (
+                where m.computo_voce_id is null
+              )::integer as misure_libere,
+              count(*) filter (
+                where m.computo_voce_id is not null
+                  and co.stato is distinct from 'confermato'
+              )::integer as misure_computo_non_confermato,
+              count(*)::integer as misure_periodo
+            from public.libretto_misure m
+            left join public.computo_voci v
+              on v.id = m.computo_voce_id and v.tenant_id = m.tenant_id
+            left join public.computi co
+              on co.id = v.computo_id and co.tenant_id = v.tenant_id
+            where m.tenant_id = $1::uuid
+              and m.cantiere_id = $2::uuid
+              and m.data_misura between $3::date and $4::date
+            """,
+            tenant_id,
+            cantiere_id,
+            periodo_da,
+            periodo_a,
+        )
+        diagnostica = _d(diagnostica) or {}
+        misure_libere = int(diagnostica.get("misure_libere") or 0)
+        misure_non_confermate = int(
+            diagnostica.get("misure_computo_non_confermato") or 0
+        )
+        if misure_libere:
+            detail = (
+                f"Sono presenti {misure_libere} misure libere nel periodo, ma "
+                "non possono entrare nel SAL perché non sono collegate a una "
+                "voce di computo con unità di misura e prezzo. Collega e "
+                "conferma un computo, quindi registra le misure sulla relativa voce."
+            )
+        elif misure_non_confermate:
+            detail = (
+                f"Sono presenti {misure_non_confermate} misure collegate a un "
+                "computo non confermato. Conferma il computo prima di generare il SAL."
+            )
+        else:
+            detail = (
+                "Nessuna misura valorizzata nel periodo per voci di computi "
+                "confermati. Controlla cantiere e intervallo date."
+            )
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Nessuna misura valorizzata nel periodo per voci di computi "
-                "confermati"
-            ),
+            detail=detail,
         )
 
     numero = await conn.fetchval(

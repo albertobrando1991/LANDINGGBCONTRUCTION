@@ -167,6 +167,22 @@ export default function Campo() {
     [selectedCantiere, form.computo_voce_id],
   );
 
+  useEffect(() => {
+    const availableVoices = selectedCantiere?.voci || [];
+    if (!availableVoices.length) {
+      if (form.computo_voce_id) {
+        setForm((current) => ({ ...current, computo_voce_id: "" }));
+      }
+      return;
+    }
+    if (!availableVoices.some((item) => item.id === form.computo_voce_id)) {
+      setForm((current) => ({
+        ...current,
+        computo_voce_id: availableVoices[0].id,
+      }));
+    }
+  }, [selectedCantiere, form.computo_voce_id]);
+
   const measuresQuery = useQuery({
     queryKey: ["campo", "misure", slug, form.cantiere_id],
     enabled: Boolean(form.cantiere_id),
@@ -307,6 +323,7 @@ export default function Campo() {
     setForm((current) => ({
       ...EMPTY_FORM,
       cantiere_id: current.cantiere_id,
+      computo_voce_id: current.computo_voce_id,
       data_misura: localDate(),
     }));
     setPhotos([]);
@@ -341,6 +358,13 @@ export default function Campo() {
     const quantity = Number(form.qta);
     if (!form.cantiere_id) {
       toast.error("Seleziona un cantiere");
+      return;
+    }
+    if (!form.computo_voce_id) {
+      toast.error("Seleziona una voce di computo confermata", {
+        description:
+          "Il SAL richiede una voce contrattuale per recuperare unità di misura e prezzo.",
+      });
       return;
     }
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -530,16 +554,16 @@ export default function Campo() {
               </label>
 
               <label className="campo-field">
-                <span>
-                  Voce di computo <em>facoltativa</em>
-                </span>
+                <span>Voce di computo per il SAL</span>
                 <select
                   value={form.computo_voce_id}
                   onChange={(event) =>
                     update("computo_voce_id", event.target.value)
                   }
+                  required
+                  disabled={!selectedCantiere?.voci?.length}
                 >
-                  <option value="">Misura libera</option>
+                  <option value="">Seleziona una voce confermata</option>
                   {(selectedCantiere?.voci || []).map((voce) => (
                     <option key={voce.id} value={voce.id}>
                       {voce.descrizione} · {voce.um}
@@ -550,6 +574,12 @@ export default function Campo() {
                   <small>
                     Contratto: {formatQuantity(selectedVoice.qta_contrattuale)}{" "}
                     {selectedVoice.um}
+                  </small>
+                )}
+                {selectedCantiere && !selectedCantiere.voci?.length && (
+                  <small className="text-red-600">
+                    Nessuna voce disponibile: collega e conferma un computo per
+                    questo cantiere prima di registrare misure destinate al SAL.
                   </small>
                 )}
               </label>
@@ -710,7 +740,11 @@ export default function Campo() {
                 </div>
               </details>
 
-              <button type="submit" disabled={saving} className="campo-submit">
+              <button
+                type="submit"
+                disabled={saving || !form.computo_voce_id}
+                className="campo-submit"
+              >
                 {saving ? (
                   <RefreshCw className="animate-spin" aria-hidden="true" />
                 ) : isOnline ? (
