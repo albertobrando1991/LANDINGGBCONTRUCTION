@@ -46,6 +46,29 @@ def _d(row: asyncpg.Record | None) -> dict | None:
     return out
 
 
+def _totali_voci(
+    voci: list[dict], *, computo_id: Any = None, tenant_id: Any = None
+) -> dict:
+    totale = sum(
+        (Decimal(str(voce.get("totale") or 0)) for voce in voci),
+        Decimal("0"),
+    )
+    out = {
+        "totale": float(totale.quantize(Decimal("0.01"))),
+        "n_voci": len(voci),
+        "n_da_validare": sum(
+            1
+            for voce in voci
+            if voce.get("generata_da_ai") and not voce.get("validata_umano")
+        ),
+    }
+    if computo_id is not None:
+        out["computo_id"] = str(computo_id)
+    if tenant_id is not None:
+        out["tenant_id"] = str(tenant_id)
+    return out
+
+
 def _normalizza_codice(value: Any) -> str:
     """Normalizza i codici tariffa senza introdurre matching descrittivi incerti."""
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
@@ -934,17 +957,11 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
         computo_id,
         tenant_id,
     )
-    totali = await conn.fetchrow(
-        """
-        select * from public.computi_totali
-        where computo_id = $1::uuid and tenant_id = $2::uuid
-        """,
-        computo_id,
-        tenant_id,
-    )
     out = _d(c)
     out["voci"] = [_d(v) for v in voci]
-    out["totali"] = _d(totali) if totali else {"totale": 0, "n_voci": 0, "n_da_validare": 0}
+    out["totali"] = _totali_voci(
+        out["voci"], computo_id=out["id"], tenant_id=out["tenant_id"]
+    )
     out["riepilogo_fasi"] = _riepilogo(fasi_lavorazione.raggruppa_per_fase(out["voci"]))
     out["riepilogo_aree"] = _riepilogo(fasi_lavorazione.raggruppa_per_area(out["voci"]))
     out["controlli"] = preventivo_struttura.controlli_coerenza(out["voci"])

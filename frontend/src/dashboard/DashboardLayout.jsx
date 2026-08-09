@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Home,
   Inbox,
@@ -34,6 +34,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import client from "@/lib/api";
+import { prefetchComputi } from "@/lib/computiPrefetch";
 
 const NAV = [
   { to: "/dashboard", label: "Oggi", Icon: Home, end: true },
@@ -72,7 +73,7 @@ const NAV = [
   },
 ];
 
-function SidebarContent({ user, onNav }) {
+function SidebarContent({ user, onNav, onComputiIntent }) {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 px-6 h-16 border-b border-stroke">
@@ -99,6 +100,15 @@ function SidebarContent({ user, onNav }) {
             to={n.to}
             end={n.end}
             onClick={onNav}
+            onPointerEnter={
+              n.to === "/dashboard/computi" ? onComputiIntent : undefined
+            }
+            onPointerDown={
+              n.to === "/dashboard/computi" ? onComputiIntent : undefined
+            }
+            onFocus={
+              n.to === "/dashboard/computi" ? onComputiIntent : undefined
+            }
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-xl font-display uppercase text-xs tracking-wider transition-colors ${
                 isActive
@@ -132,6 +142,7 @@ export default function DashboardLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const drawerRef = useRef(null);
   const drawerCloseRef = useRef(null);
@@ -142,6 +153,25 @@ export default function DashboardLayout() {
     refetchInterval: 30000,
   });
   const newLeadCount = leadCounts?.counts?.nuovo || 0;
+
+  const warmComputi = () => {
+    void prefetchComputi(queryClient);
+  };
+
+  useEffect(() => {
+    if (location.pathname.startsWith("/dashboard/computi")) return undefined;
+
+    const warm = () => {
+      void prefetchComputi(queryClient);
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(warm, { timeout: 1500 });
+      return () => window.cancelIdleCallback?.(idleId);
+    }
+
+    const timeoutId = window.setTimeout(warm, 800);
+    return () => window.clearTimeout(timeoutId);
+  }, [location.pathname, queryClient]);
 
   const crumb =
     NAV.find((n) => n.to === location.pathname)?.label ||
@@ -193,7 +223,7 @@ export default function DashboardLayout() {
     <div className="min-h-screen bg-bg flex">
       {/* Sidebar desktop */}
       <aside className="hidden lg:flex w-64 shrink-0 border-r border-stroke bg-surface flex-col fixed inset-y-0">
-        <SidebarContent user={user} />
+        <SidebarContent user={user} onComputiIntent={warmComputi} />
       </aside>
 
       {/* Mobile drawer */}
@@ -220,7 +250,11 @@ export default function DashboardLayout() {
             >
               <X className="w-5 h-5" aria-hidden="true" />
             </button>
-            <SidebarContent user={user} onNav={() => setOpen(false)} />
+            <SidebarContent
+              user={user}
+              onNav={() => setOpen(false)}
+              onComputiIntent={warmComputi}
+            />
           </aside>
         </div>
       )}

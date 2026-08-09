@@ -85,6 +85,58 @@ def test_computo_totale_snapshot():
     assert totale == pytest.approx(7140.0)
 
 
+def test_totali_voci_calcolati_senza_query_aggregata():
+    totali = boq_service._totali_voci(
+        [
+            {
+                "totale": 10.10,
+                "generata_da_ai": True,
+                "validata_umano": False,
+            },
+            {
+                "totale": 20.20,
+                "generata_da_ai": True,
+                "validata_umano": True,
+            },
+            {
+                "totale": None,
+                "generata_da_ai": False,
+                "validata_umano": False,
+            },
+        ]
+    )
+
+    assert totali == {
+        "totale": 30.30,
+        "n_voci": 3,
+        "n_da_validare": 1,
+    }
+
+
+def test_get_computo_riusa_le_voci_per_i_totali():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    computo_id = "10000000-0000-4000-8000-000000000001"
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "id": UUID(computo_id),
+        "tenant_id": UUID(tenant_id),
+        "stato": "bozza",
+    }
+    conn.fetch.return_value = []
+
+    result = asyncio.run(boq_service.get_computo(conn, tenant_id, computo_id))
+
+    assert conn.fetchrow.await_count == 1
+    assert conn.fetch.await_count == 1
+    assert result["totali"] == {
+        "totale": 0.0,
+        "n_voci": 0,
+        "n_da_validare": 0,
+        "computo_id": computo_id,
+        "tenant_id": tenant_id,
+    }
+
+
 def test_metriche_non_contengono_prezzi():
     m = MetricheComputo(mq_calpestabile=80, n_bagni=2)
     assert_nessun_prezzo(m)

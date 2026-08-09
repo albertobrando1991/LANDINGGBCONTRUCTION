@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import client from "@/lib/api";
 import { moveVoceIds, raggruppaVociPerFase } from "@/lib/computo";
+import { fetchComputo, prefetchComputi } from "@/lib/computiPrefetch";
 import { toast } from "sonner";
 import VarianteComparison from "@/dashboard/components/VarianteComparison";
 
@@ -264,7 +265,7 @@ export default function ComputoEditor() {
 
   const { data: computo, isLoading } = useQuery({
     queryKey: ["computo", id],
-    queryFn: async () => (await client.get(`/computi/${id}`)).data,
+    queryFn: fetchComputo,
   });
 
   const { data: prezzari = [] } = useQuery({
@@ -504,6 +505,8 @@ export default function ComputoEditor() {
         <div>
           <Link
             to="/dashboard/computi"
+            onPointerEnter={() => void prefetchComputi(qc)}
+            onFocus={() => void prefetchComputi(qc)}
             className="text-xs text-fog hover:text-brand"
           >
             ← Computi

@@ -11,6 +11,10 @@ import {
   X,
 } from "lucide-react";
 import client from "@/lib/api";
+import {
+  fetchComputi,
+  prefetchComputo,
+} from "@/lib/computiPrefetch";
 import { toast } from "sonner";
 
 const INITIAL_IMPORT = {
@@ -309,7 +313,7 @@ export default function Computi() {
   const [importOpen, setImportOpen] = useState(false);
   const { data: computi = [], isLoading } = useQuery({
     queryKey: ["computi"],
-    queryFn: async () => (await client.get("/computi")).data,
+    queryFn: fetchComputi,
   });
 
   const crea = useMutation({
@@ -420,6 +424,13 @@ export default function Computi() {
                 <td className="px-3 py-2">
                   <Link
                     to={`/dashboard/computi/${computo.id}`}
+                    onPointerEnter={() =>
+                      void prefetchComputo(qc, computo.id)
+                    }
+                    onPointerDown={() =>
+                      void prefetchComputo(qc, computo.id)
+                    }
+                    onFocus={() => void prefetchComputo(qc, computo.id)}
                     className="font-mono text-xs text-brand"
                   >
                     {computo.numero || `${String(computo.id).slice(0, 8)}...`}

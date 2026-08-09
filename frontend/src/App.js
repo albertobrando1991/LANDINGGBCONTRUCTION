@@ -10,6 +10,10 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { TenantProvider } from "@/context/TenantContext";
+import {
+  loadComputiPage,
+  loadComputoEditorPage,
+} from "@/lib/computiPrefetch";
 
 const Landing = lazy(() => import("@/landing/Landing"));
 const Login = lazy(() => import("@/dashboard/Login"));
@@ -30,8 +34,8 @@ const AIArchitectReview = lazy(
 );
 const Prezzario = lazy(() => import("@/dashboard/pages/Prezzario"));
 const PrezzarioWizard = lazy(() => import("@/dashboard/pages/PrezzarioWizard"));
-const Computi = lazy(() => import("@/dashboard/pages/Computi"));
-const ComputoEditor = lazy(() => import("@/dashboard/pages/ComputoEditor"));
+const Computi = lazy(loadComputiPage);
+const ComputoEditor = lazy(loadComputoEditorPage);
 const Sal = lazy(() => import("@/dashboard/pages/Sal"));
 const Economics = lazy(() => import("@/dashboard/pages/Economics"));
 const Campo = lazy(() => import("@/campo/Campo"));
