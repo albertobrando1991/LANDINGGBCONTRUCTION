@@ -148,6 +148,56 @@ def test_custom_email_uses_branded_layout(monkeypatch):
     assert "Stato avanzamento: 45%" in html_body
 
 
+def test_invito_preventivo_usa_mittente_e_layout_gb(monkeypatch):
+    _clear_resend(monkeypatch)
+    sent_messages = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None, context=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def login(self, username, password):
+            pass
+
+        def send_message(self, message):
+            sent_messages.append(message)
+
+    monkeypatch.setenv("SMTP_HOST", "mail.gbconstruction.it")
+    monkeypatch.setenv("SMTP_PORT", "465")
+    monkeypatch.setenv("SMTP_USERNAME", "info@gbconstruction.it")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+    monkeypatch.setenv("MAIL_FROM_EMAIL", "info@gbconstruction.it")
+    monkeypatch.setenv("MAIL_FROM_NAME", "GB Construction")
+    monkeypatch.setattr(email_service.smtplib, "SMTP_SSL", FakeSMTP)
+
+    delivery = email_service.send_client_portal_invite(
+        to_email="cliente@example.com",
+        nome="Mario Rossi",
+        action_url="https://project.supabase.co/auth/v1/verify?token=secret&x=1",
+        context="preventivo",
+    )
+
+    assert delivery == {"transport": "smtp", "message_id": ""}
+    assert len(sent_messages) == 1
+    message = sent_messages[0]
+    assert message["From"] == "GB Construction <info@gbconstruction.it>"
+    assert message["To"] == "cliente@example.com"
+    assert message["Reply-To"] == "info@gbconstruction.it"
+    assert message["Subject"] == "Il tuo preventivo GB Construction è pronto"
+    html_body = message.get_body(preferencelist=("html",)).get_content()
+    _assert_branded_logo(message, html_body)
+    assert "Mario Rossi" in html_body
+    assert "Apri il preventivo" in html_body
+    assert "modalità di pagamento" in html_body
+    assert "token=secret&amp;x=1" in html_body
+
+
 def test_resend_has_priority_and_preserves_brand_reply_to_and_inline_logo(monkeypatch):
     requests_sent = []
 
@@ -181,7 +231,9 @@ def test_resend_has_priority_and_preserves_brand_reply_to_and_inline_logo(monkey
     assert len(requests_sent) == 2
     assert requests_sent[0]["url"] == "https://api.resend.com/emails"
     assert requests_sent[0]["headers"]["Authorization"] == "Bearer re_test_secret"
-    assert requests_sent[0]["json"]["from"] == "GB Construction <info@gbconstruction.it>"
+    assert (
+        requests_sent[0]["json"]["from"] == "GB Construction <info@gbconstruction.it>"
+    )
     assert requests_sent[0]["json"]["to"] == ["info@gbconstruction.it"]
     assert requests_sent[0]["json"]["reply_to"] == "mario@example.com"
     assert requests_sent[1]["json"]["to"] == ["mario@example.com"]
@@ -265,7 +317,9 @@ def test_resend_error_is_reported_without_falling_back_to_smtp(monkeypatch):
     monkeypatch.setenv("SMTP_USERNAME", "info@gbconstruction.it")
     monkeypatch.setenv("SMTP_PASSWORD", "smtp-secret")
     monkeypatch.setenv("MAIL_FROM_EMAIL", "info@gbconstruction.it")
-    monkeypatch.setattr(email_service.requests, "post", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(
+        email_service.requests, "post", lambda *args, **kwargs: FakeResponse()
+    )
     monkeypatch.setattr(email_service.smtplib, "SMTP_SSL", FakeSMTP)
 
     message = email_service._build_message(

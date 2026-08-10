@@ -323,7 +323,9 @@ async def invite_preventivo_client(
 ) -> dict:
     preventivo = await _preventivo(conn, tenant_id, preventivo_id)
     normalized = email.strip().lower()
-    user, invited = await asyncio.to_thread(find_or_invite_user, normalized, nome)
+    user, invited = await asyncio.to_thread(
+        find_or_invite_user, normalized, nome, context="preventivo"
+    )
     user_id = str(getattr(user, "id", "") or "")
     if not user_id:
         raise HTTPException(status_code=502, detail="Invito Supabase non completato")

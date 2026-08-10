@@ -178,7 +178,9 @@ async def invita_cliente(
 ) -> dict:
     await _require_cantiere(conn, tenant_id, cantiere_id)
     normalized = email.strip().lower()
-    user, invited = await asyncio.to_thread(find_or_invite_user, normalized, nome)
+    user, invited = await asyncio.to_thread(
+        find_or_invite_user, normalized, nome, context="cantiere"
+    )
     user_id = str(getattr(user, "id", "") or "")
     if not user_id:
         raise HTTPException(status_code=502, detail="Invito Supabase non completato")

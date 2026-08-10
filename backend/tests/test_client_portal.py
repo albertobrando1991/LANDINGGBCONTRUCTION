@@ -139,7 +139,10 @@ def test_invito_collega_utente_supabase_come_client(monkeypatch):
     monkeypatch.setattr(
         client_portal_service,
         "find_or_invite_user",
-        lambda email, nome=None: (SimpleNamespace(id=USER_ID, email=email), True),
+        lambda email, nome=None, **kwargs: (
+            SimpleNamespace(id=USER_ID, email=email),
+            True,
+        ),
     )
 
     result = asyncio.run(
@@ -173,3 +176,159 @@ def test_inviti_usano_secret_key_moderna(monkeypatch):
         "https://project.supabase.co",
         "sb_secret_current",
     )
+
+
+def test_nuovo_invito_genera_link_senza_email_supabase(monkeypatch):
+    generated_calls = []
+    sent = []
+    user = SimpleNamespace(id=USER_ID, email="cliente@example.com")
+
+    class FakeAdmin:
+        def list_users(self, **kwargs):
+            return SimpleNamespace(users=[])
+
+        def generate_link(self, params):
+            generated_calls.append(params)
+            return SimpleNamespace(
+                user=user,
+                properties=SimpleNamespace(
+                    action_link="https://project.supabase.co/auth/v1/verify?token=secret"
+                ),
+            )
+
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://gbconstruction.it")
+    monkeypatch.setattr(
+        client_invites,
+        "_supabase_admin",
+        lambda: SimpleNamespace(auth=SimpleNamespace(admin=FakeAdmin())),
+    )
+    monkeypatch.setattr(client_invites.email_service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        client_invites.email_service,
+        "send_client_portal_invite",
+        lambda **kwargs: sent.append(kwargs),
+    )
+
+    result, invited = client_invites.find_or_invite_user(
+        "Cliente@Example.com", "Mario Rossi", context="preventivo"
+    )
+
+    assert result is user
+    assert invited is True
+    assert generated_calls == [
+        {
+            "type": "invite",
+            "email": "cliente@example.com",
+            "options": {
+                "redirect_to": "https://gbconstruction.it/set-password",
+                "data": {"name": "Mario Rossi"},
+            },
+        }
+    ]
+    assert sent == [
+        {
+            "to_email": "cliente@example.com",
+            "nome": "Mario Rossi",
+            "action_url": "https://project.supabase.co/auth/v1/verify?token=secret",
+            "context": "preventivo",
+        }
+    ]
+
+
+def test_utente_esistente_confermato_riceve_accesso_gb(monkeypatch):
+    sent = []
+    user = SimpleNamespace(
+        id=USER_ID,
+        email="cliente@example.com",
+        email_confirmed_at="2026-08-10T12:00:00Z",
+        confirmed_at=None,
+    )
+
+    class FakeAdmin:
+        def list_users(self, **kwargs):
+            return SimpleNamespace(users=[user])
+
+        def generate_link(self, params):
+            raise AssertionError("Un utente confermato non richiede un nuovo token")
+
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://gbconstruction.it")
+    monkeypatch.setattr(
+        client_invites,
+        "_supabase_admin",
+        lambda: SimpleNamespace(auth=SimpleNamespace(admin=FakeAdmin())),
+    )
+    monkeypatch.setattr(client_invites.email_service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        client_invites.email_service,
+        "send_client_portal_invite",
+        lambda **kwargs: sent.append(kwargs),
+    )
+
+    result, invited = client_invites.find_or_invite_user(
+        "cliente@example.com", "Mario Rossi", context="cantiere"
+    )
+
+    assert result is user
+    assert invited is False
+    assert sent[0]["action_url"] == "https://gbconstruction.it/portal"
+    assert sent[0]["context"] == "cantiere"
+
+
+def test_utente_non_confermato_puo_ricevere_di_nuovo_invito_gb(monkeypatch):
+    generated_calls = []
+    sent = []
+    user = SimpleNamespace(
+        id=USER_ID,
+        email="cliente@example.com",
+        email_confirmed_at=None,
+        confirmed_at=None,
+    )
+
+    class FakeAdmin:
+        def list_users(self, **kwargs):
+            return SimpleNamespace(users=[user])
+
+        def generate_link(self, params):
+            generated_calls.append(params)
+            return SimpleNamespace(
+                user=user,
+                properties=SimpleNamespace(action_link="https://auth/retry"),
+            )
+
+    monkeypatch.setattr(
+        client_invites,
+        "_supabase_admin",
+        lambda: SimpleNamespace(auth=SimpleNamespace(admin=FakeAdmin())),
+    )
+    monkeypatch.setattr(client_invites.email_service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        client_invites.email_service,
+        "send_client_portal_invite",
+        lambda **kwargs: sent.append(kwargs),
+    )
+
+    result, invited = client_invites.find_or_invite_user(
+        "cliente@example.com", "Mario Rossi"
+    )
+
+    assert result is user
+    assert invited is False
+    assert generated_calls[0]["type"] == "magiclink"
+    assert sent[0]["action_url"] == "https://auth/retry"
+
+
+def test_invito_si_blocca_prima_di_supabase_se_email_gb_non_configurata(
+    monkeypatch,
+):
+    monkeypatch.setattr(client_invites.email_service, "is_configured", lambda: False)
+    monkeypatch.setattr(
+        client_invites,
+        "_supabase_admin",
+        lambda: (_ for _ in ()).throw(AssertionError("Supabase non va chiamato")),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        client_invites.find_or_invite_user("cliente@example.com")
+
+    assert exc.value.status_code == 503
+    assert "email ufficiale GB" in str(exc.value.detail)

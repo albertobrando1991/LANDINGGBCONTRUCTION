@@ -98,7 +98,7 @@ export default function ContractEditor() {
       toast.success(
         response.data.invited
           ? "Invito cliente inviato"
-          : "Accesso cliente collegato",
+          : "Accesso cliente collegato ed email inviata",
       );
     },
     onError: async (error) => toast.error(await extractErrorDetail(error)),

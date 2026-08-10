@@ -86,7 +86,10 @@ def is_configured() -> bool:
 
 
 def _sender_email() -> str:
-    return _env("MAIL_FROM_EMAIL", _env("SMTP_FROM_EMAIL", _env("SMTP_USERNAME", _env("SMTP_USER"))))
+    return _env(
+        "MAIL_FROM_EMAIL",
+        _env("SMTP_FROM_EMAIL", _env("SMTP_USERNAME", _env("SMTP_USER"))),
+    )
 
 
 def _sender_name() -> str:
@@ -102,7 +105,9 @@ def _public_url() -> str:
 
 
 def _logo_url() -> str:
-    return _env("MAIL_LOGO_URL", _env("BRAND_LOGO_URL", f"{_public_url()}/brand/gb-logo.png"))
+    return _env(
+        "MAIL_LOGO_URL", _env("BRAND_LOGO_URL", f"{_public_url()}/brand/gb-logo.png")
+    )
 
 
 def _dashboard_lead_url(lead_id: Optional[str]) -> str:
@@ -165,15 +170,17 @@ def _html_table(rows: list[tuple[str, Any]]) -> str:
     return (
         "<table cellpadding='0' cellspacing='0' role='presentation' "
         "style='border-collapse:collapse;width:100%;font-family:Montserrat,Arial,sans-serif;"
-        "border:1px solid #e7e7e7;background:#fff'>"
-        + "".join(rendered)
-        + "</table>"
+        "border:1px solid #e7e7e7;background:#fff'>" + "".join(rendered) + "</table>"
     )
 
 
-def _email_shell(title: str, html_body: str, preheader: str = "", logo_src: Optional[str] = None) -> str:
+def _email_shell(
+    title: str, html_body: str, preheader: str = "", logo_src: Optional[str] = None
+) -> str:
     safe_title = _safe(title or "GB Construction")
-    safe_preheader = _safe(preheader or "GB Construction - Costruiamo valore. Trasformiamo spazi.")
+    safe_preheader = _safe(
+        preheader or "GB Construction - Costruiamo valore. Trasformiamo spazi."
+    )
     logo_url = _safe(logo_src or _logo_url())
     return f"""<!doctype html>
 <html>
@@ -274,11 +281,13 @@ def _customer_body(lead: Dict[str, Any], kind: str) -> tuple[str, str]:
     name = lead.get("nome") or "cliente"
     if kind == "sopralluogo":
         sopr = lead.get("sopralluogo") or {}
-        quando = " ".join(
-            str(p) for p in [sopr.get("date"), sopr.get("start")] if p
-        ) or "-"
+        quando = (
+            " ".join(str(p) for p in [sopr.get("date"), sopr.get("start")] if p) or "-"
+        )
         if sopr.get("start") and sopr.get("end"):
-            quando = f"{sopr.get('date')} dalle {sopr.get('start')} alle {sopr.get('end')}"
+            quando = (
+                f"{sopr.get('date')} dalle {sopr.get('start')} alle {sopr.get('end')}"
+            )
         intro = (
             "il tuo sopralluogo e confermato. Un tecnico GB Construction ti raggiungera "
             "all'indirizzo indicato nella data e orario qui sotto."
@@ -355,7 +364,9 @@ def _attach_branded_html(
     message.add_alternative(shell, subtype="html")
     if logo:
         html_part = message.get_payload()[-1]
-        html_part.add_related(logo, maintype="image", subtype="png", cid=f"<{_LOGO_CID}>")
+        html_part.add_related(
+            logo, maintype="image", subtype="png", cid=f"<{_LOGO_CID}>"
+        )
 
 
 def _build_message(
@@ -374,7 +385,9 @@ def _build_message(
     if reply_to:
         message["Reply-To"] = reply_to
     message.set_content(text_body)
-    _attach_branded_html(message, subject=subject, html_body=html_body, text_body=text_body)
+    _attach_branded_html(
+        message, subject=subject, html_body=html_body, text_body=text_body
+    )
     return message
 
 
@@ -537,8 +550,8 @@ def send_custom_email(
         message["Reply-To"] = reply_to
     message.set_content(body_text or "")
     html_body = (
-        f"<div style=\"font-family:Montserrat,Arial,sans-serif;font-size:15px;line-height:1.6;"
-        f"color:{BRAND_ONYX};white-space:pre-wrap\">" + _safe(body_text) + "</div>"
+        f'<div style="font-family:Montserrat,Arial,sans-serif;font-size:15px;line-height:1.6;'
+        f'color:{BRAND_ONYX};white-space:pre-wrap">' + _safe(body_text) + "</div>"
     )
     _attach_branded_html(
         message,
@@ -559,6 +572,77 @@ def send_custom_email(
             filename=att.get("filename") or "allegato",
         )
     message_id = _send_message(message, idempotency_key=idempotency_key)
+    return {"transport": transport_name(), "message_id": message_id}
+
+
+def send_client_portal_invite(
+    *,
+    to_email: str,
+    nome: Optional[str],
+    action_url: str,
+    context: str = "preventivo",
+) -> Dict[str, str]:
+    """Invia l'accesso al portale con mittente e layout ufficiali GB."""
+
+    if not is_configured():
+        raise RuntimeError("Servizio email ufficiale non configurato")
+    if not (to_email or "").strip():
+        raise RuntimeError("Destinatario mancante")
+    if not (action_url or "").strip():
+        raise RuntimeError("Link di accesso mancante")
+
+    customer_name = (nome or "").strip() or "Cliente"
+    is_preventivo = context == "preventivo"
+    subject = (
+        "Il tuo preventivo GB Construction è pronto"
+        if is_preventivo
+        else "Accesso alla tua area riservata GB Construction"
+    )
+    intro = (
+        "Il tuo preventivo è disponibile nell'area riservata GB Construction. "
+        "Potrai consultarlo, accettarlo e scegliere la modalità di pagamento."
+        if is_preventivo
+        else "La tua area riservata GB Construction è disponibile. "
+        "Potrai consultare documenti, avanzamento lavori e comunicazioni condivise."
+    )
+    button_label = "Apri il preventivo" if is_preventivo else "Apri l'area riservata"
+    safe_url = _safe(action_url)
+    text_body = "\n".join(
+        [
+            f"Ciao {customer_name},",
+            "",
+            intro,
+            "",
+            f"{button_label}: {action_url}",
+            "",
+            "Per la tua sicurezza il link è personale. Non inoltrarlo ad altre persone.",
+            "",
+            "A presto,",
+            "GB Construction",
+        ]
+    )
+    html_body = (
+        f"<div style='font-family:Montserrat,Arial,sans-serif;color:{BRAND_ONYX};line-height:1.58'>"
+        f"<p style='margin:0 0 14px;font-size:15px'>Ciao <strong>{_safe(customer_name)}</strong>,</p>"
+        f"<p style='margin:0 0 20px;color:{BRAND_STEEL};font-size:15px'>{_safe(intro)}</p>"
+        f"<p style='margin:24px 0'><a href='{safe_url}' "
+        f"style='display:inline-block;background:{BRAND_RED};color:#fff;text-decoration:none;"
+        "padding:14px 20px;border-radius:4px;font-family:Oswald,Arial,sans-serif;"
+        f"font-weight:700;text-transform:uppercase;letter-spacing:.08em'>{_safe(button_label)}</a></p>"
+        f"<p style='margin:0;color:{BRAND_CONCRETE};font-size:12px'>"
+        "Per la tua sicurezza il link è personale. Non inoltrarlo ad altre persone.</p>"
+        f"<p style='margin-top:22px;color:{BRAND_STEEL};font-size:14px'>"
+        f"A presto,<br><strong style='color:{BRAND_ONYX}'>GB Construction</strong></p>"
+        "</div>"
+    )
+    message = _build_message(
+        to_email=to_email.strip().lower(),
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
+        reply_to=_sender_email() or None,
+    )
+    message_id = _send_message(message)
     return {"transport": transport_name(), "message_id": message_id}
 
 
@@ -606,7 +690,9 @@ def send_lead_emails(lead: Dict[str, Any], kind: str = "lead") -> None:
         logger.exception("Failed to send customer confirmation email")
 
 
-def enqueue_lead_emails(background_tasks: Any, lead: Dict[str, Any], kind: str = "lead") -> None:
+def enqueue_lead_emails(
+    background_tasks: Any, lead: Dict[str, Any], kind: str = "lead"
+) -> None:
     payload = dict(lead)
     if background_tasks is not None:
         background_tasks.add_task(send_lead_emails, payload, kind)

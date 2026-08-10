@@ -64,7 +64,7 @@ export default function CantierePortalAccess({ cantiereId }) {
       toast.success(
         data.invited
           ? "Invito cliente inviato"
-          : "Cliente collegato al cantiere",
+          : "Cliente collegato al cantiere ed email inviata",
       );
     },
     onError: (error) =>
