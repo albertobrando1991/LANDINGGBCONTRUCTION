@@ -14,7 +14,6 @@ import { openEmailCompose } from "@/lib/emailCompose";
 import { refreshLeadViews } from "@/lib/leadSync";
 import { normalizeLeadList } from "@/lib/leadData";
 import { STATI, PIPELINE_ORDER, priority, initials } from "@/dashboard/leadMeta";
-import LeadPortalAccess from "@/dashboard/LeadPortalAccess";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -186,7 +185,6 @@ export default function LeadDetail() {
                 )}
               </div>
             )}
-            <LeadPortalAccess leadId={lead.id} email={lead.email} />
             <div className="mt-4 flex items-center justify-between bg-bg border border-stroke rounded-xl px-3 py-2">
               <span className="font-display uppercase text-xs text-fog">Lead score</span>
               <span className={`font-display font-bold text-lg ${priority(lead.score).text}`}>{lead.score}/100</span>

@@ -6,10 +6,10 @@ import asyncio
 import hashlib
 import ipaddress
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import (
     APIRouter,
@@ -31,7 +31,6 @@ from pydantic import (
 )
 
 import auth as authlib
-from document_id import ObjectId
 import acca_pdf_parser
 import cronoprogramma
 import boq_service
@@ -78,44 +77,6 @@ async def _sync_legacy_lead_safely(conn, db, tenant_id: str, lead_id: Any) -> No
         # soltanto per un'indisponibilita temporanea della proiezione CRM.
         logger.warning(
             "Mirror Inbox/Pipeline del lead %s non aggiornato: %s", lead_id, exc
-        )
-
-
-async def _record_portal_invite_safely(
-    db, lead_id: str, *, actor: str | None, numero_preventivo: str | None
-) -> None:
-    """Registra il reinvio nella timeline senza invalidare un invito riuscito."""
-
-    if not ObjectId.is_valid(str(lead_id)):
-        return
-    event = {
-        "id": "ev-" + uuid4().hex[:8],
-        "tipo": "email",
-        "testo": (
-            "Email di accesso all'area cliente inviata"
-            + (
-                f" per il preventivo {numero_preventivo}"
-                if numero_preventivo
-                else ""
-            )
-            + f" da {actor or 'staff'}"
-        ),
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "autore": actor,
-    }
-    try:
-        await db.leads.update_one(
-            {"_id": ObjectId(str(lead_id))},
-            {
-                "$push": {"timeline": {"$each": [event], "$position": 0}},
-                "$set": {"last_contact": event["ts"], "updated_at": event["ts"]},
-            },
-        )
-    except Exception as exc:
-        logger.warning(
-            "Invito portale inviato ma timeline lead %s non aggiornata: %s",
-            lead_id,
-            exc,
         )
 
 
@@ -1644,73 +1605,6 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 media_type=mime,
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
-
-    @api.get("/leads/{lead_id}/portale")
-    async def lead_portale_accesso(request: Request, lead_id: str):
-        user = await _user(request, db)
-        async with get_tenant_conn(request, user) as (conn, tenant):
-            require_portal_internal_role(tenant)
-            canonical_lead_id = await lead_bridge.resolve_lead_id(
-                conn, db, tenant["id"], lead_id
-            )
-            return await contract_workflow_service.get_lead_portal_access(
-                conn, tenant["id"], canonical_lead_id
-            )
-
-    @api.post("/leads/{lead_id}/portale/invita")
-    async def lead_portale_invita(request: Request, lead_id: str):
-        """Invia o reinvia l'accesso usando solo i dati del lead collegato."""
-
-        user = await _user(request, db)
-        async with get_tenant_conn(request, user) as (conn, tenant):
-            # A differenza dell'invito libero dell'editor contratto, questa
-            # azione e consentita anche allo staff: destinatario e preventivo
-            # vengono risolti lato server e non sono modificabili dal browser.
-            require_portal_internal_role(tenant)
-            canonical_lead_id = await lead_bridge.resolve_lead_id(
-                conn, db, tenant["id"], lead_id
-            )
-            context = await contract_workflow_service.get_lead_portal_access(
-                conn, tenant["id"], canonical_lead_id
-            )
-            if not context.get("available"):
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "Crea prima un preventivo collegato al lead per invitare "
-                        "il cliente nella sua area personale"
-                    ),
-                )
-            try:
-                email = str(
-                    EMAIL_ADDRESS_ADAPTER.validate_python(
-                        context.get("cliente_email") or ""
-                    )
-                )
-            except (ValidationError, ValueError):
-                raise HTTPException(
-                    status_code=422,
-                    detail="Il lead non ha un indirizzo email cliente valido",
-                )
-
-            result = await contract_workflow_service.invite_preventivo_client(
-                conn,
-                tenant["id"],
-                context["preventivo_id"],
-                email=email,
-                nome=context.get("cliente_nome"),
-            )
-            context["accesso_attivo"] = True
-            context["invited"] = bool(result.get("invited"))
-            context["email"] = result.get("email") or email
-
-        await _record_portal_invite_safely(
-            db,
-            lead_id,
-            actor=user.get("name") or user.get("nome"),
-            numero_preventivo=context.get("numero_preventivo"),
-        )
-        return context
 
     @api.post("/preventivi/{preventivo_id}/portale/invita", status_code=201)
     async def preventivo_portale_invita(
