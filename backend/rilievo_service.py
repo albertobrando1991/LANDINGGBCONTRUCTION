@@ -2,17 +2,29 @@
 
 from __future__ import annotations
 
+import asyncio
+from io import BytesIO
 import json
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import asyncpg
 from fastapi import HTTPException
 import fitz
+from PIL import Image, UnidentifiedImageError
+
+from system_jobs.rilievo_assets import signed_asset_urls, upload_asset
 
 RILIEVO_ROLES = frozenset({"owner", "admin", "staff", "operations"})
+RILIEVO_PHOTO_MIME = frozenset({"image/jpeg", "image/png", "image/webp"})
+_IMAGE_MIME_BY_FORMAT = {
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "WEBP": "image/webp",
+}
 
 
 def _value(value: Any) -> Any:
@@ -96,6 +108,146 @@ def render_pdf_preview(content: bytes) -> bytes:
         raise HTTPException(
             status_code=400, detail="La planimetria PDF non puo essere letta"
         ) from exc
+
+
+def _verified_image_mime(content: bytes) -> str:
+    try:
+        with Image.open(BytesIO(content)) as image:
+            width, height = image.size
+            if width <= 0 or height <= 0 or width * height > 80_000_000:
+                raise HTTPException(
+                    status_code=413, detail="Immagine troppo grande da elaborare"
+                )
+            mime = _IMAGE_MIME_BY_FORMAT.get(str(image.format or "").upper())
+            image.verify()
+    except HTTPException:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=415, detail="Immagine non valida") from exc
+    if mime not in RILIEVO_PHOTO_MIME:
+        raise HTTPException(status_code=415, detail="Formato immagine non supportato")
+    return mime
+
+
+def _safe_asset_filename(filename: str, fallback: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", filename or fallback).strip("-._")
+    return (safe or fallback)[:140]
+
+
+def _photo_asset_prefixes(tenant_id: str, rilievo_id: str) -> tuple[str, str]:
+    base = f"{tenant_id}/rilievo-{rilievo_id}/"
+    return f"{base}generali/", f"{base}ambiente-"
+
+
+def validate_asset_paths(
+    tenant_id: str, rilievo_id: str, bucket: str, paths: list[str]
+) -> None:
+    if bucket == "planimetrie":
+        prefix = f"{tenant_id}/rilievo-{rilievo_id}/planimetria/"
+        valid = all(path.startswith(prefix) and ".." not in path for path in paths)
+    elif bucket == "foto-cantiere":
+        general_prefix, room_prefix = _photo_asset_prefixes(tenant_id, rilievo_id)
+        valid = all(
+            ".." not in path
+            and (
+                path.startswith(general_prefix)
+                or (
+                    path.startswith(room_prefix)
+                    and re.match(
+                        rf"^{re.escape(room_prefix)}[0-9a-f-]{{36}}/[^/]+$",
+                        path,
+                        re.IGNORECASE,
+                    )
+                )
+            )
+            for path in paths
+        )
+    else:
+        valid = False
+    if not valid:
+        raise HTTPException(status_code=400, detail="Asset non appartenente al rilievo")
+
+
+async def salva_asset(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    rilievo_id: str,
+    *,
+    tipo: str,
+    filename: str,
+    content_type: str,
+    content: bytes,
+    ambiente_client_uuid: Optional[str] = None,
+) -> dict:
+    await _require_rilievo(conn, tenant_id, rilievo_id)
+    if not content:
+        raise HTTPException(status_code=400, detail="Il file e vuoto")
+    declared_mime = (content_type or "").lower().split(";", 1)[0]
+    if tipo == "planimetria":
+        if len(content) > 25 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413, detail="La planimetria supera il limite di 25 MB"
+            )
+        if declared_mime == "application/pdf":
+            render_pdf_preview(content)
+            mime = declared_mime
+            extension = "pdf"
+        else:
+            mime = _verified_image_mime(content)
+            extension = mime.split("/", 1)[1].replace("jpeg", "jpg")
+        bucket = "planimetrie"
+        safe_name = _safe_asset_filename(filename, f"planimetria.{extension}")
+        path = (
+            f"{tenant_id}/rilievo-{rilievo_id}/planimetria/"
+            f"originale-{uuid4()}-{safe_name}"
+        )
+    elif tipo == "planimetria_preview":
+        if len(content) > 15 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413, detail="La preview supera il limite di 15 MB"
+            )
+        mime = _verified_image_mime(content)
+        if mime != "image/png":
+            raise HTTPException(status_code=415, detail="La preview deve essere PNG")
+        bucket = "planimetrie"
+        path = f"{tenant_id}/rilievo-{rilievo_id}/planimetria/" f"preview-{uuid4()}.png"
+    elif tipo in {"foto_generale", "foto_ambiente"}:
+        if len(content) > 15 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413, detail="La foto supera il limite di 15 MB"
+            )
+        mime = _verified_image_mime(content)
+        extension = mime.split("/", 1)[1].replace("jpeg", "jpg")
+        bucket = "foto-cantiere"
+        if tipo == "foto_ambiente":
+            try:
+                room_uuid = str(UUID(str(ambiente_client_uuid or "")))
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise HTTPException(
+                    status_code=400, detail="Ambiente foto non valido"
+                ) from exc
+            folder = f"ambiente-{room_uuid}"
+        else:
+            folder = "generali"
+        path = f"{tenant_id}/rilievo-{rilievo_id}/{folder}/" f"{uuid4()}.{extension}"
+    else:
+        raise HTTPException(status_code=422, detail="Tipo asset rilievo non valido")
+    await asyncio.to_thread(upload_asset, bucket, path, content, mime)
+    return {"bucket": bucket, "path": path, "mime_type": mime}
+
+
+async def crea_url_asset(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    rilievo_id: str,
+    *,
+    bucket: str,
+    paths: list[str],
+) -> list[dict]:
+    await _require_rilievo(conn, tenant_id, rilievo_id)
+    validate_asset_paths(tenant_id, rilievo_id, bucket, paths)
+    urls = await asyncio.to_thread(signed_asset_urls, bucket, paths, 5 * 60)
+    return [{"path": path, "url": url} for path, url in zip(paths, urls)]
 
 
 async def lista_rilievi(conn: asyncpg.Connection, tenant_id: str) -> list[dict]:
@@ -200,23 +352,15 @@ def _validate_tavola_paths(
     planimetria_preview_path: Optional[str],
     foto_paths: list[str],
 ) -> None:
-    plan_prefix = f"{tenant_id}/rilievo-{rilievo_id}/planimetria/"
-    photo_prefix = f"{tenant_id}/rilievo-{rilievo_id}/generali/"
-    if planimetria_path and not planimetria_path.startswith(plan_prefix):
-        raise HTTPException(
-            status_code=400, detail="La planimetria non appartiene al rilievo"
-        )
-    if planimetria_preview_path and not planimetria_preview_path.startswith(
-        plan_prefix
-    ):
-        raise HTTPException(
-            status_code=400, detail="La preview non appartiene al rilievo"
-        )
-    if any(not path.startswith(photo_prefix) for path in foto_paths):
+    plans = [path for path in (planimetria_path, planimetria_preview_path) if path]
+    validate_asset_paths(tenant_id, rilievo_id, "planimetrie", plans)
+    general_prefix, _ = _photo_asset_prefixes(tenant_id, rilievo_id)
+    if any(not path.startswith(general_prefix) for path in foto_paths):
         raise HTTPException(
             status_code=400,
             detail="Una o piu foto generali non appartengono al rilievo",
         )
+    validate_asset_paths(tenant_id, rilievo_id, "foto-cantiere", foto_paths)
 
 
 async def salva_tavola(

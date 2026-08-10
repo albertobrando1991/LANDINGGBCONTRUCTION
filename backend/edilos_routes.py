@@ -296,6 +296,21 @@ class SalvaTavolaRilievoBody(BaseModel):
         return values
 
 
+class RilievoAssetUrlsBody(BaseModel):
+    bucket: Literal["planimetrie", "foto-cantiere"]
+    paths: List[str] = Field(min_length=1, max_length=40)
+
+    @field_validator("paths")
+    @classmethod
+    def valida_asset_paths(cls, values: List[str]) -> List[str]:
+        normalized = [str(value).strip() for value in values]
+        if any(not value or len(value) > 700 for value in normalized):
+            raise ValueError("Percorso asset non valido")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Lo stesso asset non puo essere richiesto piu volte")
+        return normalized
+
+
 class MisuraExtraBody(BaseModel):
     id: str = Field(min_length=1, max_length=100)
     etichetta: str = Field(min_length=1, max_length=200)
@@ -996,6 +1011,51 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             media_type="image/png",
             headers={"Cache-Control": "no-store"},
         )
+
+    @api.post("/campo/rilievi/{rilievo_id}/assets", status_code=201)
+    async def carica_asset_rilievo(
+        request: Request,
+        rilievo_id: str,
+        file: UploadFile = File(...),
+        tipo: Literal[
+            "planimetria",
+            "planimetria_preview",
+            "foto_generale",
+            "foto_ambiente",
+        ] = Form(...),
+        ambiente_client_uuid: Optional[str] = Form(default=None),
+    ):
+        user = await _user(request, db)
+        canonical_id = str(tenancy.uuid_or_400(rilievo_id, "Rilievo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_rilievo_role(tenant)
+            content = await file.read(25 * 1024 * 1024 + 1)
+            return await rilievo_service.salva_asset(
+                conn,
+                tenant["id"],
+                canonical_id,
+                tipo=tipo,
+                filename=file.filename or "asset-rilievo",
+                content_type=file.content_type or "application/octet-stream",
+                content=content,
+                ambiente_client_uuid=ambiente_client_uuid,
+            )
+
+    @api.post("/campo/rilievi/{rilievo_id}/assets/urls")
+    async def url_asset_rilievo(
+        request: Request, rilievo_id: str, body: RilievoAssetUrlsBody
+    ):
+        user = await _user(request, db)
+        canonical_id = str(tenancy.uuid_or_400(rilievo_id, "Rilievo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_rilievo_role(tenant)
+            return await rilievo_service.crea_url_asset(
+                conn,
+                tenant["id"],
+                canonical_id,
+                bucket=body.bucket,
+                paths=body.paths,
+            )
 
     @api.put("/campo/rilievi/{rilievo_id}/tavola")
     async def salva_tavola_rilievo(

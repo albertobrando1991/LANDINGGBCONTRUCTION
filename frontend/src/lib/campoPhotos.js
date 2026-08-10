@@ -1,4 +1,5 @@
 import * as tus from "tus-js-client";
+import client from "./api";
 import { SUPABASE_URL, supabase, supabaseConfigured } from "./supabase";
 import { canUseTenantStorage, tenantIdFromUser } from "./storage";
 
@@ -219,89 +220,66 @@ export async function uploadCampoPhotos({
 }
 
 export async function uploadRilievoPhotos({
-  user,
   rilievoId,
   ambienteClientUuid,
   photos,
   onProgress,
 }) {
   if (!photos?.length) return [];
-  if (!supabaseConfigured || !supabase || !canUseTenantStorage(user)) {
-    throw new Error("Le foto richiedono una sessione Supabase interna valida.");
-  }
-  const tenantId = tenantIdFromUser(user);
-  const { data, error } = await supabase.auth.getSession();
-  const accessToken = data?.session?.access_token;
-  if (error || !accessToken)
-    throw new Error("Sessione Storage non disponibile.");
-
   const paths = [];
   for (let index = 0; index < photos.length; index += 1) {
     const photo = photos[index];
-    const path = rilievoPhotoPath({
-      tenantId,
-      rilievoId,
-      ambienteClientUuid,
-      photoId: photo.id,
-    });
-    paths.push(
-      await uploadOne({
-        path,
-        photo,
-        accessToken,
-        onProgress: (uploaded, total) =>
-          onProgress?.({ index, count: photos.length, uploaded, total }),
-      }),
+    const form = new FormData();
+    form.append("tipo", "foto_ambiente");
+    form.append("ambiente_client_uuid", ambienteClientUuid);
+    form.append("file", photo.blob, photo.name || "foto.jpg");
+    const { data } = await client.post(
+      `/campo/rilievi/${rilievoId}/assets`,
+      form,
     );
+    paths.push(data.path);
+    onProgress?.({
+      index,
+      count: photos.length,
+      uploaded: photo.size || photo.blob.size,
+      total: photo.size || photo.blob.size,
+    });
   }
   return paths;
 }
 
 export async function uploadRilievoGeneralPhotos({
-  user,
   rilievoId,
   photos,
   onProgress,
 }) {
   if (!photos?.length) return [];
-  if (!supabaseConfigured || !supabase || !canUseTenantStorage(user)) {
-    throw new Error("Le foto richiedono una sessione Supabase interna valida.");
-  }
-  const tenantId = tenantIdFromUser(user);
-  const { data, error } = await supabase.auth.getSession();
-  const accessToken = data?.session?.access_token;
-  if (error || !accessToken)
-    throw new Error("Sessione Storage non disponibile.");
-
   const paths = [];
   for (let index = 0; index < photos.length; index += 1) {
     const photo = photos[index];
-    const path = rilievoGeneralPhotoPath({
-      tenantId,
-      rilievoId,
-      photoId: photo.id,
-    });
-    paths.push(
-      await uploadOne({
-        path,
-        photo,
-        accessToken,
-        onProgress: (uploaded, total) =>
-          onProgress?.({ index, count: photos.length, uploaded, total }),
-      }),
+    const form = new FormData();
+    form.append("tipo", "foto_generale");
+    form.append("file", photo.blob, photo.name || "foto.jpg");
+    const { data } = await client.post(
+      `/campo/rilievi/${rilievoId}/assets`,
+      form,
     );
+    paths.push(data.path);
+    onProgress?.({
+      index,
+      count: photos.length,
+      uploaded: photo.size || photo.blob.size,
+      total: photo.size || photo.blob.size,
+    });
   }
   return paths;
 }
 
-export async function createRilievoPhotoUrls(paths) {
-  if (!paths?.length || !supabaseConfigured || !supabase) return [];
-  const { data, error } = await supabase.storage
-    .from(CAMPO_PHOTO_BUCKET)
-    .createSignedUrls(paths, 5 * 60);
-  if (error) throw new Error(error.message || "Foto non disponibili.");
-  return (data || []).map((item, index) => ({
-    path: paths[index],
-    url: item.signedUrl,
-  }));
+export async function createRilievoPhotoUrls(paths, rilievoId) {
+  if (!paths?.length || !rilievoId) return [];
+  const { data } = await client.post(
+    `/campo/rilievi/${rilievoId}/assets/urls`,
+    { bucket: CAMPO_PHOTO_BUCKET, paths },
+  );
+  return data || [];
 }

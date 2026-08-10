@@ -4,6 +4,11 @@ jest.mock("./supabase", () => ({
   supabaseConfigured: false,
 }));
 
+jest.mock("./api", () => ({
+  __esModule: true,
+  default: { post: jest.fn() },
+}));
+
 jest.mock("./storage", () => ({
   canUseTenantStorage: jest.fn(() => false),
   tenantIdFromUser: jest.fn(() => ""),
@@ -14,7 +19,9 @@ import {
   rilievoGeneralPhotoPath,
   rilievoPhotoPath,
   uploadCampoPhotos,
+  uploadRilievoGeneralPhotos,
 } from "./campoPhotos";
+import client from "./api";
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
 const CANTIERE = "20000000-0000-4000-8000-000000000001";
@@ -73,4 +80,28 @@ test("non tenta upload foto senza sessione Supabase interna", async () => {
       photos: [{ id: PHOTO, blob: new Blob(["foto"], { type: "image/jpeg" }) }],
     }),
   ).rejects.toThrow("sessione Supabase interna");
+});
+
+test("carica le foto rilievo tramite backend con autenticazione legacy", async () => {
+  const path = `${TENANT}/rilievo-${CANTIERE}/generali/${PHOTO}.jpg`;
+  client.post.mockResolvedValueOnce({ data: { path } });
+
+  await expect(
+    uploadRilievoGeneralPhotos({
+      user: { auth_provider: "legacy" },
+      rilievoId: CANTIERE,
+      photos: [
+        {
+          id: PHOTO,
+          name: "foto.jpg",
+          size: 4,
+          blob: new Blob(["foto"], { type: "image/jpeg" }),
+        },
+      ],
+    }),
+  ).resolves.toEqual([path]);
+  expect(client.post).toHaveBeenCalledWith(
+    `/campo/rilievi/${CANTIERE}/assets`,
+    expect.any(FormData),
+  );
 });

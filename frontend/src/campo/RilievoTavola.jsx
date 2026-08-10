@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
+  Eraser,
   FileUp,
+  Hand,
   Loader2,
+  Maximize2,
+  Minimize2,
   MousePointer2,
   Pencil,
   Redo2,
@@ -13,6 +17,8 @@ import {
   Trash2,
   Undo2,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatApiErrorDetail } from "@/lib/api";
@@ -34,14 +40,21 @@ import {
   listRilievoOperations,
 } from "@/lib/rilievoQueue";
 import {
+  clampPlanView,
   closestElement,
   metersFor,
   normalizedLength,
+  panPlanBy,
+  planToViewport,
   roomMetrics,
+  viewportToPlan,
+  zoomPlanAt,
 } from "./rilievoGeometry";
 
 const TOOLS = [
   { id: "seleziona", label: "Seleziona", Icon: MousePointer2 },
+  { id: "sposta", label: "Sposta", Icon: Hand },
+  { id: "gomma", label: "Gomma", Icon: Eraser },
   { id: "muro", label: "Muro", Icon: Pencil },
   { id: "ambiente", label: "Ambiente", Icon: Square },
   { id: "quota", label: "Quota", Icon: Ruler },
@@ -140,6 +153,11 @@ export default function RilievoTavola({
   const planInputRef = useRef(null);
   const photoInputRef = useRef(null);
   const rilievoRef = useRef(rilievo);
+  const pointersRef = useRef(new Map());
+  const pinchRef = useRef(null);
+  const gestureActiveRef = useRef(false);
+  const panDragRef = useRef(null);
+  const viewRef = useRef({ zoom: 1, x: 0, y: 0 });
   rilievoRef.current = rilievo;
   const [tool, setTool] = useState("seleziona");
   const [elements, setElements] = useState([]);
@@ -164,6 +182,10 @@ export default function RilievoTavola({
   const [photoPaths, setPhotoPaths] = useState([]);
   const [busy, setBusy] = useState(false);
   const [saveState, setSaveState] = useState("salvato");
+  const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  viewRef.current = view;
   const persistedVersion = `${rilievo?.id || ""}:${rilievo?.updated_at || ""}`;
 
   useEffect(() => {
@@ -181,8 +203,18 @@ export default function RilievoTavola({
     setPhotoPaths(current?.foto_paths || []);
     setPendingPlan(null);
     setPendingPhotos([]);
+    setView({ zoom: 1, x: 0, y: 0 });
     setSaveState("salvato");
   }, [persistedVersion]);
+
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [expanded]);
 
   useEffect(() => {
     let active = true;
@@ -222,7 +254,7 @@ export default function RilievoTavola({
           return;
         }
         const path = asset.planimetria_preview_path || asset.planimetria_path;
-        const url = await createRilievoPlanUrl(path);
+        const url = await createRilievoPlanUrl(path, rilievo.id);
         if (active) setBackgroundUrl(url);
       } catch {
         if (active) setBackgroundUrl("");
@@ -233,7 +265,12 @@ export default function RilievoTavola({
       active = false;
       if (localUrl) URL.revokeObjectURL(localUrl);
     };
-  }, [asset.planimetria_path, asset.planimetria_preview_path, pendingPlan]);
+  }, [
+    asset.planimetria_path,
+    asset.planimetria_preview_path,
+    pendingPlan,
+    rilievo.id,
+  ]);
 
   useEffect(() => {
     if (!backgroundUrl) {
@@ -252,13 +289,13 @@ export default function RilievoTavola({
 
   useEffect(() => {
     let active = true;
-    createRilievoPhotoUrls(photoPaths)
+    createRilievoPhotoUrls(photoPaths, rilievo.id)
       .then((items) => active && setSavedPhotos(items))
       .catch(() => active && setSavedPhotos([]));
     return () => {
       active = false;
     };
-  }, [photoPaths]);
+  }, [photoPaths, rilievo.id]);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -289,14 +326,24 @@ export default function RilievoTavola({
     const context = canvas.getContext("2d");
     if (!context) return;
     const { width, height } = canvasSize;
-    canvas.width = width;
-    canvas.height = height;
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const renderWidth = Math.round(width * pixelRatio);
+    const renderHeight = Math.round(height * pixelRatio);
+    if (canvas.width !== renderWidth || canvas.height !== renderHeight) {
+      canvas.width = renderWidth;
+      canvas.height = renderHeight;
+    }
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     context.clearRect(0, 0, width, height);
     context.fillStyle = "#f8f7f3";
     context.fillRect(0, 0, width, height);
 
+    context.save();
+    context.translate(width * (0.5 + view.x), height * (0.5 + view.y));
+    context.scale(view.zoom, view.zoom);
+    context.translate(-width / 2, -height / 2);
     context.strokeStyle = "#e5e1d8";
-    context.lineWidth = 1;
+    context.lineWidth = 1 / view.zoom;
     for (let x = 0; x <= width; x += 24) {
       context.beginPath();
       context.moveTo(x, 0);
@@ -327,10 +374,22 @@ export default function RilievoTavola({
       );
       context.globalAlpha = 1;
     }
+    context.restore();
 
     const paint = (element, isDraft = false) => {
-      const start = { x: element.x1 * width, y: element.y1 * height };
-      const end = { x: element.x2 * width, y: element.y2 * height };
+      const normalizedStart = planToViewport(
+        { x: element.x1, y: element.y1 },
+        view,
+      );
+      const normalizedEnd = planToViewport(
+        { x: element.x2, y: element.y2 },
+        view,
+      );
+      const start = {
+        x: normalizedStart.x * width,
+        y: normalizedStart.y * height,
+      };
+      const end = { x: normalizedEnd.x * width, y: normalizedEnd.y * height };
       const active = selectedId === element.id;
       context.save();
       context.strokeStyle = active ? "#f59e0b" : "#b91c1c";
@@ -385,16 +444,61 @@ export default function RilievoTavola({
     draft,
     elements,
     selectedId,
+    view,
   ]);
 
   useEffect(() => drawCanvas(), [drawCanvas]);
 
-  const pointFromEvent = (event) => {
+  const viewportPointFromEvent = (event) => {
     const rect = canvasRef.current.getBoundingClientRect();
     return {
-      x: snap((event.clientX - rect.left) / rect.width),
-      y: snap((event.clientY - rect.top) / rect.height),
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height,
     };
+  };
+
+  const pointFromEvent = (event) => {
+    const point = viewportToPlan(
+      viewportPointFromEvent(event),
+      viewRef.current,
+    );
+    return { x: snap(point.x), y: snap(point.y) };
+  };
+
+  const pointerPair = () =>
+    Array.from(pointersRef.current.values()).slice(0, 2);
+
+  const pairGeometry = (points) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const first = points[0];
+    const second = points[1];
+    return {
+      distance: Math.max(
+        1,
+        Math.hypot(
+          second.clientX - first.clientX,
+          second.clientY - first.clientY,
+        ),
+      ),
+      midpoint: {
+        x: ((first.clientX + second.clientX) / 2 - rect.left) / rect.width,
+        y: ((first.clientY + second.clientY) / 2 - rect.top) / rect.height,
+      },
+    };
+  };
+
+  const beginPinch = () => {
+    const geometry = pairGeometry(pointerPair());
+    const initialView = viewRef.current;
+    pinchRef.current = {
+      distance: geometry.distance,
+      zoom: initialView.zoom,
+      anchor: viewportToPlan(geometry.midpoint, initialView),
+    };
+    gestureActiveRef.current = true;
+    panDragRef.current = null;
+    setPanning(true);
+    setDraft(null);
   };
 
   const pushElements = (next) => {
@@ -404,11 +508,48 @@ export default function RilievoTavola({
   };
 
   const pointerDown = (event) => {
-    if (locked) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    pointersRef.current.set(event.pointerId, {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+    if (pointersRef.current.size >= 2) {
+      beginPinch();
+      return;
+    }
+    if (gestureActiveRef.current) return;
+    if (tool === "sposta") {
+      panDragRef.current = {
+        pointerId: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+      setPanning(true);
+      return;
+    }
+    if (locked) return;
     const point = pointFromEvent(event);
     if (tool === "seleziona") {
-      setSelectedId(closestElement(elements, point)?.id || "");
+      setSelectedId(
+        closestElement(
+          elements,
+          point,
+          0.045 / viewRef.current.zoom,
+          canvasRatio,
+        )?.id || "",
+      );
+      return;
+    }
+    if (tool === "gomma") {
+      const target = closestElement(
+        elements,
+        point,
+        0.055 / viewRef.current.zoom,
+        canvasRatio,
+      );
+      if (!target) return;
+      pushElements(elements.filter((item) => item.id !== target.id));
+      if (selectedId === target.id) setSelectedId("");
       return;
     }
     if (tool === "nota") {
@@ -437,12 +578,63 @@ export default function RilievoTavola({
   };
 
   const pointerMove = (event) => {
+    if (pointersRef.current.has(event.pointerId)) {
+      pointersRef.current.set(event.pointerId, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      });
+    }
+    if (pointersRef.current.size >= 2 && pinchRef.current) {
+      const geometry = pairGeometry(pointerPair());
+      const pinch = pinchRef.current;
+      const nextZoom = clampPlanView({
+        zoom: pinch.zoom * (geometry.distance / pinch.distance),
+      }).zoom;
+      setView(
+        clampPlanView({
+          zoom: nextZoom,
+          x: geometry.midpoint.x - ((pinch.anchor.x - 0.5) * nextZoom + 0.5),
+          y: geometry.midpoint.y - ((pinch.anchor.y - 0.5) * nextZoom + 0.5),
+        }),
+      );
+      return;
+    }
+    if (gestureActiveRef.current) return;
+    const pan = panDragRef.current;
+    if (pan?.pointerId === event.pointerId) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const delta = {
+        x: (event.clientX - pan.clientX) / rect.width,
+        y: (event.clientY - pan.clientY) / rect.height,
+      };
+      panDragRef.current = {
+        ...pan,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+      setView((current) => panPlanBy(current, delta));
+      return;
+    }
     if (!draft || locked) return;
     const point = pointFromEvent(event);
     setDraft((current) => ({ ...current, x2: point.x, y2: point.y }));
   };
 
-  const pointerUp = () => {
+  const pointerUp = (event) => {
+    pointersRef.current.delete(event.pointerId);
+    if (gestureActiveRef.current) {
+      if (pointersRef.current.size === 0) {
+        gestureActiveRef.current = false;
+        pinchRef.current = null;
+        setPanning(false);
+      }
+      return;
+    }
+    if (panDragRef.current?.pointerId === event.pointerId) {
+      panDragRef.current = null;
+      setPanning(false);
+      return;
+    }
     if (!draft || locked) return;
     if (normalizedLength(draft, canvasRatio) < 0.015) {
       setDraft(null);
@@ -466,6 +658,29 @@ export default function RilievoTavola({
     setSelectedId(item.id);
     setDraft(null);
     setTool("seleziona");
+  };
+
+  const pointerCancel = (event) => {
+    pointersRef.current.delete(event.pointerId);
+    if (pointersRef.current.size === 0) {
+      gestureActiveRef.current = false;
+      pinchRef.current = null;
+      panDragRef.current = null;
+      setPanning(false);
+    }
+    setDraft(null);
+  };
+
+  const changeZoom = (amount, focal = { x: 0.5, y: 0.5 }) => {
+    setView((current) => zoomPlanAt(current, current.zoom + amount, focal));
+  };
+
+  const resetView = () => setView({ zoom: 1, x: 0, y: 0 });
+
+  const wheelZoom = (event) => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    changeZoom(event.deltaY < 0 ? 0.25 : -0.25, viewportPointFromEvent(event));
   };
 
   const confirmCalibration = () => {
@@ -512,6 +727,7 @@ export default function RilievoTavola({
         file,
       });
       setPendingPlan({ file, previewBlob });
+      resetView();
       setSaveState("modificato");
     } catch (error) {
       toast.error("Planimetria non caricata", { description: error.message });
@@ -660,13 +876,20 @@ export default function RilievoTavola({
     setPendingPlan(null);
     setBackgroundUrl("");
     setBackgroundImage(null);
+    resetView();
     pushElements([]);
     setCalibration(null);
     setSelectedId("");
   };
 
   return (
-    <section className="rounded-2xl border border-stroke bg-surface p-4 md:p-5">
+    <section
+      className={
+        expanded
+          ? "fixed inset-0 z-[80] overflow-y-auto bg-surface p-3 sm:p-5"
+          : "rounded-2xl border border-stroke bg-surface p-4 md:p-5"
+      }
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="campo-eyebrow">Tavola del rilievo</p>
@@ -675,23 +898,41 @@ export default function RilievoTavola({
           </h3>
           <p className="mt-1 text-xs text-fog">
             Carica PDF o immagine, calibra una misura nota e traccia muri,
-            ambienti e quote. Per i PDF viene usata come tavola la prima
-            pagina; il file originale resta conservato.
+            ambienti e quote. Per i PDF viene usata come tavola la prima pagina;
+            il file originale resta conservato.
           </p>
         </div>
-        <span
-          className={`text-[10px] uppercase ${saveState === "errore" ? "text-red-400" : "text-fog"}`}
-        >
-          {saveState === "salvataggio"
-            ? "Salvataggio…"
-            : saveState === "in_attesa"
-              ? "In attesa di sincronizzazione"
-              : saveState === "modificato"
-                ? "Modifiche da salvare"
-                : saveState === "errore"
-                  ? "Errore"
-                  : "Salvato"}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={`text-[10px] uppercase ${saveState === "errore" ? "text-red-400" : "text-fog"}`}
+          >
+            {saveState === "salvataggio"
+              ? "Salvataggio…"
+              : saveState === "in_attesa"
+                ? "In attesa di sincronizzazione"
+                : saveState === "modificato"
+                  ? "Modifiche da salvare"
+                  : saveState === "errore"
+                    ? "Errore"
+                    : "Salvato"}
+          </span>
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="flex h-11 w-11 items-center justify-center rounded-xl border border-stroke text-ink"
+            aria-label={
+              expanded
+                ? "Riduci editor planimetria"
+                : "Espandi editor planimetria"
+            }
+          >
+            {expanded ? (
+              <Minimize2 className="h-5 w-5" />
+            ) : (
+              <Maximize2 className="h-5 w-5" />
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -735,7 +976,7 @@ export default function RilievoTavola({
           <button
             key={id}
             type="button"
-            disabled={locked}
+            disabled={locked && id !== "sposta"}
             onClick={() => setTool(id)}
             aria-pressed={tool === id}
             className={`flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-[11px] uppercase ${tool === id ? "border-brand bg-brand/10 text-brand" : "border-stroke text-fog"}`}
@@ -745,9 +986,61 @@ export default function RilievoTavola({
         ))}
       </div>
 
+      {tool === "gomma" && (
+        <p className="mb-2 text-xs text-brand" role="status">
+          Gomma attiva: tocca una forma per cancellarla. Puoi recuperarla con
+          Annulla.
+        </p>
+      )}
+
+      {tool === "sposta" && (
+        <p className="mb-2 text-xs text-brand" role="status">
+          Trascina la tavola con un dito. Su tablet e smartphone puoi usare due
+          dita per zoom e spostamento.
+        </p>
+      )}
+
+      <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-stroke bg-bg p-2">
+        <button
+          type="button"
+          onClick={() => changeZoom(-0.25)}
+          disabled={view.zoom <= 1}
+          className="flex h-11 w-11 items-center justify-center rounded-lg border border-stroke text-ink disabled:opacity-30"
+          aria-label="Riduci zoom planimetria"
+        >
+          <ZoomOut className="h-5 w-5" />
+        </button>
+        <output
+          className="min-w-14 text-center font-display text-xs text-ink"
+          aria-live="polite"
+        >
+          {Math.round(view.zoom * 100)}%
+        </output>
+        <button
+          type="button"
+          onClick={() => changeZoom(0.25)}
+          disabled={view.zoom >= 5}
+          className="flex h-11 w-11 items-center justify-center rounded-lg border border-stroke text-ink disabled:opacity-30"
+          aria-label="Aumenta zoom planimetria"
+        >
+          <ZoomIn className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={resetView}
+          disabled={view.zoom === 1 && view.x === 0 && view.y === 0}
+          className="min-h-11 rounded-lg border border-stroke px-3 text-[11px] uppercase text-fog disabled:opacity-30"
+        >
+          Adatta
+        </button>
+        <span className="min-w-48 flex-1 text-right text-[11px] text-fog max-sm:text-left">
+          Zoom 100–500% · usa “Sposta” per trascinare
+        </span>
+      </div>
+
       <div
         ref={containerRef}
-        className="mt-2 overflow-hidden rounded-xl border border-stroke bg-white"
+        className="relative mt-2 overflow-hidden rounded-xl border border-stroke bg-white shadow-inner"
       >
         <canvas
           ref={canvasRef}
@@ -755,13 +1048,28 @@ export default function RilievoTavola({
           className="block w-full touch-none"
           style={{
             height: `${canvasSize.height}px`,
-            cursor: tool === "seleziona" ? "default" : "crosshair",
+            cursor:
+              tool === "seleziona"
+                ? "default"
+                : tool === "sposta"
+                  ? panning
+                    ? "grabbing"
+                    : "grab"
+                  : tool === "gomma"
+                    ? "cell"
+                    : "crosshair",
           }}
           onPointerDown={pointerDown}
           onPointerMove={pointerMove}
           onPointerUp={pointerUp}
-          onPointerCancel={() => setDraft(null)}
+          onPointerCancel={pointerCancel}
+          onWheel={wheelZoom}
         />
+        {view.zoom > 1 && (
+          <span className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-black/65 px-2.5 py-1 text-[10px] uppercase text-white">
+            {Math.round(view.zoom * 100)}%
+          </span>
+        )}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">

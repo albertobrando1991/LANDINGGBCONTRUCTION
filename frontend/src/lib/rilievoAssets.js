@@ -1,10 +1,5 @@
 import client from "./api";
-import { supabase, supabaseConfigured } from "./supabase";
-import {
-  canUseTenantStorage,
-  sanitizeStorageFilename,
-  tenantIdFromUser,
-} from "./storage";
+import { sanitizeStorageFilename } from "./storage";
 
 export const RILIEVO_PLAN_BUCKET = "planimetrie";
 export const MAX_RILIEVO_PLAN_BYTES = 25 * 1024 * 1024;
@@ -17,15 +12,6 @@ const PLAN_MIME = new Set([
   "image/png",
   "image/webp",
 ]);
-
-function requireStorage(user) {
-  if (!supabaseConfigured || !supabase || !canUseTenantStorage(user)) {
-    throw new Error(
-      "La planimetria richiede una sessione Supabase interna valida.",
-    );
-  }
-  return supabase.storage.from(RILIEVO_PLAN_BUCKET);
-}
 
 export function validateRilievoPlan(file) {
   if (!file?.size) throw new Error("Seleziona una planimetria non vuota.");
@@ -48,15 +34,15 @@ export function rilievoPlanPath({ tenantId, rilievoId, filename, kind }) {
   return `${tenantId}/rilievo-${rilievoId}/planimetria/${kind}-${suffix}`;
 }
 
-async function upload(storage, path, file, contentType) {
-  const { error } = await storage.upload(path, file, {
-    cacheControl: "3600",
-    contentType,
-    upsert: true,
-  });
-  if (error)
-    throw new Error(error.message || "Upload planimetria non riuscito.");
-  return path;
+async function uploadAsset(rilievoId, tipo, file, filename = file.name) {
+  const form = new FormData();
+  form.append("tipo", tipo);
+  form.append("file", file, filename || "asset-rilievo");
+  const { data } = await client.post(
+    `/campo/rilievi/${rilievoId}/assets`,
+    form,
+  );
+  return data;
 }
 
 export async function createRilievoPlanPreview({ rilievoId, file }) {
@@ -72,51 +58,36 @@ export async function createRilievoPlanPreview({ rilievoId, file }) {
   return data;
 }
 
-export async function uploadRilievoPlan({
-  user,
-  rilievoId,
-  file,
-  previewBlob,
-}) {
+export async function uploadRilievoPlan({ rilievoId, file, previewBlob }) {
   const mimeType = validateRilievoPlan(file);
-  const tenantId = tenantIdFromUser(user);
-  const storage = requireStorage(user);
-  const sourcePath = rilievoPlanPath({
-    tenantId,
-    rilievoId,
-    filename: file.name,
-    kind: "originale",
-  });
-  await upload(storage, sourcePath, file, mimeType);
+  const source = await uploadAsset(rilievoId, "planimetria", file);
 
-  let previewPath = sourcePath;
+  let previewPath = source.path;
   if (mimeType === "application/pdf") {
     const data =
       previewBlob || (await createRilievoPlanPreview({ rilievoId, file }));
-    previewPath = rilievoPlanPath({
-      tenantId,
+    const preview = await uploadAsset(
       rilievoId,
-      filename: "preview.png",
-      kind: "preview",
-    });
-    await upload(storage, previewPath, data, "image/png");
+      "planimetria_preview",
+      data,
+      "preview.png",
+    );
+    previewPath = preview.path;
   }
 
   return {
-    planimetria_path: sourcePath,
+    planimetria_path: source.path,
     planimetria_preview_path: previewPath,
     planimetria_filename: file.name,
-    planimetria_mime_type: mimeType,
+    planimetria_mime_type: source.mime_type || mimeType,
   };
 }
 
-export async function createRilievoPlanUrl(path) {
-  if (!path || !supabaseConfigured || !supabase) return "";
-  const { data, error } = await supabase.storage
-    .from(RILIEVO_PLAN_BUCKET)
-    .createSignedUrl(path, 5 * 60);
-  if (error || !data?.signedUrl) {
-    throw new Error(error?.message || "Planimetria non disponibile.");
-  }
-  return data.signedUrl;
+export async function createRilievoPlanUrl(path, rilievoId) {
+  if (!path || !rilievoId) return "";
+  const { data } = await client.post(
+    `/campo/rilievi/${rilievoId}/assets/urls`,
+    { bucket: RILIEVO_PLAN_BUCKET, paths: [path] },
+  );
+  return data?.[0]?.url || "";
 }

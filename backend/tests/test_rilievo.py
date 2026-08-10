@@ -6,12 +6,14 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
 import fitz
 from fastapi import APIRouter, HTTPException, Request
+from PIL import Image
 
 import edilos_routes
 import rilievo_service
@@ -91,6 +93,14 @@ def test_route_rilievi_e_ambienti_registrate():
     assert any(
         path == "/api/campo/rilievi/{rilievo_id}/planimetria/preview"
         and "POST" in methods
+        for path, methods in routes
+    )
+    assert any(
+        path == "/api/campo/rilievi/{rilievo_id}/assets" and "POST" in methods
+        for path, methods in routes
+    )
+    assert any(
+        path == "/api/campo/rilievi/{rilievo_id}/assets/urls" and "POST" in methods
         for path, methods in routes
     )
 
@@ -173,6 +183,80 @@ def test_render_pdf_preview_restituisce_png():
     preview = rilievo_service.render_pdf_preview(content)
 
     assert preview.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_upload_asset_rilievo_supporta_sessione_backend(monkeypatch):
+    conn = AsyncMock()
+    conn.fetchrow.return_value = _rilievo()
+    uploaded = {}
+    image = BytesIO()
+    Image.new("RGB", (40, 30), "white").save(image, format="JPEG")
+
+    def fake_upload(bucket, path, content, content_type):
+        uploaded.update(
+            bucket=bucket,
+            path=path,
+            content=content,
+            content_type=content_type,
+        )
+
+    monkeypatch.setattr(rilievo_service, "upload_asset", fake_upload)
+    result = asyncio.run(
+        rilievo_service.salva_asset(
+            conn,
+            TENANT_ID,
+            RILIEVO_ID,
+            tipo="foto_generale",
+            filename="soggiorno.jpg",
+            content_type="image/jpeg",
+            content=image.getvalue(),
+        )
+    )
+
+    assert result["bucket"] == "foto-cantiere"
+    assert result["path"].startswith(f"{TENANT_ID}/rilievo-{RILIEVO_ID}/generali/")
+    assert uploaded["content_type"] == "image/jpeg"
+
+
+def test_url_asset_rilievo_e_tenant_scoped(monkeypatch):
+    conn = AsyncMock()
+    conn.fetchrow.return_value = _rilievo()
+    path = f"{TENANT_ID}/rilievo-{RILIEVO_ID}/planimetria/originale-casa.pdf"
+    monkeypatch.setattr(
+        rilievo_service,
+        "signed_asset_urls",
+        lambda bucket, paths, expires: ["https://storage.example/signed"],
+    )
+
+    result = asyncio.run(
+        rilievo_service.crea_url_asset(
+            conn,
+            TENANT_ID,
+            RILIEVO_ID,
+            bucket="planimetrie",
+            paths=[path],
+        )
+    )
+
+    assert result == [{"path": path, "url": "https://storage.example/signed"}]
+
+
+def test_url_asset_rilievo_blocca_path_di_altro_tenant():
+    conn = AsyncMock()
+    conn.fetchrow.return_value = _rilievo()
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            rilievo_service.crea_url_asset(
+                conn,
+                TENANT_ID,
+                RILIEVO_ID,
+                bucket="foto-cantiere",
+                paths=[f"altro/rilievo-{RILIEVO_ID}/generali/foto.jpg"],
+            )
+        )
+
+    assert exc.value.status_code == 400
 
 
 def test_salva_tavola_valida_asset_tenant_scoped():

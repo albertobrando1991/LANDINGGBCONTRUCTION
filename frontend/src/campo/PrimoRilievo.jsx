@@ -44,7 +44,6 @@ import {
   uploadRilievoPhotos,
 } from "@/lib/campoPhotos";
 import { uploadRilievoPlan } from "@/lib/rilievoAssets";
-import { canUseTenantStorage } from "@/lib/storage";
 import { useAuth } from "@/context/AuthContext";
 import { useTenant } from "@/context/TenantContext";
 import {
@@ -153,7 +152,7 @@ function AmbienteEditor({
   const inputRef = useRef(null);
   const savingRef = useRef(false);
   const lastSavedRef = useRef("");
-  const photosEnabled = canUseTenantStorage(user);
+  const photosEnabled = Boolean(user && user !== false);
 
   useEffect(() => {
     const next = {
@@ -178,13 +177,13 @@ function AmbienteEditor({
 
   useEffect(() => {
     let active = true;
-    createRilievoPhotoUrls(draft?.foto_paths || [])
+    createRilievoPhotoUrls(draft?.foto_paths || [], rilievo.id)
       .then((items) => active && setSavedPhotos(items))
       .catch(() => active && setSavedPhotos([]));
     return () => {
       active = false;
     };
-  }, [draft?.foto_paths]);
+  }, [draft?.foto_paths, rilievo.id]);
 
   const payload = useMemo(() => {
     if (!draft) return null;
