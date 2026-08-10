@@ -112,3 +112,17 @@ test("limita zoom e trascinamento senza perdere la tavola", () => {
     y: -0.5,
   });
 });
+
+test("consente di spostare la planimetria anche a zoom 100%", () => {
+  expect(panPlanBy({ zoom: 1, x: 0, y: 0 }, { x: 0.12, y: -0.08 })).toEqual({
+    zoom: 1,
+    x: 0.12,
+    y: -0.08,
+  });
+
+  expect(panPlanBy({ zoom: 1, x: 0, y: 0 }, { x: 2, y: -2 })).toEqual({
+    zoom: 1,
+    x: 0.2,
+    y: -0.2,
+  });
+});

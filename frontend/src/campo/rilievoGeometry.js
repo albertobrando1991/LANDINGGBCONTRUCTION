@@ -27,13 +27,17 @@ export function roomMetrics(shape, calibration, canvasRatio = 1) {
 
 export const MIN_PLAN_ZOOM = 1;
 export const MAX_PLAN_ZOOM = 5;
+const MIN_PLAN_PAN = 0.2;
 
 export function clampPlanView(view) {
   const zoom = Math.max(
     MIN_PLAN_ZOOM,
     Math.min(MAX_PLAN_ZOOM, Number(view?.zoom) || MIN_PLAN_ZOOM),
   );
-  const limit = (zoom - 1) / 2;
+  // Keep a small, bounded pan range even at 100% zoom. Without it the
+  // "Sposta" tool receives the drag correctly, but x/y are clamped back to
+  // zero and the plan appears immovable.
+  const limit = Math.max(MIN_PLAN_PAN, (zoom - 1) / 2);
   return {
     zoom,
     x: Math.max(-limit, Math.min(limit, Number(view?.x) || 0)),

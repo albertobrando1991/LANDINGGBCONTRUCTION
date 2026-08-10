@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
+  Download,
   Eraser,
+  FileText,
   FileUp,
   Hand,
   Loader2,
@@ -50,6 +52,12 @@ import {
   viewportToPlan,
   zoomPlanAt,
 } from "./rilievoGeometry";
+import {
+  downloadRilievoPdf,
+  downloadRilievoPng,
+  rilievoExportBaseName,
+  rilievoExportDimensions,
+} from "./rilievoExport";
 
 const TOOLS = [
   { id: "seleziona", label: "Seleziona", Icon: MousePointer2 },
@@ -103,20 +111,20 @@ function PhotoPreview({ photo, onRemove }) {
   );
 }
 
-function drawArrow(context, start, end) {
+function drawArrow(context, start, end, styleScale = 1) {
   const angle = Math.atan2(end.y - start.y, end.x - start.x);
   for (const point of [start, end]) {
     const reverse = point === start ? 0 : Math.PI;
     context.beginPath();
     context.moveTo(point.x, point.y);
     context.lineTo(
-      point.x + Math.cos(angle + reverse + 0.55) * 9,
-      point.y + Math.sin(angle + reverse + 0.55) * 9,
+      point.x + Math.cos(angle + reverse + 0.55) * 9 * styleScale,
+      point.y + Math.sin(angle + reverse + 0.55) * 9 * styleScale,
     );
     context.moveTo(point.x, point.y);
     context.lineTo(
-      point.x + Math.cos(angle + reverse - 0.55) * 9,
-      point.y + Math.sin(angle + reverse - 0.55) * 9,
+      point.x + Math.cos(angle + reverse - 0.55) * 9 * styleScale,
+      point.y + Math.sin(angle + reverse - 0.55) * 9 * styleScale,
     );
     context.stroke();
   }
@@ -137,6 +145,142 @@ function elementLabel(element, calibration, canvasRatio) {
       .join(" · ");
   }
   return element.testo || "";
+}
+
+function renderTavolaCanvas({
+  canvas,
+  width,
+  height,
+  pixelRatio = 1,
+  styleScale = 1,
+  backgroundImage,
+  calibration,
+  elements,
+  draft = null,
+  selectedId = "",
+  view = { zoom: 1, x: 0, y: 0 },
+}) {
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Editor grafico non disponibile.");
+  const renderWidth = Math.round(width * pixelRatio);
+  const renderHeight = Math.round(height * pixelRatio);
+  if (canvas.width !== renderWidth || canvas.height !== renderHeight) {
+    canvas.width = renderWidth;
+    canvas.height = renderHeight;
+  }
+  const currentView = clampPlanView(view);
+  const canvasRatio = height / width;
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = "#f8f7f3";
+  context.fillRect(0, 0, width, height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+
+  context.save();
+  context.translate(
+    width * (0.5 + currentView.x),
+    height * (0.5 + currentView.y),
+  );
+  context.scale(currentView.zoom, currentView.zoom);
+  context.translate(-width / 2, -height / 2);
+  context.strokeStyle = "#e5e1d8";
+  context.lineWidth = styleScale / currentView.zoom;
+  const gridStep = 24 * styleScale;
+  for (let x = 0; x <= width; x += gridStep) {
+    context.beginPath();
+    context.moveTo(x, 0);
+    context.lineTo(x, height);
+    context.stroke();
+  }
+  for (let y = 0; y <= height; y += gridStep) {
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(width, y);
+    context.stroke();
+  }
+
+  if (backgroundImage) {
+    const scale = Math.min(
+      width / backgroundImage.naturalWidth,
+      height / backgroundImage.naturalHeight,
+    );
+    const imageWidth = backgroundImage.naturalWidth * scale;
+    const imageHeight = backgroundImage.naturalHeight * scale;
+    context.globalAlpha = 0.78;
+    context.drawImage(
+      backgroundImage,
+      (width - imageWidth) / 2,
+      (height - imageHeight) / 2,
+      imageWidth,
+      imageHeight,
+    );
+    context.globalAlpha = 1;
+  }
+  context.restore();
+
+  const paint = (element, isDraft = false) => {
+    const normalizedStart = planToViewport(
+      { x: element.x1, y: element.y1 },
+      currentView,
+    );
+    const normalizedEnd = planToViewport(
+      { x: element.x2, y: element.y2 },
+      currentView,
+    );
+    const start = {
+      x: normalizedStart.x * width,
+      y: normalizedStart.y * height,
+    };
+    const end = {
+      x: normalizedEnd.x * width,
+      y: normalizedEnd.y * height,
+    };
+    const active = selectedId === element.id;
+    context.save();
+    context.strokeStyle = active ? "#f59e0b" : "#b91c1c";
+    context.fillStyle = active ? "rgba(245,158,11,.18)" : "rgba(185,28,28,.10)";
+    context.lineWidth =
+      (element.tipo === "muro" ? 5 : active ? 3 : 2) * styleScale;
+    if (isDraft) context.setLineDash([8 * styleScale, 6 * styleScale]);
+    if (element.tipo === "ambiente") {
+      context.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
+      context.strokeRect(start.x, start.y, end.x - start.x, end.y - start.y);
+    } else if (element.tipo === "nota") {
+      context.beginPath();
+      context.arc(start.x, start.y, 6 * styleScale, 0, Math.PI * 2);
+      context.fillStyle = "#f59e0b";
+      context.fill();
+    } else {
+      context.beginPath();
+      context.moveTo(start.x, start.y);
+      context.lineTo(end.x, end.y);
+      context.stroke();
+      if (element.tipo === "quota" || element.tipo === "calibra") {
+        drawArrow(context, start, end, styleScale);
+      }
+    }
+    const label = elementLabel(element, calibration, canvasRatio);
+    if (label) {
+      const x = (start.x + end.x) / 2;
+      const y = (start.y + end.y) / 2;
+      context.font = `600 ${13 * styleScale}px Arial`;
+      const metrics = context.measureText(label);
+      context.fillStyle = "rgba(255,255,255,.92)";
+      context.fillRect(
+        x - metrics.width / 2 - 5 * styleScale,
+        y - 18 * styleScale,
+        metrics.width + 10 * styleScale,
+        22 * styleScale,
+      );
+      context.fillStyle = "#171717";
+      context.fillText(label, x - metrics.width / 2, y - 3 * styleScale);
+    }
+    context.restore();
+  };
+
+  elements.forEach((element) => paint(element));
+  if (draft) paint(draft, true);
 }
 
 export default function RilievoTavola({
@@ -181,6 +325,7 @@ export default function RilievoTavola({
   const [savedPhotos, setSavedPhotos] = useState([]);
   const [photoPaths, setPhotoPaths] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState("");
   const [saveState, setSaveState] = useState("salvato");
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
@@ -278,6 +423,7 @@ export default function RilievoTavola({
       return undefined;
     }
     const image = new Image();
+    image.crossOrigin = "anonymous";
     image.onload = () => setBackgroundImage(image);
     image.onerror = () => setBackgroundImage(null);
     image.src = backgroundUrl;
@@ -323,123 +469,22 @@ export default function RilievoTavola({
   const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
     const { width, height } = canvasSize;
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    const renderWidth = Math.round(width * pixelRatio);
-    const renderHeight = Math.round(height * pixelRatio);
-    if (canvas.width !== renderWidth || canvas.height !== renderHeight) {
-      canvas.width = renderWidth;
-      canvas.height = renderHeight;
-    }
-    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    context.clearRect(0, 0, width, height);
-    context.fillStyle = "#f8f7f3";
-    context.fillRect(0, 0, width, height);
-
-    context.save();
-    context.translate(width * (0.5 + view.x), height * (0.5 + view.y));
-    context.scale(view.zoom, view.zoom);
-    context.translate(-width / 2, -height / 2);
-    context.strokeStyle = "#e5e1d8";
-    context.lineWidth = 1 / view.zoom;
-    for (let x = 0; x <= width; x += 24) {
-      context.beginPath();
-      context.moveTo(x, 0);
-      context.lineTo(x, height);
-      context.stroke();
-    }
-    for (let y = 0; y <= height; y += 24) {
-      context.beginPath();
-      context.moveTo(0, y);
-      context.lineTo(width, y);
-      context.stroke();
-    }
-
-    if (backgroundImage) {
-      const scale = Math.min(
-        width / backgroundImage.naturalWidth,
-        height / backgroundImage.naturalHeight,
-      );
-      const imageWidth = backgroundImage.naturalWidth * scale;
-      const imageHeight = backgroundImage.naturalHeight * scale;
-      context.globalAlpha = 0.78;
-      context.drawImage(
-        backgroundImage,
-        (width - imageWidth) / 2,
-        (height - imageHeight) / 2,
-        imageWidth,
-        imageHeight,
-      );
-      context.globalAlpha = 1;
-    }
-    context.restore();
-
-    const paint = (element, isDraft = false) => {
-      const normalizedStart = planToViewport(
-        { x: element.x1, y: element.y1 },
-        view,
-      );
-      const normalizedEnd = planToViewport(
-        { x: element.x2, y: element.y2 },
-        view,
-      );
-      const start = {
-        x: normalizedStart.x * width,
-        y: normalizedStart.y * height,
-      };
-      const end = { x: normalizedEnd.x * width, y: normalizedEnd.y * height };
-      const active = selectedId === element.id;
-      context.save();
-      context.strokeStyle = active ? "#f59e0b" : "#b91c1c";
-      context.fillStyle = active
-        ? "rgba(245,158,11,.18)"
-        : "rgba(185,28,28,.10)";
-      context.lineWidth = element.tipo === "muro" ? 5 : active ? 3 : 2;
-      if (isDraft) context.setLineDash([8, 6]);
-      if (element.tipo === "ambiente") {
-        context.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
-        context.strokeRect(start.x, start.y, end.x - start.x, end.y - start.y);
-      } else if (element.tipo === "nota") {
-        context.beginPath();
-        context.arc(start.x, start.y, 6, 0, Math.PI * 2);
-        context.fillStyle = "#f59e0b";
-        context.fill();
-      } else {
-        context.beginPath();
-        context.moveTo(start.x, start.y);
-        context.lineTo(end.x, end.y);
-        context.stroke();
-        if (element.tipo === "quota" || element.tipo === "calibra") {
-          drawArrow(context, start, end);
-        }
-      }
-      const label = elementLabel(element, calibration, canvasRatio);
-      if (label) {
-        const x = (start.x + end.x) / 2;
-        const y = (start.y + end.y) / 2;
-        context.font = "600 13px Arial";
-        const metrics = context.measureText(label);
-        context.fillStyle = "rgba(255,255,255,.92)";
-        context.fillRect(
-          x - metrics.width / 2 - 5,
-          y - 18,
-          metrics.width + 10,
-          22,
-        );
-        context.fillStyle = "#171717";
-        context.fillText(label, x - metrics.width / 2, y - 3);
-      }
-      context.restore();
-    };
-
-    elements.forEach((element) => paint(element));
-    if (draft) paint(draft, true);
+    renderTavolaCanvas({
+      canvas,
+      width,
+      height,
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      backgroundImage,
+      calibration,
+      elements,
+      draft,
+      selectedId,
+      view,
+    });
   }, [
     backgroundImage,
     calibration,
-    canvasRatio,
     canvasSize,
     draft,
     elements,
@@ -852,6 +897,69 @@ export default function RilievoTavola({
     }
   };
 
+  const hasBackgroundAsset = Boolean(
+    pendingPlan?.previewBlob ||
+    asset.planimetria_preview_path ||
+    asset.planimetria_path,
+  );
+  const exportReady =
+    ["salvato", "in_attesa"].includes(saveState) &&
+    !busy &&
+    !exporting &&
+    (!hasBackgroundAsset || Boolean(backgroundImage)) &&
+    (Boolean(backgroundImage) || elements.length > 0);
+
+  const buildExportCanvas = () => {
+    const { width, height } = rilievoExportDimensions(
+      payload.canvas_width,
+      payload.canvas_height,
+    );
+    const canvas = document.createElement("canvas");
+    renderTavolaCanvas({
+      canvas,
+      width,
+      height,
+      backgroundImage,
+      calibration,
+      elements,
+      selectedId: "",
+      view: { zoom: 1, x: 0, y: 0 },
+      styleScale: Math.max(1, width / 1000),
+    });
+    return canvas;
+  };
+
+  const downloadElaborato = async (format) => {
+    if (!exportReady) {
+      toast.error("Salva prima le modifiche alla planimetria");
+      return;
+    }
+    setExporting(format);
+    try {
+      const canvas = buildExportCanvas();
+      const baseName = rilievoExportBaseName(
+        asset.planimetria_filename,
+        rilievo.id,
+      );
+      if (format === "pdf") {
+        await downloadRilievoPdf(canvas, baseName);
+      } else {
+        await downloadRilievoPng(canvas, baseName);
+      }
+      toast.success(
+        format === "pdf"
+          ? "PDF annotato scaricato"
+          : "Immagine annotata scaricata",
+      );
+    } catch (error) {
+      toast.error("Elaborato non scaricato", {
+        description: error?.message || "Riprova tra poco.",
+      });
+    } finally {
+      setExporting("");
+    }
+  };
+
   const updateSelected = (changes) => {
     pushElements(
       elements.map((item) =>
@@ -1261,6 +1369,43 @@ export default function RilievoTavola({
           Salva planimetria, misure e foto
         </button>
       )}
+
+      <div
+        className={`${locked ? "mt-5" : "mt-3"} rounded-xl border border-stroke bg-bg p-3`}
+      >
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={!exportReady}
+            onClick={() => void downloadElaborato("png")}
+            className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-brand/40 px-4 font-display text-xs uppercase text-brand disabled:opacity-40"
+          >
+            {exporting === "png" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            Scarica immagine
+          </button>
+          <button
+            type="button"
+            disabled={!exportReady}
+            onClick={() => void downloadElaborato("pdf")}
+            className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-brand/40 px-4 font-display text-xs uppercase text-brand disabled:opacity-40"
+          >
+            {exporting === "pdf" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
+            Scarica PDF
+          </button>
+        </div>
+        <p className="mt-2 text-center text-[11px] text-fog">
+          Disponibile dopo il salvataggio: include planimetria, misure, forme e
+          note in un unico elaborato ad alta risoluzione.
+        </p>
+      </div>
     </section>
   );
 }
