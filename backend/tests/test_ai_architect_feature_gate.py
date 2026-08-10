@@ -3,6 +3,7 @@ import re
 from types import SimpleNamespace
 
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from fastapi.responses import JSONResponse
 
 import server
@@ -95,3 +96,27 @@ def test_production_cors_accepts_only_gb_frontends():
     assert not re.fullmatch(
         server.DEFAULT_CORS_ORIGIN_REGEX, "https://example.invalid"
     )
+
+
+def test_production_cors_accepts_campo_put_preflight():
+    client = TestClient(server.app)
+    try:
+        response = client.options(
+            "/api/campo/rilievi/ab35adfc-2a06-43f9-b8d5-39c3df128b78/ambienti/"
+            "bfbcc0c0-1be0-4d09-9f60-2e0b3436b3ff",
+            headers={
+                "Origin": "https://app.gbconstruction.it",
+                "Access-Control-Request-Method": "PUT",
+                "Access-Control-Request-Headers": (
+                    "authorization,content-type,x-tenant-slug"
+                ),
+            },
+        )
+    finally:
+        client.close()
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == (
+        "https://app.gbconstruction.it"
+    )
+    assert "PUT" in response.headers["access-control-allow-methods"]
