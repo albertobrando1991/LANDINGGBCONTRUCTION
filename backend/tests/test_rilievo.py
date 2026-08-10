@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
+import fitz
 from fastapi import APIRouter, HTTPException, Request
 
 import edilos_routes
@@ -42,6 +43,8 @@ def _rilievo(**overrides):
         "cliente": "Cliente prova",
         "data_rilievo": date(2026, 8, 9),
         "stato": "bozza",
+        "planimetria_data": {"version": 1, "elementi": []},
+        "foto_paths": [],
     }
     row.update(overrides)
     return row
@@ -70,11 +73,24 @@ def test_route_rilievi_e_ambienti_registrate():
     edilos_routes.register_edilos_routes(api, object(), object())
     routes = {(route.path, tuple(sorted(route.methods or []))) for route in api.routes}
 
-    assert any(path == "/api/campo/rilievi" and "GET" in methods for path, methods in routes)
-    assert any(path == "/api/campo/rilievi" and "POST" in methods for path, methods in routes)
+    assert any(
+        path == "/api/campo/rilievi" and "GET" in methods for path, methods in routes
+    )
+    assert any(
+        path == "/api/campo/rilievi" and "POST" in methods for path, methods in routes
+    )
     assert any(
         path == "/api/campo/rilievi/{rilievo_id}/ambienti/{ambiente_client_uuid}"
         and "PUT" in methods
+        for path, methods in routes
+    )
+    assert any(
+        path == "/api/campo/rilievi/{rilievo_id}/tavola" and "PUT" in methods
+        for path, methods in routes
+    )
+    assert any(
+        path == "/api/campo/rilievi/{rilievo_id}/planimetria/preview"
+        and "POST" in methods
         for path, methods in routes
     )
 
@@ -103,8 +119,7 @@ def test_salva_ambiente_calcola_superficie_e_valida_path_foto():
     conn = AsyncMock()
     conn.fetchrow.side_effect = [_rilievo(), _ambiente()]
     path = (
-        f"{TENANT_ID}/rilievo-{RILIEVO_ID}/"
-        f"ambiente-{AMBIENTE_CLIENT_UUID}/foto.jpg"
+        f"{TENANT_ID}/rilievo-{RILIEVO_ID}/" f"ambiente-{AMBIENTE_CLIENT_UUID}/foto.jpg"
     )
 
     result = asyncio.run(
@@ -122,7 +137,9 @@ def test_salva_ambiente_calcola_superficie_e_valida_path_foto():
     )
 
     insert = conn.fetchrow.await_args_list[1]
-    assert "on conflict (tenant_id, rilievo_id, client_uuid) do update" in insert.args[0]
+    assert (
+        "on conflict (tenant_id, rilievo_id, client_uuid) do update" in insert.args[0]
+    )
     assert Decimal("12.000") in insert.args
     assert result["superficie"] == 12.0
 
@@ -144,6 +161,74 @@ def test_salva_ambiente_blocca_foto_di_un_altro_rilievo():
         )
 
     assert exc.value.status_code == 400
+
+
+def test_render_pdf_preview_restituisce_png():
+    document = fitz.open()
+    page = document.new_page(width=600, height=400)
+    page.draw_rect(fitz.Rect(40, 40, 560, 360))
+    content = document.tobytes()
+    document.close()
+
+    preview = rilievo_service.render_pdf_preview(content)
+
+    assert preview.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_salva_tavola_valida_asset_tenant_scoped():
+    conn = AsyncMock()
+    plan = f"{TENANT_ID}/rilievo-{RILIEVO_ID}/planimetria/originale-casa.pdf"
+    preview = f"{TENANT_ID}/rilievo-{RILIEVO_ID}/planimetria/preview.png"
+    photo = f"{TENANT_ID}/rilievo-{RILIEVO_ID}/generali/foto.jpg"
+    saved = _rilievo(
+        planimetria_path=plan,
+        planimetria_preview_path=preview,
+        foto_paths=[photo],
+    )
+    conn.fetchrow.side_effect = [_rilievo(), {"id": UUID(RILIEVO_ID)}, saved]
+    conn.fetch.return_value = []
+
+    result = asyncio.run(
+        rilievo_service.salva_tavola(
+            conn,
+            TENANT_ID,
+            RILIEVO_ID,
+            planimetria_path=plan,
+            planimetria_preview_path=preview,
+            planimetria_filename="casa.pdf",
+            planimetria_mime_type="application/pdf",
+            planimetria_data={"version": 1, "elementi": []},
+            foto_paths=[photo],
+        )
+    )
+
+    update = conn.fetchrow.await_args_list[1]
+    assert "planimetria_data = $7::jsonb" in update.args[0]
+    assert result["planimetria_path"] == plan
+    assert result["n_foto_generali"] == 1
+
+
+def test_salva_tavola_blocca_foto_generale_di_un_altro_rilievo():
+    conn = AsyncMock()
+    conn.fetchrow.return_value = _rilievo()
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            rilievo_service.salva_tavola(
+                conn,
+                TENANT_ID,
+                RILIEVO_ID,
+                planimetria_path=None,
+                planimetria_preview_path=None,
+                planimetria_filename=None,
+                planimetria_mime_type=None,
+                planimetria_data={"version": 1, "elementi": []},
+                foto_paths=[f"{TENANT_ID}/rilievo-altro/generali/foto.jpg"],
+            )
+        )
+
+    assert exc.value.status_code == 400
+    assert "foto generali" in exc.value.detail.lower()
 
 
 def test_completa_rilievo_richiede_almeno_un_ambiente():

@@ -10,6 +10,7 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import HTTPException
+import fitz
 
 RILIEVO_ROLES = frozenset({"owner", "admin", "staff", "operations"})
 
@@ -30,6 +31,8 @@ def _d(row: asyncpg.Record | dict | None) -> dict | None:
     out = {key: _value(value) for key, value in dict(row).items()}
     if isinstance(out.get("misure_extra"), str):
         out["misure_extra"] = json.loads(out["misure_extra"])
+    if isinstance(out.get("planimetria_data"), str):
+        out["planimetria_data"] = json.loads(out["planimetria_data"])
     return out
 
 
@@ -45,10 +48,7 @@ def _extra_json(misure_extra: list[dict]) -> str:
 def _validate_photo_paths(
     tenant_id: str, rilievo_id: str, ambiente_client_uuid: str, paths: list[str]
 ) -> None:
-    prefix = (
-        f"{tenant_id}/rilievo-{rilievo_id}/"
-        f"ambiente-{ambiente_client_uuid}/"
-    )
+    prefix = f"{tenant_id}/rilievo-{rilievo_id}/" f"ambiente-{ambiente_client_uuid}/"
     if any(not path.startswith(prefix) for path in paths):
         raise HTTPException(
             status_code=400,
@@ -72,12 +72,41 @@ async def _require_rilievo(
     return _d(row)
 
 
+async def require_rilievo(
+    conn: asyncpg.Connection, tenant_id: str, rilievo_id: str
+) -> dict:
+    return await _require_rilievo(conn, tenant_id, rilievo_id)
+
+
+def render_pdf_preview(content: bytes) -> bytes:
+    if not content or not content.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="Il file non e un PDF valido")
+    try:
+        with fitz.open(stream=content, filetype="pdf") as document:
+            if document.page_count < 1:
+                raise HTTPException(
+                    status_code=400, detail="La planimetria PDF non contiene pagine"
+                )
+            page = document.load_page(0)
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            return pixmap.tobytes("png")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail="La planimetria PDF non puo essere letta"
+        ) from exc
+
+
 async def lista_rilievi(conn: asyncpg.Connection, tenant_id: str) -> list[dict]:
     rows = await conn.fetch(
         """
         select r.*,
                count(a.id)::int as n_ambienti,
-               coalesce(sum(cardinality(a.foto_paths)), 0)::int as n_foto
+               (
+                 coalesce(sum(cardinality(a.foto_paths)), 0)
+                 + cardinality(r.foto_paths)
+               )::int as n_foto
         from public.rilievi r
         left join public.rilievo_ambienti a
           on a.tenant_id = r.tenant_id
@@ -157,10 +186,83 @@ async def get_rilievo(
     )
     rilievo["ambienti"] = [_d(row) for row in ambienti]
     rilievo["n_ambienti"] = len(rilievo["ambienti"])
-    rilievo["n_foto"] = sum(
+    rilievo["n_foto_generali"] = len(rilievo.get("foto_paths") or [])
+    rilievo["n_foto"] = rilievo["n_foto_generali"] + sum(
         len(ambiente.get("foto_paths") or []) for ambiente in rilievo["ambienti"]
     )
     return rilievo
+
+
+def _validate_tavola_paths(
+    tenant_id: str,
+    rilievo_id: str,
+    planimetria_path: Optional[str],
+    planimetria_preview_path: Optional[str],
+    foto_paths: list[str],
+) -> None:
+    plan_prefix = f"{tenant_id}/rilievo-{rilievo_id}/planimetria/"
+    photo_prefix = f"{tenant_id}/rilievo-{rilievo_id}/generali/"
+    if planimetria_path and not planimetria_path.startswith(plan_prefix):
+        raise HTTPException(
+            status_code=400, detail="La planimetria non appartiene al rilievo"
+        )
+    if planimetria_preview_path and not planimetria_preview_path.startswith(
+        plan_prefix
+    ):
+        raise HTTPException(
+            status_code=400, detail="La preview non appartiene al rilievo"
+        )
+    if any(not path.startswith(photo_prefix) for path in foto_paths):
+        raise HTTPException(
+            status_code=400,
+            detail="Una o piu foto generali non appartengono al rilievo",
+        )
+
+
+async def salva_tavola(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    rilievo_id: str,
+    *,
+    planimetria_path: Optional[str],
+    planimetria_preview_path: Optional[str],
+    planimetria_filename: Optional[str],
+    planimetria_mime_type: Optional[str],
+    planimetria_data: dict,
+    foto_paths: list[str],
+) -> dict:
+    await _require_rilievo(conn, tenant_id, rilievo_id)
+    _validate_tavola_paths(
+        tenant_id,
+        rilievo_id,
+        planimetria_path,
+        planimetria_preview_path,
+        foto_paths,
+    )
+    row = await conn.fetchrow(
+        """
+        update public.rilievi
+        set planimetria_path = $3,
+            planimetria_preview_path = $4,
+            planimetria_filename = $5,
+            planimetria_mime_type = $6,
+            planimetria_data = $7::jsonb,
+            foto_paths = $8::text[]
+        where tenant_id = $1::uuid and id = $2::uuid and archived_at is null
+        returning id
+        """,
+        tenant_id,
+        rilievo_id,
+        _clean(planimetria_path),
+        _clean(planimetria_preview_path),
+        _clean(planimetria_filename),
+        _clean(planimetria_mime_type),
+        json.dumps(planimetria_data, ensure_ascii=False, default=str),
+        foto_paths,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Rilievo non trovato")
+    return await get_rilievo(conn, tenant_id, rilievo_id)
 
 
 async def aggiorna_rilievo(

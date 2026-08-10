@@ -8,6 +8,7 @@ import {
   ClipboardList,
   CloudOff,
   Loader2,
+  Map as MapIcon,
   Plus,
   RefreshCw,
   Ruler,
@@ -23,6 +24,7 @@ import {
   loadRilievi,
   loadRilievo,
   patchRilievo,
+  saveRilievoTavola,
   saveRilievoAmbiente,
 } from "@/lib/rilievoApi";
 import {
@@ -38,8 +40,10 @@ import {
   compressCampoPhoto,
   createRilievoPhotoUrls,
   MAX_RILIEVO_PHOTOS,
+  uploadRilievoGeneralPhotos,
   uploadRilievoPhotos,
 } from "@/lib/campoPhotos";
+import { uploadRilievoPlan } from "@/lib/rilievoAssets";
 import { canUseTenantStorage } from "@/lib/storage";
 import { useAuth } from "@/context/AuthContext";
 import { useTenant } from "@/context/TenantContext";
@@ -48,6 +52,7 @@ import {
   normalizeRilievoLeads,
   rilievoLeadLabel,
 } from "./rilievoLeadSelection";
+import RilievoTavola from "./RilievoTavola";
 
 const EMPTY_RILIEVO = {
   sopralluogo_legacy_id: "",
@@ -670,6 +675,7 @@ export default function PrimoRilievo({ isOnline }) {
   });
   const [surveyDraft, setSurveyDraft] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState("");
+  const [activePanel, setActivePanel] = useState("tavola");
   const [queueCount, setQueueCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const surveyLastSaved = useRef("");
@@ -845,6 +851,17 @@ export default function PrimoRilievo({ isOnline }) {
     [qc, selectedId],
   );
 
+  const updateCachedRilievo = useCallback(
+    (saved) => {
+      qc.setQueryData(["campo", "rilievo", selectedId], (current) =>
+        current?.data ? { ...current, data: saved } : current,
+      );
+      void cacheRilievo(slug, saved);
+      void qc.invalidateQueries({ queryKey: ["campo", "rilievi", slug] });
+    },
+    [qc, selectedId, slug],
+  );
+
   const flush = useCallback(async () => {
     if (!isOnline || syncing) return;
     setSyncing(true);
@@ -858,6 +875,34 @@ export default function PrimoRilievo({ isOnline }) {
             operation.rilievo_id,
             operation.ambiente_client_uuid,
           );
+        }
+        if (operation.kind === "tavola") {
+          let body = operation.body;
+          if (operation.plan_file) {
+            body = {
+              ...body,
+              ...(await uploadRilievoPlan({
+                user,
+                rilievoId: operation.rilievo_id,
+                file: operation.plan_file,
+                previewBlob: operation.plan_preview,
+              })),
+            };
+          }
+          if (operation.photos?.length) {
+            const paths = await uploadRilievoGeneralPhotos({
+              user,
+              rilievoId: operation.rilievo_id,
+              photos: operation.photos,
+            });
+            body = {
+              ...body,
+              foto_paths: Array.from(
+                new Set([...(body.foto_paths || []), ...paths]),
+              ),
+            };
+          }
+          return saveRilievoTavola(operation.rilievo_id, body);
         }
         let body = operation.body;
         if (operation.photos?.length) {
@@ -967,6 +1012,7 @@ export default function PrimoRilievo({ isOnline }) {
         setQueueCount((await listRilievoOperations(slug)).length);
       }
       setSelectedRoom(clientUuid);
+      setActivePanel("ambiente");
     } catch (error) {
       toast.error("Ambiente non aggiunto", {
         description: detailMessage(error),
@@ -1371,6 +1417,21 @@ export default function PrimoRilievo({ isOnline }) {
             </section>
 
             <section className="rounded-2xl border border-stroke bg-surface p-3">
+              <button
+                type="button"
+                onClick={() => setActivePanel("tavola")}
+                className={`mb-3 flex w-full items-center gap-3 rounded-xl border p-3 text-left ${activePanel === "tavola" ? "border-brand bg-brand/10" : "border-stroke bg-bg"}`}
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-brand">
+                  <MapIcon className="h-4 w-4" />
+                </span>
+                <span>
+                  <b className="block text-sm text-ink">Planimetria e foto</b>
+                  <small className="text-fog">
+                    Tavola, quote e galleria immobile
+                  </small>
+                </span>
+              </button>
               <div className="flex items-center justify-between px-1 pb-3">
                 <div>
                   <p className="font-display text-xs uppercase text-ink">
@@ -1396,8 +1457,11 @@ export default function PrimoRilievo({ isOnline }) {
                   <button
                     key={room.client_uuid}
                     type="button"
-                    onClick={() => setSelectedRoom(room.client_uuid)}
-                    className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${selectedRoom === room.client_uuid ? "border-brand bg-brand/10" : "border-stroke bg-bg"}`}
+                    onClick={() => {
+                      setSelectedRoom(room.client_uuid);
+                      setActivePanel("ambiente");
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${activePanel === "ambiente" && selectedRoom === room.client_uuid ? "border-brand bg-brand/10" : "border-stroke bg-bg"}`}
                   >
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-xs text-brand">
                       {index + 1}
@@ -1426,7 +1490,17 @@ export default function PrimoRilievo({ isOnline }) {
           </aside>
 
           <div>
-            {activeRoom ? (
+            {activePanel === "tavola" ? (
+              <RilievoTavola
+                rilievo={rilievo}
+                user={user}
+                slug={slug}
+                isOnline={isOnline}
+                locked={locked}
+                onSaved={updateCachedRilievo}
+                onQueueChanged={setQueueCount}
+              />
+            ) : activeRoom ? (
               <AmbienteEditor
                 key={activeRoom.client_uuid}
                 rilievo={rilievo}

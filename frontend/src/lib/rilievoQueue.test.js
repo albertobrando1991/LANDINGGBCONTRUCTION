@@ -62,3 +62,25 @@ test("rimuove una modifica solo dopo la sincronizzazione riuscita", async () => 
   expect(sent).toEqual(["Cucina"]);
   expect(await listRilievoOperations("gbconstruction")).toHaveLength(0);
 });
+
+test("conserva offline tavola, planimetria e foto generali", async () => {
+  const plan = new Blob(["planimetria"], { type: "image/png" });
+  const photo = new Blob(["foto"], { type: "image/jpeg" });
+  await enqueueRilievoOperation("gbconstruction", {
+    kind: "tavola",
+    entity_id: RILIEVO_ID,
+    rilievo_id: RILIEVO_ID,
+    body: {
+      elementi: [{ id: "muro-1", tipo: "muro" }],
+      foto_paths: [],
+    },
+    plan_file: plan,
+    plan_preview: plan,
+    photos: [{ id: "foto-1", blob: photo }],
+  });
+
+  const [queued] = await listRilievoOperations("gbconstruction");
+  expect(queued.kind).toBe("tavola");
+  expect(queued.plan_file).toBe(plan);
+  expect(queued.photos[0].blob).toBe(photo);
+});

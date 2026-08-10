@@ -11,6 +11,7 @@ jest.mock("./storage", () => ({
 
 import {
   campoPhotoPath,
+  rilievoGeneralPhotoPath,
   rilievoPhotoPath,
   uploadCampoPhotos,
 } from "./campoPhotos";
@@ -51,6 +52,16 @@ test("genera un path foto ambiente tenant-scoped", () => {
       photoId: PHOTO,
     }),
   ).toBe(`${TENANT}/rilievo-${CANTIERE}/ambiente-${CLIENT}/${PHOTO}.jpg`);
+});
+
+test("genera un path foto generale del rilievo tenant-scoped", () => {
+  expect(
+    rilievoGeneralPhotoPath({
+      tenantId: TENANT,
+      rilievoId: CANTIERE,
+      photoId: PHOTO,
+    }),
+  ).toBe(`${TENANT}/rilievo-${CANTIERE}/generali/${PHOTO}.jpg`);
 });
 
 test("non tenta upload foto senza sessione Supabase interna", async () => {

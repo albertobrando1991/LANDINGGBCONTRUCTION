@@ -12,6 +12,9 @@ export const createRilievo = async (body) =>
 export const patchRilievo = async (rilievoId, body) =>
   (await client.patch(`/campo/rilievi/${rilievoId}`, body)).data;
 
+export const saveRilievoTavola = async (rilievoId, body) =>
+  (await client.put(`/campo/rilievi/${rilievoId}/tavola`, body)).data;
+
 export const saveRilievoAmbiente = async (
   rilievoId,
   ambienteClientUuid,

@@ -75,7 +75,9 @@ async def _sync_legacy_lead_safely(conn, db, tenant_id: str, lead_id: Any) -> No
     except Exception as exc:
         # La consegna email e la transazione EdilOS non devono essere ripetute
         # soltanto per un'indisponibilita temporanea della proiezione CRM.
-        logger.warning("Mirror Inbox/Pipeline del lead %s non aggiornato: %s", lead_id, exc)
+        logger.warning(
+            "Mirror Inbox/Pipeline del lead %s non aggiornato: %s", lead_id, exc
+        )
 
 
 # ---------- Prezzario ----------
@@ -238,6 +240,60 @@ class AggiornaRilievoBody(BaseModel):
     tecnico: Optional[str] = Field(default=None, max_length=200)
     note: Optional[str] = Field(default=None, max_length=5000)
     stato: Optional[Literal["bozza", "completato"]] = None
+
+
+class ElementoTavolaRilievoBody(BaseModel):
+    id: str = Field(min_length=1, max_length=100)
+    tipo: Literal["muro", "quota", "ambiente", "nota"]
+    x1: float = Field(ge=0, le=1)
+    y1: float = Field(ge=0, le=1)
+    x2: float = Field(ge=0, le=1)
+    y2: float = Field(ge=0, le=1)
+    testo: Optional[str] = Field(default=None, max_length=160)
+    metri: Optional[Decimal] = Field(
+        default=None, ge=0, le=10000, max_digits=12, decimal_places=3
+    )
+
+
+class CalibrazioneTavolaRilievoBody(BaseModel):
+    metri: Decimal = Field(gt=0, le=10000, max_digits=12, decimal_places=3)
+    distanza_normalizzata: Decimal = Field(gt=0, le=2, max_digits=12, decimal_places=8)
+
+
+class SalvaTavolaRilievoBody(BaseModel):
+    planimetria_path: Optional[str] = Field(default=None, max_length=700)
+    planimetria_preview_path: Optional[str] = Field(default=None, max_length=700)
+    planimetria_filename: Optional[str] = Field(default=None, max_length=255)
+    planimetria_mime_type: Optional[
+        Literal["application/pdf", "image/jpeg", "image/png", "image/webp"]
+    ] = None
+    canvas_width: int = Field(default=1200, ge=320, le=10000)
+    canvas_height: int = Field(default=800, ge=240, le=10000)
+    calibrazione: Optional[CalibrazioneTavolaRilievoBody] = None
+    elementi: List[ElementoTavolaRilievoBody] = Field(
+        default_factory=list, max_length=500
+    )
+    foto_paths: List[str] = Field(default_factory=list, max_length=30)
+
+    @field_validator("foto_paths")
+    @classmethod
+    def valida_foto_generali(cls, values: List[str]) -> List[str]:
+        normalized = [str(value).strip() for value in values]
+        if any(not value or len(value) > 700 for value in normalized):
+            raise ValueError("Percorso foto non valido")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("La stessa foto non puo essere indicata piu volte")
+        return normalized
+
+    @field_validator("elementi")
+    @classmethod
+    def valida_elementi_univoci(
+        cls, values: List[ElementoTavolaRilievoBody]
+    ) -> List[ElementoTavolaRilievoBody]:
+        ids = [item.id for item in values]
+        if len(set(ids)) != len(ids):
+            raise ValueError("Gli elementi della tavola devono avere ID univoci")
+        return values
 
 
 class MisuraExtraBody(BaseModel):
@@ -691,9 +747,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                     autore=actor_name(user),
                     consenti_computo_editabile=True,
                 )
-                result = await boq_service.get_computo(
-                    conn, tenant["id"], result["id"]
-                )
+                result = await boq_service.get_computo(conn, tenant["id"], result["id"])
                 result["importazione"] = importazione
                 result["automazione"] = automazione
                 result["preventivo"] = preventivo
@@ -724,9 +778,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                     status_code=403,
                     detail="Solo owner e admin possono eliminare un computo",
                 )
-            return await boq_service.elimina_computo(
-                conn, tenant["id"], computo_id
-            )
+            return await boq_service.elimina_computo(conn, tenant["id"], computo_id)
 
     @api.post("/computi/{computo_id}/voci")
     async def add_voce(request: Request, computo_id: str, body: AggiungiVoceBody):
@@ -809,9 +861,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             return {"validate": n}
 
     @api.post("/computi/{computo_id}/riclassifica")
-    async def riclassifica(
-        request: Request, computo_id: str, forza: bool = False
-    ):
+    async def riclassifica(request: Request, computo_id: str, forza: bool = False):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             n = await boq_service.riclassifica_computo(
@@ -907,9 +957,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         canonical_id = str(tenancy.uuid_or_400(rilievo_id, "Rilievo"))
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_rilievo_role(tenant)
-            return await rilievo_service.get_rilievo(
-                conn, tenant["id"], canonical_id
-            )
+            return await rilievo_service.get_rilievo(conn, tenant["id"], canonical_id)
 
     @api.patch("/campo/rilievi/{rilievo_id}")
     async def patch_rilievo(
@@ -924,6 +972,62 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 tenant["id"],
                 canonical_id,
                 body.model_dump(exclude_unset=True),
+            )
+
+    @api.post("/campo/rilievi/{rilievo_id}/planimetria/preview")
+    async def preview_planimetria_rilievo(
+        request: Request,
+        rilievo_id: str,
+        planimetria: UploadFile = File(...),
+    ):
+        user = await _user(request, db)
+        canonical_id = str(tenancy.uuid_or_400(rilievo_id, "Rilievo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_rilievo_role(tenant)
+            await rilievo_service.require_rilievo(conn, tenant["id"], canonical_id)
+        content = await planimetria.read(25 * 1024 * 1024 + 1)
+        if len(content) > 25 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413, detail="La planimetria supera il limite di 25 MB"
+            )
+        preview = rilievo_service.render_pdf_preview(content)
+        return Response(
+            content=preview,
+            media_type="image/png",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @api.put("/campo/rilievi/{rilievo_id}/tavola")
+    async def salva_tavola_rilievo(
+        request: Request, rilievo_id: str, body: SalvaTavolaRilievoBody
+    ):
+        user = await _user(request, db)
+        canonical_id = str(tenancy.uuid_or_400(rilievo_id, "Rilievo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_rilievo_role(tenant)
+            return await rilievo_service.salva_tavola(
+                conn,
+                tenant["id"],
+                canonical_id,
+                planimetria_path=body.planimetria_path,
+                planimetria_preview_path=body.planimetria_preview_path,
+                planimetria_filename=body.planimetria_filename,
+                planimetria_mime_type=body.planimetria_mime_type,
+                planimetria_data={
+                    "version": 1,
+                    "canvas_width": body.canvas_width,
+                    "canvas_height": body.canvas_height,
+                    "calibrazione": (
+                        body.calibrazione.model_dump(mode="json")
+                        if body.calibrazione
+                        else None
+                    ),
+                    "elementi": [
+                        item.model_dump(mode="json", exclude_none=True)
+                        for item in body.elementi
+                    ],
+                },
+                foto_paths=body.foto_paths,
             )
 
     @api.put("/campo/rilievi/{rilievo_id}/ambienti/{ambiente_client_uuid}")
@@ -1242,11 +1346,11 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_client_role(tenant)
-            dashboard = await client_portal_service.get_portal_dashboard(conn, tenant["id"])
+            dashboard = await client_portal_service.get_portal_dashboard(
+                conn, tenant["id"]
+            )
             dashboard.update(
-                await contract_workflow_service.portal_contract_data(
-                    conn, tenant["id"]
-                )
+                await contract_workflow_service.portal_contract_data(conn, tenant["id"])
             )
             return dashboard
 
@@ -1328,8 +1432,10 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             if not document:
                 raise HTTPException(status_code=404, detail="Documento non disponibile")
             if document["storage_path"]:
-                content, mime, filename = await contract_workflow_service.document_download(
-                    conn, tenant["id"], doc_uuid
+                content, mime, filename = (
+                    await contract_workflow_service.document_download(
+                        conn, tenant["id"], doc_uuid
+                    )
                 )
             else:
                 payload = await contract_workflow_service.validated_contract_payload(
