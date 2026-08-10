@@ -3,7 +3,7 @@
 -- tenant-scoped, indicizzati e non esposti dalla Data API.
 
 create schema if not exists private;
-revoke all on schema private from public, anon, authenticated;
+revoke all on schema private from public, anon;
 
 create table private.runtime_documents (
   tenant_id uuid not null references public.tenants(id) on delete cascade,
