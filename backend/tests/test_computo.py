@@ -122,6 +122,7 @@ def test_get_computo_riusa_le_voci_per_i_totali():
         "id": UUID(computo_id),
         "tenant_id": UUID(tenant_id),
         "stato": "bozza",
+        "durate_fasi": '{"15": 4}',
     }
     conn.fetch.return_value = []
 
@@ -136,6 +137,7 @@ def test_get_computo_riusa_le_voci_per_i_totali():
         "computo_id": computo_id,
         "tenant_id": tenant_id,
     }
+    assert result["durate_fasi"] == {"15": 4}
 
 
 def test_aggiorna_cronoprogramma_persiste_superficie_e_durate_e_sincronizza():

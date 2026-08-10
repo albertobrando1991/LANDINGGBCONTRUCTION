@@ -48,6 +48,19 @@ def _d(row: asyncpg.Record | None) -> dict | None:
     return out
 
 
+def _json_object(value: Any) -> dict:
+    """Normalizza JSONB sia con codec asyncpg sia come testo grezzo."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError):
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
+
+
 def _totali_voci(
     voci: list[dict], *, computo_id: Any = None, tenant_id: Any = None
 ) -> dict:
@@ -672,7 +685,7 @@ async def duplica_computo(
             else f"Copia di {src.get('numero') or src['id']}"
         ),
         src.get("superficie_mq"),
-        json.dumps(src.get("durate_fasi") or {}),
+        json.dumps(_json_object(src.get("durate_fasi"))),
     )
     await conn.execute(
         """
@@ -1057,7 +1070,7 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
     out["riepilogo_fasi"] = _riepilogo(fasi_lavorazione.raggruppa_per_fase(out["voci"]))
     out["riepilogo_aree"] = _riepilogo(fasi_lavorazione.raggruppa_per_area(out["voci"]))
     out["controlli"] = preventivo_struttura.controlli_coerenza(out["voci"])
-    out["durate_fasi"] = out.get("durate_fasi") or {}
+    out["durate_fasi"] = _json_object(out.get("durate_fasi"))
     out["cronoprogramma"] = cronoprogramma.stima(
         out["voci"],
         superficie_mq=out.get("superficie_mq"),
