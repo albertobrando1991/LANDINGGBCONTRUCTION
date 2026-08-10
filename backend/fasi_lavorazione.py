@@ -108,6 +108,14 @@ FAMIGLIA_FASE: dict[str, int] = {
     "RESTAURO - RESTAURO DI STUCCHI, AFFRESCHI, DECORAZIONI PITTORICHE": 80,
 }
 
+# Segnali descrittivi forti che devono vincere sui termini accessori presenti
+# nelle descrizioni estese PriMus.
+REGOLE_TESTO_PRIORITARIE: tuple[tuple[int, str], ...] = (
+    (80, r"tinteggiatur|idropittur|pittura lavabile|fissativ"),
+    (45, r"punto presa(?:\s+tv)?|presa sip|punto ethernet"),
+    (70, r"posa in opera (?:di )?rivestim\w*"),
+)
+
 # Regole testuali per le voci senza famiglia utile (import ACCA, voci libere).
 # Ordinate dalla piu specifica alla piu generica: vince la prima che corrisponde.
 REGOLE_TESTO: tuple[tuple[int, str], ...] = (
@@ -119,30 +127,32 @@ REGOLE_TESTO: tuple[tuple[int, str], ...] = (
     (20, r"\bscav[oi]\b|rinterr|reinterr|sbancament|movimento di terra|livellamento del terreno"),
     (25, r"calcestruzz|cemento armato|casseform|\barmatur|pilastr|\btrav[ei]\b|solai|solaio|"
          r"muratur|tramezzatur|architrav|cordol|fondazion|consolidament|cerchiatur|"
+         r"assistenza muraria|chiusura tracc|"
          r"micropal|carpenteri"),
     (30, r"guain|impermeabilizz|copertur|lattonier|canna fumaria|comignol|grond|pluvial|"
          r"manto di copertura|\btegol|\bcoppi"),
     (35, r"idraulic|idrico|idro-sanitar|sanitar|scarich|\bscarico\b|tubazion|adduzion|"
          r"\blavabo|\bbidet|piatto doccia|\bvaso\b|cassetta di scarico|"
-         r"miscelator|rubinett|\bsifon|\bboiler|scaldacqua|autoclave|contatore idrico"),
+         r"miscelator|rubinett|\bsifon|\bboiler|scaldacqua|autoclave|contatore idrico|"
+         r"montaggio bagno|addolcitor"),
     (40, r"antincendi|\bidrant|sprinkler|estintor|\bnaspo|rivelazione incendi"),
     (45, r"elettric|punto luce|punto presa|quadro (?:elettrico|generale)|\bcav[oi]\b|cavidott|"
          r"corrugat|canalin|interruttor|\bprese\b|citofon|videocitofon|fotovoltaic|"
          r"messa a terra|\btvcc\b|antifurt|domotic|illuminazion|\blampad|plafonier|"
-         r"cablagg|centralin"),
+         r"cablagg|centralin|presa sip|ethernet|farett|apparecchi illuminanti"),
     (50, r"ascensor|montascale|piattaforma elevatrice|montacarich"),
     (55, r"climatizz|condizionat|\bsplit\b|caldaia|pompa di calore|radiator|termosifon|"
          r"termoarredo|fan.?coil|ventilconvettor|aeraulic|canalizzat|\bvmc\b|"
          r"ricambio d.aria|riscaldament|pannelli radianti|termoconvettor|bruciator|"
-         r"cronotermostat|valvole termostatic"),
+         r"cronotermostat|\btermostat|valvole termostatic"),
     (60, r"massett|sottofond|caldana|vespaio|isolament|cappotto|coibent|barriera al vapore"),
     (65, r"intonac|rasatur|cartongess|controsoffitt|parete a secco|lastre in gesso|stuccatur"),
-    (70, r"paviment|rivestiment|piastrell|battiscop|\bgres\b|parquet|\bmarmo|"
+    (70, r"paviment|rivestim\w*|piastrell|battiscop|\bgres\b|parquet|\bmarmo|"
          r"\bsogli[ae]\b|davanzal|mosaic|klinker|listell"),
     (75, r"serrament|\binfiss|\bport[ea]\b|portoncin|finestr|persian|tapparell|avvolgibil|"
          r"zanzarier|\bvetr[oai]|blindat|cassonett|controtelai"),
     (80, r"tinteggiat|pittur|verniciat|idropittur|\bstucco\b|decorazion|smalt(?:o|atur)|"
-         r"velatur|\bprimer\b"),
+         r"velatur|\bprimer\b|fissativ"),
     (90, r"giardin|\bverde\b|piantumaz|aiuol|marciapied|asfalt|bitumat|\bpozzett|fognatur|"
          r"acquedott|pubblica illuminazion|arredo urbano|recinzion|cancell|massicciat"),
     (92, r"puliz|sgomber|consegna dell.immobile"),
@@ -152,6 +162,10 @@ REGOLE_TESTO: tuple[tuple[int, str], ...] = (
 
 _REGOLE_COMPILATE: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
     (ordine, re.compile(pattern, re.IGNORECASE)) for ordine, pattern in REGOLE_TESTO
+)
+_REGOLE_PRIORITARIE_COMPILATE: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
+    (ordine, re.compile(pattern, re.IGNORECASE))
+    for ordine, pattern in REGOLE_TESTO_PRIORITARIE
 )
 
 
@@ -169,6 +183,9 @@ def _da_famiglia(super_categoria: Optional[str]) -> Optional[int]:
 
 
 def _da_testo(testo: str) -> Optional[int]:
+    for ordine, pattern in _REGOLE_PRIORITARIE_COMPILATE:
+        if pattern.search(testo):
+            return ordine
     for ordine, pattern in _REGOLE_COMPILATE:
         if pattern.search(testo):
             return ordine
@@ -183,16 +200,24 @@ def classifica(
     descrizione: Optional[str] = None,
 ) -> tuple[int, str]:
     """Ritorna (ordine, nome) della fase. Cascata famiglia -> testo -> non classificata."""
-    testo = " ".join(
-        str(value) for value in (categoria, sub_categoria, descrizione) if value
-    )
+    contesto = " ".join(str(value) for value in (categoria, sub_categoria) if value)
+    descrizione_pulita = str(descrizione or "")
+    testo = " ".join(value for value in (contesto, descrizione_pulita) if value)
     famiglia = str(super_categoria or "").strip().upper()
-    generica = not famiglia or _macro(famiglia) in MACRO_GENERICHE
+    fase_famiglia = _da_famiglia(famiglia)
+    generica = (
+        not famiglia
+        or _macro(famiglia) in MACRO_GENERICHE
+        or fase_famiglia is None
+    )
 
     if generica:
-        ordine = _da_testo(testo) or _da_famiglia(famiglia)
+        # Negli import ACCA la categoria puo essere disallineata rispetto alla
+        # riga corrente. La descrizione della lavorazione e il segnale piu
+        # specifico e deve vincere sul contesto ereditato dal PDF.
+        ordine = _da_testo(descrizione_pulita) or _da_testo(contesto) or fase_famiglia
     else:
-        ordine = _da_famiglia(famiglia) or _da_testo(testo)
+        ordine = fase_famiglia or _da_testo(testo)
 
     if ordine is None:
         ordine = _da_testo(f"{famiglia} {testo}") or FASE_NON_CLASSIFICATA

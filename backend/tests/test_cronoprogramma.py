@@ -135,3 +135,80 @@ def test_intervento_parziale_non_viene_gonfiato_al_profilo_completo():
 
     assert piano["profilo"] == "intervento_parziale"
     assert piano["giorni_totali"] == 5
+
+
+def test_superficie_non_somma_posa_fornitura_rivestimenti_e_sfridi():
+    voci = [
+        _voce_100mq(
+            "Demolizioni e rimozioni",
+            15,
+            920,
+            descrizione="Demolizione pavimento appartamento",
+            um="mq",
+            qta=92,
+        ),
+        _voce_100mq(
+            "Massetti, sottofondi e isolamenti",
+            60,
+            2024,
+            descrizione="Massetto di sottofondo",
+            um="mq",
+            qta=92,
+        ),
+        _voce_100mq(
+            "Pavimenti e rivestimenti",
+            70,
+            2576,
+            descrizione="Posa in opera di pavimento in gres",
+            um="mq",
+            qta=92,
+        ),
+        _voce_100mq(
+            "Pavimenti e rivestimenti",
+            70,
+            5089,
+            descrizione="Fornitura di pavimenti e rivestimeni +15% tagli e sfridi",
+            um="mq",
+            qta=169.66,
+        ),
+    ]
+
+    piano = cronoprogramma.stima(voci)
+
+    assert piano["superficie_stimata_mq"] == 92
+    assert piano["superficie_origine"] == "stimata_dalle_voci"
+    assert piano["superficie_richiede_conferma"] is True
+
+
+def test_superficie_configurata_prevale_sulla_stima_dalle_voci():
+    piano = cronoprogramma.stima(
+        _ristrutturazione_completa_100mq(), superficie_mq=87
+    )
+
+    assert piano["superficie_stimata_mq"] == 87
+    assert piano["superficie_origine"] == "configurata"
+    assert piano["superficie_richiede_conferma"] is False
+
+
+def test_durate_manuali_sostituiscono_la_singola_fase_e_ricalcolano_il_totale():
+    piano = cronoprogramma.stima(
+        [_voce(*DEMOLIZIONI, 7000), _voce(*PAVIMENTI, 12000)],
+        superficie_mq=100,
+        durate_fasi={"15": 4, "70": 6},
+    )
+
+    assert [blocco["giorni"] for blocco in piano["blocchi"]] == [4, 6]
+    assert [blocco["giorni_automatici"] for blocco in piano["blocchi"]] == [10, 12]
+    assert all(blocco["manuale"] for blocco in piano["blocchi"])
+    assert piano["giorni_totali"] == 10
+    assert piano["durate_manuali"] == {"15": 4, "70": 6}
+
+
+def test_durate_manuali_degli_impianti_restano_coordinate_in_parallelo():
+    piano = cronoprogramma.stima(
+        [_voce(*IDRICO, 4000), _voce(*ELETTRICO, 8000)],
+        durate_fasi={35: 2, 45: 3},
+    )
+
+    assert piano["giorni_totali"] == 3
+    assert all(blocco["parallela"] for blocco in piano["blocchi"])

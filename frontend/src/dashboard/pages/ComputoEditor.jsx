@@ -262,11 +262,31 @@ export default function ComputoEditor() {
     qta: 1,
     prezzo_unitario: "",
   });
+  const [cronoprogrammaDraft, setCronoprogrammaDraft] = useState({
+    superficie_mq: "",
+    durate_fasi: {},
+  });
 
   const { data: computo, isLoading } = useQuery({
     queryKey: ["computo", id],
     queryFn: fetchComputo,
   });
+
+  useEffect(() => {
+    if (!computo) return;
+    setCronoprogrammaDraft({
+      superficie_mq:
+        computo.superficie_mq === null || computo.superficie_mq === undefined
+          ? ""
+          : String(computo.superficie_mq),
+      durate_fasi: Object.fromEntries(
+        Object.entries(computo.durate_fasi || {}).map(([ordine, giorni]) => [
+          String(ordine),
+          String(giorni),
+        ]),
+      ),
+    });
+  }, [computo]);
 
   const { data: prezzari = [] } = useQuery({
     queryKey: ["prezzari"],
@@ -372,6 +392,36 @@ export default function ComputoEditor() {
     onSuccess: refresh,
     onError: (error) =>
       toast.error(error?.response?.data?.detail || "Errore riordino voci"),
+  });
+
+  const salvaCronoprogramma = useMutation({
+    mutationFn: async () => {
+      const superficie = Number(cronoprogrammaDraft.superficie_mq);
+      const durate = Object.fromEntries(
+        Object.entries(cronoprogrammaDraft.durate_fasi)
+          .filter(([, giorni]) => String(giorni).trim() !== "")
+          .map(([ordine, giorni]) => [ordine, Number(giorni)]),
+      );
+      return (
+        await client.put(`/computi/${id}/cronoprogramma`, {
+          superficie_mq:
+            cronoprogrammaDraft.superficie_mq === "" ? null : superficie,
+          durate_fasi: durate,
+        })
+      ).data;
+    },
+    onSuccess: async () => {
+      toast.success(
+        computo?.preventivo_bozza_id
+          ? "Cronoprogramma salvato e PDF della bozza aggiornato"
+          : "Cronoprogramma salvato",
+      );
+      await refresh();
+    },
+    onError: (error) =>
+      toast.error(
+        error?.response?.data?.detail || "Cronoprogramma non salvato",
+      ),
   });
 
   const confirm = useMutation({
@@ -498,6 +548,22 @@ export default function ComputoEditor() {
   const controlli = computo.controlli || [];
   const senzaFase = Number(computo.n_senza_fase || 0);
   const crono = computo.cronoprogramma || {};
+  const superficieNumero = Number(cronoprogrammaDraft.superficie_mq);
+  const superficieValida =
+    cronoprogrammaDraft.superficie_mq !== "" &&
+    Number.isFinite(superficieNumero) &&
+    superficieNumero >= 5 &&
+    superficieNumero <= 10000;
+  const durateValide = Object.values(
+    cronoprogrammaDraft.durate_fasi,
+  ).every((giorni) => {
+    if (String(giorni).trim() === "") return true;
+    const value = Number(giorni);
+    return Number.isInteger(value) && value >= 0 && value <= 730;
+  });
+  const fasiCronoprogramma = (crono.blocchi || []).filter(
+    (blocco) => !blocco.continuativa && Number(blocco.fase_ordine) !== 99,
+  );
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -660,6 +726,163 @@ export default function ComputoEditor() {
           </button>
         </div>
       </div>
+
+      <section className="rounded-2xl border border-stroke bg-surface p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-display uppercase tracking-wider text-brand">
+              Cronoprogramma lavori
+            </p>
+            <h2 className="mt-1 text-lg font-display uppercase text-ink">
+              Superficie e durata delle fasi
+            </h2>
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-fog">
+              Conferma i metri quadri effettivi. Lascia vuota una durata per
+              usare il calcolo automatico oppure inserisci manualmente i giorni
+              lavorativi della singola fase.
+            </p>
+          </div>
+          <div className="text-right text-xs text-fog">
+            <span className="block text-lg font-display text-ink">
+              {crono.giorni_totali || 0} giorni
+            </span>
+            {crono.mesi > 0 && <span>circa {crono.mesi} mesi</span>}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-[220px_1fr]">
+          <label className="block">
+            <span className="text-[10px] font-display uppercase tracking-wider text-fog">
+              Superficie effettiva m²
+            </span>
+            <input
+              aria-label="Superficie effettiva del cantiere"
+              type="number"
+              min="5"
+              max="10000"
+              step="0.01"
+              value={cronoprogrammaDraft.superficie_mq}
+              onChange={(event) =>
+                setCronoprogrammaDraft((current) => ({
+                  ...current,
+                  superficie_mq: event.target.value,
+                }))
+              }
+              placeholder={
+                crono.superficie_stimata_mq
+                  ? String(crono.superficie_stimata_mq)
+                  : "es. 92"
+              }
+              className="mt-1 w-full rounded-xl border border-stroke bg-surface-2 px-3 py-2 text-sm text-ink focus:border-brand focus:outline-none"
+            />
+          </label>
+          <div className="rounded-xl border border-stroke/70 bg-surface-2 px-4 py-3 text-xs leading-5 text-fog">
+            {crono.superficie_richiede_conferma ? (
+              <>
+                Il sistema propone <strong className="text-ink">{crono.superficie_stimata_mq} m²</strong>{" "}
+                dalle quantità del computo. Confermali prima di generare il
+                preventivo.
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCronoprogrammaDraft((current) => ({
+                      ...current,
+                      superficie_mq: String(crono.superficie_stimata_mq || ""),
+                    }))
+                  }
+                  className="ml-2 text-brand underline underline-offset-2"
+                >
+                  Usa questa superficie
+                </button>
+              </>
+            ) : (
+              <>
+                Superficie confermata: il calcolo automatico non sommerà più
+                posa, fornitura, sfridi e rivestimenti.
+              </>
+            )}
+          </div>
+        </div>
+
+        {senzaFase > 0 && (
+          <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-300">
+            Restano {senzaFase} voci da classificare. Il preventivo non potrà
+            essere generato finché non assegni una fase corretta.
+          </p>
+        )}
+
+        <div className="mt-5 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {fasiCronoprogramma.map((blocco) => {
+            const ordine = String(blocco.fase_ordine);
+            const valore = cronoprogrammaDraft.durate_fasi[ordine] ?? "";
+            return (
+              <label
+                key={`${ordine}-${blocco.fase}`}
+                className="grid grid-cols-[1fr_92px] items-center gap-3 rounded-xl border border-stroke/70 bg-surface-2 px-3 py-2.5"
+              >
+                <span>
+                  <span className="block text-xs text-ink">{blocco.fase}</span>
+                  <span className="mt-0.5 block text-[10px] text-fog">
+                    Automatico: {blocco.giorni_automatici ?? blocco.giorni} gg
+                    {blocco.parallela ? " · in parallelo" : ""}
+                  </span>
+                </span>
+                <input
+                  aria-label={`Durata manuale ${blocco.fase}`}
+                  type="number"
+                  min="0"
+                  max="730"
+                  step="1"
+                  value={valore}
+                  placeholder={`${blocco.giorni} gg`}
+                  onChange={(event) =>
+                    setCronoprogrammaDraft((current) => ({
+                      ...current,
+                      durate_fasi: {
+                        ...current.durate_fasi,
+                        [ordine]: event.target.value,
+                      },
+                    }))
+                  }
+                  className="w-full rounded-lg border border-stroke bg-bg px-2 py-1.5 text-right text-sm text-ink focus:border-brand focus:outline-none"
+                />
+              </label>
+            );
+          })}
+        </div>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              setCronoprogrammaDraft((current) => ({
+                ...current,
+                durate_fasi: {},
+              }))
+            }
+            className="rounded-xl border border-stroke px-4 py-2 text-xs font-display uppercase text-fog"
+          >
+            Ripristina durate automatiche
+          </button>
+          <button
+            type="button"
+            disabled={
+              !superficieValida ||
+              !durateValide ||
+              salvaCronoprogramma.isPending
+            }
+            onClick={() => salvaCronoprogramma.mutate()}
+            className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-2 text-xs font-display uppercase text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {salvaCronoprogramma.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Salva cronoprogramma
+          </button>
+        </div>
+      </section>
 
       {!locked && computo.preventivo_bozza_id && (
         <div className="border-l-4 border-brand bg-brand/5 px-5 py-4">

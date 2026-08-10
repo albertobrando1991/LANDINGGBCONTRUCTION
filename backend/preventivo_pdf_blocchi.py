@@ -356,6 +356,8 @@ def cronoprogramma(piano: dict, styles: dict, palette: dict) -> list:
         etichetta = testo(blocco["fase"])
         if blocco["parallela"] and not blocco["continuativa"]:
             etichetta = f"{etichetta} <font size=6 color='#6A6E75'>(in parallelo)</font>"
+        if blocco.get("manuale") and not blocco["continuativa"]:
+            etichetta = f"{etichetta} <font size=6 color='#B8202E'>(durata manuale)</font>"
         righe.append(
             [
                 Paragraph(etichetta, styles["table"]),
@@ -402,7 +404,8 @@ def cronoprogramma(piano: dict, styles: dict, palette: dict) -> list:
             f"{numero(piano.get('mesi'), 1)} mesi), al netto di sospensioni. "
             "La stima considera superficie, complessita delle fasi, "
             "sovrapposizione controllata delle squadre e tempi tecnici di "
-            "maturazione. Il programma definitivo e la data di avvio vengono "
+            "maturazione. Le durate indicate come manuali prevalgono sulla stima "
+            "automatica. Il programma definitivo e la data di avvio vengono "
             "fissati nel cronoprogramma allegato al contratto.",
             styles["small"],
         ),

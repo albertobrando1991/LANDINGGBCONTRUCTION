@@ -219,7 +219,11 @@ def genera_pdf_contratto(
     snapshot = preventivo.get("snapshot_voci") or []
     if isinstance(snapshot, str):
         snapshot = json.loads(snapshot)
-    durata = cronoprogramma.stima(snapshot)
+    durata = cronoprogramma.stima(
+        snapshot,
+        superficie_mq=preventivo.get("superficie_mq"),
+        durate_fasi=preventivo.get("durate_fasi") or {},
+    )
     giorni_lavorativi = int(durata.get("giorni_totali") or 0)
     piano_pagamenti = (
         piano_pagamenti_override

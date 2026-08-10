@@ -121,6 +121,17 @@ def test_quote_adds_indicative_schedule():
     assert "contrattuale" in text
 
 
+def test_quote_marks_manual_phase_durations_in_schedule():
+    preventivo = {
+        **_sample_a_fasi(),
+        "superficie_mq": 92,
+        "durate_fasi": {"15": 3},
+    }
+    text = _testo(genera_pdf_preventivo(preventivo, _tenant()))
+
+    assert "durata manuale" in text
+
+
 def test_synthetic_detail_hides_quantities_and_unit_prices():
     text = _testo(
         genera_pdf_preventivo(_sample_a_fasi(), _tenant(), dettaglio="sintetico")

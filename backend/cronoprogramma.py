@@ -9,6 +9,7 @@ economica, sovrapposizioni parziali e attese tecniche.
 from __future__ import annotations
 
 import math
+import statistics
 from typing import Iterable
 
 from fasi_lavorazione import raggruppa_per_fase
@@ -94,9 +95,20 @@ def _fattore_superficie(superficie_mq: float) -> float:
     return min(1.8, max(0.35, (float(superficie_mq) / 100.0) ** 0.65))
 
 
+def _totale_quantita(valori: list[float]) -> float | None:
+    return sum(valori) if valori else None
+
+
 def _superficie_dalle_voci(voci: list[dict]) -> float | None:
-    """Stima i mq calpestabili dalle quantita, senza usare pitture o pareti."""
-    pavimenti: list[float] = []
+    """Stima prudente dei mq calpestabili usando segnali indipendenti.
+
+    Fornitura, sfridi e rivestimenti verticali non sono superficie del cantiere.
+    La mediana tra posa, massetto e demolizione impedisce a una voce duplicata
+    di raddoppiare l'intero immobile.
+    """
+
+    posa_pavimenti: list[float] = []
+    pavimenti_generici: list[float] = []
     massetti: list[float] = []
     demolizioni: list[float] = []
     for voce in voci:
@@ -107,14 +119,30 @@ def _superficie_dalle_voci(voci: list[dict]) -> float | None:
             qta = float(voce.get("qta") or 0)
         except (TypeError, ValueError):
             continue
-        if not 2 <= qta <= 300:
+        if not 2 <= qta <= 10000:
             continue
         ordine = int(voce.get("fase_ordine") or 99)
         testo = str(voce.get("descrizione") or "").lower()
-        if ordine == 70 and not any(
-            parola in testo for parola in ("rivestiment", "parete", "murale")
-        ):
-            pavimenti.append(qta)
+        if ordine == 70:
+            verticale_o_accessorio = any(
+                parola in testo
+                for parola in (
+                    "rivestim",
+                    "parete",
+                    "murale",
+                    "battiscop",
+                    "zoccol",
+                    "soglia",
+                    "davanzal",
+                )
+            )
+            sola_fornitura = "fornitura" in testo and "posa in opera" not in testo
+            if verticale_o_accessorio or sola_fornitura:
+                continue
+            if "posa in opera" in testo and "paviment" in testo:
+                posa_pavimenti.append(qta)
+            elif "paviment" in testo:
+                pavimenti_generici.append(qta)
         elif ordine == 60 and any(
             parola in testo for parola in ("masset", "sottofond", "caldana")
         ):
@@ -122,15 +150,31 @@ def _superficie_dalle_voci(voci: list[dict]) -> float | None:
         elif ordine == 15 and "paviment" in testo:
             demolizioni.append(qta)
 
-    if pavimenti:
-        # Le voci possono essere divise per ambiente: la somma e piu utile del
-        # massimo, con un tetto che intercetta eventuali strati duplicati.
-        return min(250.0, sum(pavimenti))
-    if massetti:
-        return min(250.0, max(massetti))
-    if demolizioni:
-        return min(250.0, max(demolizioni))
-    return None
+    stime = [
+        valore
+        for valore in (
+            _totale_quantita(posa_pavimenti or pavimenti_generici),
+            _totale_quantita(massetti),
+            _totale_quantita(demolizioni),
+        )
+        if valore is not None
+    ]
+    if not stime:
+        return None
+    return min(10000.0, float(statistics.median(stime)))
+
+
+def _durate_manuali(durate_fasi: dict | None) -> dict[int, int]:
+    normalizzate: dict[int, int] = {}
+    for chiave, valore in (durate_fasi or {}).items():
+        try:
+            ordine = int(chiave)
+            giorni = int(valore)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= giorni <= 730:
+            normalizzate[ordine] = giorni
+    return normalizzate
 
 
 def _ristrutturazione_completa(gruppi: list[dict]) -> bool:
@@ -176,14 +220,20 @@ def giorni_fase(
     return max(minimo, math.ceil(float(importo or 0) / valore))
 
 
-def stima(voci: Iterable[dict], *, superficie_mq: float | None = None) -> dict:
+def stima(
+    voci: Iterable[dict],
+    *,
+    superficie_mq: float | None = None,
+    durate_fasi: dict | None = None,
+) -> dict:
     """Blocchi in sequenza con impianti coordinati e maturazioni esplicite."""
     elenco_voci = list(voci)
     gruppi = [
         gruppo for gruppo in raggruppa_per_fase(elenco_voci) if gruppo["totale"] > 0
     ]
     completa = _ristrutturazione_completa(gruppi)
-    superficie = float(superficie_mq or 0) or _superficie_dalle_voci(elenco_voci)
+    superficie_configurata = float(superficie_mq or 0) or None
+    superficie = superficie_configurata or _superficie_dalle_voci(elenco_voci)
     if not superficie and completa:
         totale = sum(float(gruppo["totale"]) for gruppo in gruppi)
         superficie = min(180.0, max(50.0, totale / 1000.0)) if totale else 100.0
@@ -198,13 +248,17 @@ def stima(voci: Iterable[dict], *, superficie_mq: float | None = None) -> dict:
         else MATURAZIONE_MASSETTO_TRADIZIONALE
     )
     giorni_attesa = 0
+    manuali = _durate_manuali(durate_fasi)
 
     def aggiungi_attesa_se_necessaria(prossimo_ordine: int) -> None:
         nonlocal cursore, giorni_attesa, fine_massetto
         if fine_massetto is None or prossimo_ordine < 70:
             return
         trascorsi = cursore - fine_massetto
-        residui = max(0, attesa_richiesta - trascorsi)
+        residui_automatici = max(0, attesa_richiesta - trascorsi)
+        residui = residui_automatici
+        if 69 in manuali:
+            residui = manuali[69]
         if residui:
             blocchi.append(
                 {
@@ -212,11 +266,13 @@ def stima(voci: Iterable[dict], *, superficie_mq: float | None = None) -> dict:
                     "fase_ordine": 69,
                     "importo": 0.0,
                     "giorni": residui,
+                    "giorni_automatici": residui_automatici,
                     "inizio": cursore,
                     "fine": cursore + residui,
                     "parallela": False,
                     "continuativa": False,
                     "tecnica": True,
+                    "manuale": 69 in manuali,
                 }
             )
             cursore += residui
@@ -235,21 +291,28 @@ def stima(voci: Iterable[dict], *, superficie_mq: float | None = None) -> dict:
         ):
             insieme.append(gruppi[indice + len(insieme)])
 
-        durate = [
-            giorni_fase(
-                g["fase_ordine"],
-                g["totale"],
-                superficie_mq=superficie if (completa or superficie_mq) else None,
+        durate = []
+        durate_automatiche = []
+        for gruppo in insieme:
+            ordine = int(gruppo["fase_ordine"])
+            automatica = giorni_fase(
+                ordine,
+                gruppo["totale"],
+                superficie_mq=(
+                    superficie if (completa or superficie_configurata) else None
+                ),
             )
-            for g in insieme
-        ]
+            durate_automatiche.append(automatica)
+            durate.append(manuali.get(ordine, automatica))
         durata_insieme = max(durate, default=0)
         if chiave and len(insieme) > 1:
             durata_insieme = max(
                 durata_insieme,
                 math.ceil(sum(durate) * COEFFICIENTE_IMPIANTI_COORDINATI),
             )
-        for posizione, (gruppo, giorni) in enumerate(zip(insieme, durate)):
+        for posizione, (gruppo, giorni, giorni_automatici) in enumerate(
+            zip(insieme, durate, durate_automatiche)
+        ):
             slittamento = 0
             if len(insieme) > 1 and durata_insieme > giorni:
                 slittamento = round(
@@ -262,11 +325,13 @@ def stima(voci: Iterable[dict], *, superficie_mq: float | None = None) -> dict:
                     "fase_ordine": gruppo["fase_ordine"],
                     "importo": gruppo["totale"],
                     "giorni": giorni,
+                    "giorni_automatici": giorni_automatici,
                     "inizio": inizio if giorni else 0,
                     "fine": (inizio + giorni) if giorni else 0,
                     "parallela": len(insieme) > 1,
                     "continuativa": giorni == 0,
                     "tecnica": False,
+                    "manuale": int(gruppo["fase_ordine"]) in manuali,
                 }
             )
         cursore += durata_insieme
@@ -283,6 +348,14 @@ def stima(voci: Iterable[dict], *, superficie_mq: float | None = None) -> dict:
         "mesi": round(cursore / GIORNI_MESE_MEDIO, 1) if cursore else 0.0,
         "giorni_attesa_tecnica": giorni_attesa,
         "superficie_stimata_mq": round(superficie, 1) if superficie else None,
+        "superficie_origine": (
+            "configurata" if superficie_configurata else "stimata_dalle_voci"
+        ),
+        "superficie_richiede_conferma": bool(superficie and not superficie_configurata),
         "profilo": "ristrutturazione_completa" if completa else "intervento_parziale",
+        "durate_manuali": {
+            str(ordine): giorni for ordine, giorni in sorted(manuali.items())
+        },
+        "ha_durate_manuali": bool(manuali),
         "unita": "giorni lavorativi",
     }

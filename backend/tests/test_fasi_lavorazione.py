@@ -66,6 +66,58 @@ def test_voce_acca_senza_prezzario_classificata_dalla_descrizione():
     assert (ordine, nome) == (15, "Demolizioni e rimozioni")
 
 
+def test_descrizione_acca_vince_su_categoria_importata_disallineata():
+    ordine, nome = fasi.classifica(
+        super_categoria="Importazione ACCA",
+        categoria="Impermeabilizzazioni",
+        descrizione="Tinteggiatura con idropittura lavabile su pareti e soffitti",
+    )
+
+    assert (ordine, nome) == (80, "Tinteggiature e finiture")
+
+
+@pytest.mark.parametrize(
+    ("descrizione", "ordine_atteso"),
+    [
+        (
+            "Tinteggiatura con pittura lavabile su pareti, con tre mani a perfetta copertura",
+            80,
+        ),
+        ("Punto presa TV con eventuali opere in tracce su muratura", 45),
+        ("Posa in opera Rivestimenti con collante su sottofondi predisposti", 70),
+    ],
+)
+def test_segnale_specifico_vince_sui_falsi_positivi_della_descrizione_acca(
+    descrizione, ordine_atteso
+):
+    ordine, _ = fasi.classifica(
+        super_categoria="Importazione ACCA",
+        categoria="Computo PriMus",
+        descrizione=descrizione,
+    )
+
+    assert ordine == ordine_atteso
+
+
+@pytest.mark.parametrize(
+    ("descrizione", "ordine"),
+    [
+        ("Preparazione pareti con una mano di fissativo acrilico", 80),
+        ("Montaggio bagno completo", 35),
+        ("Impianto addolcitore", 35),
+        ("Punto ethernet completo", 45),
+        ("Montaggio faretti e apparecchi illuminanti", 45),
+        ("Assistenza muraria per chiusura tracce impianto", 25),
+        ("Termostato ambiente", 55),
+        ("Fornitura pavimenti e rivestimeni", 70),
+    ],
+)
+def test_voci_acca_ricorrenti_non_restano_da_classificare(descrizione, ordine):
+    assert fasi.classifica(
+        super_categoria="Importazione ACCA", descrizione=descrizione
+    )[0] == ordine
+
+
 def test_scavo_non_finisce_negli_impianti_elettrici_per_la_parola_cavo():
     assert fasi.classifica(descrizione="Scavo a sezione obbligata")[1] == (
         "Scavi e movimenti terra"

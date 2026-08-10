@@ -154,6 +154,20 @@ class RiordinaBody(BaseModel):
     ordine: List[str]
 
 
+class CronoprogrammaBody(BaseModel):
+    superficie_mq: Optional[float] = Field(default=None, ge=5, le=10000)
+    durate_fasi: Dict[int, int] = Field(default_factory=dict)
+
+    @field_validator("durate_fasi")
+    @classmethod
+    def valida_durate_fasi(cls, value: Dict[int, int]) -> Dict[int, int]:
+        if len(value) > 30:
+            raise ValueError("Troppe fasi nel cronoprogramma")
+        if any(giorni < 0 or giorni > 730 for giorni in value.values()):
+            raise ValueError("Ogni durata deve essere compresa tra 0 e 730 giorni")
+        return value
+
+
 class PreventivoBody(BaseModel):
     sconto: float = 0
     iva: float = 10
@@ -893,8 +907,22 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 "controlli": computo["controlli"],
                 "riepilogo_fasi": computo["riepilogo_fasi"],
                 "n_senza_fase": computo["n_senza_fase"],
-                "cronoprogramma": cronoprogramma.stima(computo["voci"]),
+                "cronoprogramma": computo["cronoprogramma"],
             }
+
+    @api.put("/computi/{computo_id}/cronoprogramma")
+    async def salva_cronoprogramma(
+        request: Request, computo_id: str, body: CronoprogrammaBody
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            return await boq_service.aggiorna_cronoprogramma(
+                conn,
+                tenant["id"],
+                computo_id,
+                superficie_mq=body.superficie_mq,
+                durate_fasi=body.durate_fasi,
+            )
 
     @api.post("/computi/{computo_id}/conferma")
     async def conferma(request: Request, computo_id: str):

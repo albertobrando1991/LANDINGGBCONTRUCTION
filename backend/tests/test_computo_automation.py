@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
@@ -180,6 +181,8 @@ def test_preventivo_automatico_persist_client_id():
         "stato": "bozza",
         "totali": {"totale": 1000, "n_da_validare": 0},
         "voci": [{"descrizione": "Demolizione", "qta": 10, "prezzo_unitario": 100}],
+        "superficie_mq": 92,
+        "durate_fasi": {"15": 12},
     }
 
     with patch("boq_service.get_computo", new=AsyncMock(return_value=computo)):
@@ -197,6 +200,9 @@ def test_preventivo_automatico_persist_client_id():
     insert_preventivo = conn.fetchrow.await_args_list[1]
     assert "cliente_id" in insert_preventivo.args[0]
     assert insert_preventivo.args[4] == CLIENTE_ID
+    assert "superficie_mq" in insert_preventivo.args[0]
+    assert insert_preventivo.args[-2] == 92
+    assert json.loads(insert_preventivo.args[-1]) == {"15": 12}
 
 
 def test_rigenerazione_aggiorna_la_stessa_bozza_senza_creare_copie():

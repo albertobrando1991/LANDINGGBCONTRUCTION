@@ -655,8 +655,9 @@ async def duplica_computo(
     new_id = await conn.fetchval(
         """
         insert into public.computi (
-          tenant_id, lead_id, cantiere_id, parent_computo_id, prezzario_id, tipo, stato, note
-        ) values ($1::uuid, $2, $3, $4, $5, $6, 'bozza', $7)
+          tenant_id, lead_id, cantiere_id, parent_computo_id, prezzario_id,
+          tipo, stato, note, superficie_mq, durate_fasi
+        ) values ($1::uuid, $2, $3, $4, $5, $6, 'bozza', $7, $8, $9::jsonb)
         returning id
         """,
         tenant_id,
@@ -670,6 +671,8 @@ async def duplica_computo(
             if is_variante
             else f"Copia di {src.get('numero') or src['id']}"
         ),
+        src.get("superficie_mq"),
+        json.dumps(src.get("durate_fasi") or {}),
     )
     await conn.execute(
         """
@@ -1054,10 +1057,70 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
     out["riepilogo_fasi"] = _riepilogo(fasi_lavorazione.raggruppa_per_fase(out["voci"]))
     out["riepilogo_aree"] = _riepilogo(fasi_lavorazione.raggruppa_per_area(out["voci"]))
     out["controlli"] = preventivo_struttura.controlli_coerenza(out["voci"])
-    out["cronoprogramma"] = cronoprogramma.stima(out["voci"])
+    out["durate_fasi"] = out.get("durate_fasi") or {}
+    out["cronoprogramma"] = cronoprogramma.stima(
+        out["voci"],
+        superficie_mq=out.get("superficie_mq"),
+        durate_fasi=out["durate_fasi"],
+    )
     out["fasi_disponibili"] = [nome for _, nome in fasi_lavorazione.FASI]
-    out["n_senza_fase"] = sum(1 for v in out["voci"] if not v.get("fase"))
+    out["n_senza_fase"] = sum(
+        1
+        for voce in out["voci"]
+        if not voce.get("fase")
+        or int(voce.get("fase_ordine") or 99)
+        == fasi_lavorazione.FASE_NON_CLASSIFICATA
+    )
     return out
+
+
+async def aggiorna_cronoprogramma(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    computo_id: str,
+    *,
+    superficie_mq: float | None,
+    durate_fasi: dict[int, int],
+) -> dict:
+    """Salva i parametri temporali senza alterare le quantita economiche."""
+
+    allowed = {
+        ordine
+        for ordine, _ in fasi_lavorazione.FASI
+        if ordine not in cronoprogramma.FASI_SENZA_DURATA
+        and ordine != fasi_lavorazione.FASE_NON_CLASSIFICATA
+    }
+    allowed.add(69)  # attesa tecnica del massetto
+    normalizzate = {int(k): int(v) for k, v in durate_fasi.items()}
+    invalid = sorted(set(normalizzate) - allowed)
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fasi non modificabili nel cronoprogramma: {', '.join(map(str, invalid))}",
+        )
+    if any(giorni < 0 or giorni > 730 for giorni in normalizzate.values()):
+        raise HTTPException(
+            status_code=400,
+            detail="Ogni durata deve essere compresa tra 0 e 730 giorni",
+        )
+
+    row = await conn.fetchrow(
+        """
+        update public.computi
+        set superficie_mq = $1,
+            durate_fasi = $2::jsonb
+        where id = $3::uuid and tenant_id = $4::uuid
+        returning id
+        """,
+        superficie_mq,
+        json.dumps({str(k): v for k, v in sorted(normalizzate.items())}),
+        computo_id,
+        tenant_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Computo non trovato")
+    await sincronizza_preventivo_bozza(conn, tenant_id, computo_id)
+    return await get_computo(conn, tenant_id, computo_id)
 
 
 def _riepilogo(gruppi: list[dict]) -> list[dict]:
@@ -1075,7 +1138,7 @@ async def riclassifica_computo(
     *,
     forza: bool = False,
 ) -> int:
-    """Assegna la fase alle voci del computo. Senza forza tocca solo quelle vuote."""
+    """Assegna la fase alle voci vuote o ancora marcate come non classificate."""
     await _assert_computo_editabile(conn, tenant_id, computo_id)
     voci = await conn.fetch(
         """
@@ -1088,7 +1151,11 @@ async def riclassifica_computo(
     )
     aggiornate = 0
     for voce in voci:
-        if voce["fase"] and not forza:
+        if (
+            voce["fase"]
+            and voce["fase"] != "Da classificare"
+            and not forza
+        ):
             continue
         fase_ordine, fase = fasi_lavorazione.classifica_voce(dict(voce))
         if fase == voce["fase"]:
@@ -1188,8 +1255,10 @@ async def sincronizza_preventivo_bozza(
             totale_iva = $6,
             totale_documento = $7,
             snapshot_voci = $8::jsonb,
+            superficie_mq = $9,
+            durate_fasi = $10::jsonb,
             pdf_path = null
-        where id = $9::uuid and tenant_id = $10::uuid and stato = 'bozza'
+        where id = $11::uuid and tenant_id = $12::uuid and stato = 'bozza'
         returning *
         """,
         computo.get("lead_id"),
@@ -1200,6 +1269,8 @@ async def sincronizza_preventivo_bozza(
         terms["iva_importo"],
         terms["totale"],
         json.dumps(computo["voci"], default=str),
+        computo.get("superficie_mq"),
+        json.dumps(computo.get("durate_fasi") or {}),
         preventivo["id"],
         tenant_id,
     )
@@ -1522,6 +1593,36 @@ async def computo_to_preventivo(
             status_code=409,
             detail="Inserisci almeno una voce prima di creare il preventivo",
         )
+    non_classificate = sum(
+        1
+        for voce in c["voci"]
+        if int(voce.get("fase_ordine") or 99)
+        == fasi_lavorazione.FASE_NON_CLASSIFICATA
+        and float(voce.get("totale") or 0) > 0
+    )
+    if non_classificate:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Restano {non_classificate} voci da classificare: assegna la fase "
+                "prima di generare il preventivo"
+            ),
+        )
+    piano = cronoprogramma.stima(
+        c["voci"],
+        superficie_mq=c.get("superficie_mq"),
+        durate_fasi=c.get("durate_fasi") or {},
+    )
+    if piano["profilo"] == "ristrutturazione_completa" and not c.get(
+        "superficie_mq"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Conferma la superficie del cantiere nel cronoprogramma prima "
+                "di generare il preventivo"
+            ),
+        )
 
     # Una sola bozza modificabile per computo nel percorso applicativo, anche
     # con richieste concorrenti. La numerazione resta separatamente serializzata.
@@ -1587,10 +1688,10 @@ async def computo_to_preventivo(
           tenant_id, computo_id, lead_id, cliente_id,
           numero, anno, progressivo, stato,
           totale_imponibile, sconto_percentuale, iva_percentuale, totale_iva,
-          totale_documento, snapshot_voci
+          totale_documento, snapshot_voci, superficie_mq, durate_fasi
         ) values (
           $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'bozza',
-          $8, $9, $10, $11, $12, $13::jsonb
+          $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb
         ) returning *
         """,
         tenant_id,
@@ -1606,6 +1707,8 @@ async def computo_to_preventivo(
         terms["iva_importo"],
         terms["totale"],
         json.dumps(c["voci"], default=str),
+        c.get("superficie_mq"),
+        json.dumps(c.get("durate_fasi") or {}),
     )
     await conn.execute(
         """

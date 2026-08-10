@@ -592,8 +592,13 @@ def genera_pdf_preventivo(
         totals,
     ]
     if classificato:
+        piano_tempi = cronoprogramma.stima(
+            snapshot,
+            superficie_mq=preventivo.get("superficie_mq"),
+            durate_fasi=preventivo.get("durate_fasi") or {},
+        )
         story.extend(
-            blocchi.cronoprogramma(cronoprogramma.stima(snapshot), styles, palette)
+            blocchi.cronoprogramma(piano_tempi, styles, palette)
         )
     story.extend(
         blocchi.piano_pagamenti(

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
@@ -135,6 +136,64 @@ def test_get_computo_riusa_le_voci_per_i_totali():
         "computo_id": computo_id,
         "tenant_id": tenant_id,
     }
+
+
+def test_aggiorna_cronoprogramma_persiste_superficie_e_durate_e_sincronizza():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    computo_id = "10000000-0000-4000-8000-000000000001"
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {"id": UUID(computo_id)}
+    aggiornato = {
+        "id": computo_id,
+        "superficie_mq": 92,
+        "durate_fasi": {"15": 12, "69": 8},
+    }
+
+    with (
+        patch(
+            "boq_service.sincronizza_preventivo_bozza",
+            new=AsyncMock(return_value=None),
+        ) as sincronizza,
+        patch(
+            "boq_service.get_computo",
+            new=AsyncMock(return_value=aggiornato),
+        ),
+    ):
+        result = asyncio.run(
+            boq_service.aggiorna_cronoprogramma(
+                conn,
+                tenant_id,
+                computo_id,
+                superficie_mq=92,
+                durate_fasi={15: 12, 69: 8},
+            )
+        )
+
+    assert result == aggiornato
+    update = conn.fetchrow.await_args
+    assert "update public.computi" in update.args[0]
+    assert update.args[1] == 92
+    assert json.loads(update.args[2]) == {"15": 12, "69": 8}
+    assert update.args[3:] == (computo_id, tenant_id)
+    sincronizza.assert_awaited_once_with(conn, tenant_id, computo_id)
+
+
+def test_aggiorna_cronoprogramma_rifiuta_fasi_continue():
+    conn = AsyncMock()
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            boq_service.aggiorna_cronoprogramma(
+                conn,
+                "a0000000-0000-4000-8000-000000000001",
+                "10000000-0000-4000-8000-000000000001",
+                superficie_mq=92,
+                durate_fasi={95: 10},
+            )
+        )
+
+    assert exc.value.status_code == 400
+    conn.fetchrow.assert_not_awaited()
 
 
 def test_elimina_computo_rimuove_la_sola_bozza_preventivo():
