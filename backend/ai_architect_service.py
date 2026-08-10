@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import requests
-from bson import ObjectId
+from document_id import ObjectId
 from fastapi import HTTPException, UploadFile
-from pymongo import ReturnDocument
+from document_store import ReturnDocument
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import ai_credit_service

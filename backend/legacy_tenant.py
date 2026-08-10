@@ -1,7 +1,7 @@
-"""Bridge JWT legacy (Mongo) → tenant GB Construction su Postgres/RLS.
+"""Bridge JWT legacy → tenant GB Construction su Postgres/RLS.
 
 Questa landing resta su dominio GB. Il tenant di default è sempre
-`gbconstruction`. Gli utenti staff Mongo sono mappati a UUID fissi
+`gbconstruction`. Gli utenti staff storici sono mappati a UUID fissi
 presenti in seed (auth.users + tenant_members).
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ LEGACY_ROLE_MAP: dict[str, tuple[str, str]] = {
 
 
 def map_legacy_user(user: dict) -> dict:
-    """Arricchisce l'utente Mongo con id Supabase e claim tenant GB."""
+    """Arricchisce l'utente storico con id Supabase e claim tenant GB."""
     if not user:
         return user
     if user.get("auth_provider") == "supabase" and user.get("app_tenants"):

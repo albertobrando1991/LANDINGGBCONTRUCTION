@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests
-from pymongo import ReturnDocument
+from document_store import ReturnDocument
 
 from predictive_engine import calcola_preventivo, lead_score
 

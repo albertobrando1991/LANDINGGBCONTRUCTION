@@ -9,9 +9,9 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from bson import ObjectId
+from document_id import ObjectId
 from fastapi import HTTPException
-from pymongo.errors import DuplicateKeyError
+from document_store import DuplicateKeyError
 
 
 ACCOUNT_ID = os.getenv("AI_CREDITS_ACCOUNT_ID", "gb_construction")

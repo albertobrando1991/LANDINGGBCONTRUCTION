@@ -4,12 +4,12 @@ Sito e dashboard per GB Construction:
 
 - landing pubblica con hero immersivo, configuratore e acquisizione lead;
 - dashboard staff con pipeline, preventivi, sopralluoghi e report;
-- backend FastAPI con MongoDB, auth JWT, Meta Lead Ads webhook e AI Architect.
+- backend FastAPI con Supabase/Postgres, auth tenant-scoped, Meta Lead Ads webhook e AI Architect.
 
 ## Struttura
 
 - `frontend/`: React CRA + Tailwind.
-- `backend/`: FastAPI + MongoDB.
+- `backend/`: FastAPI + Supabase/Postgres.
 - `frontend/public/cantieri/`: asset pubblici realmente usati dal sito live.
 - `PUBLIC/`: sorgenti media locali, ignorate da Git.
 - `backend/storage/`: upload/output runtime AI Architect, ignorati da Git.
@@ -44,7 +44,7 @@ Soluzione consigliata:
 
 - frontend su Vercel;
 - backend FastAPI su Railway, in un progetto dell'account cliente;
-- MongoDB su Railway o MongoDB Atlas;
+- Supabase come unico database applicativo;
 - dominio del cliente, con `www` al frontend e `api` al backend.
 
 Per il servizio Railway usare come root directory `backend/`. Il comando di avvio e' definito in `backend/Procfile`.

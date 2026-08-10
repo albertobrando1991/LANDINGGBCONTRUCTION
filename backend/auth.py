@@ -5,7 +5,7 @@ import jwt
 import bcrypt
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException, Request
-from bson import ObjectId
+from document_id import ObjectId
 
 JWT_ALGORITHM = "HS256"
 logger = logging.getLogger("gb.auth")

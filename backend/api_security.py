@@ -4,7 +4,7 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from pymongo import ReturnDocument
+from document_store import ReturnDocument
 
 
 def _rate_limit_key(scope: str, identity: str, bucket: int) -> str:
@@ -27,7 +27,7 @@ async def enforce_rate_limit(
     window_seconds: int,
     detail: str,
 ) -> None:
-    """Rate limit atomico a finestra fissa, condiviso tra processi via Mongo."""
+    """Rate limit atomico a finestra fissa, condiviso via Supabase/Postgres."""
 
     normalized_identity = (identity or "").strip()
     if not normalized_identity or limit <= 0:

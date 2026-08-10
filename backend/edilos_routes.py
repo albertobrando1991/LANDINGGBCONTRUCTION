@@ -74,7 +74,7 @@ async def _sync_legacy_lead_safely(conn, db, tenant_id: str, lead_id: Any) -> No
         await lead_bridge.sync_legacy_lead(conn, db, tenant_id, lead_id)
     except Exception as exc:
         # La consegna email e la transazione EdilOS non devono essere ripetute
-        # soltanto per un'indisponibilita temporanea del mirror Mongo.
+        # soltanto per un'indisponibilita temporanea della proiezione CRM.
         logger.warning("Mirror Inbox/Pipeline del lead %s non aggiornato: %s", lead_id, exc)
 
 

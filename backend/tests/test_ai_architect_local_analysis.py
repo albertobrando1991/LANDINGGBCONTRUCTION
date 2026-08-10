@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
-from bson import ObjectId
+from document_id import ObjectId
 from fastapi import HTTPException
 
 import ai_architect_service as svc

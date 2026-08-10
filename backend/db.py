@@ -73,6 +73,11 @@ def _prepare_asyncpg_dsn(dsn: str) -> tuple[str, dict]:
             ctx.verify_mode = ssl.CERT_NONE
         kwargs["ssl"] = ctx
 
+    # Supavisor in transaction mode (porta 6543) non supporta i prepared
+    # statement nominati. asyncpg deve quindi disabilitare la cache locale.
+    if parsed.port == 6543:
+        kwargs["statement_cache_size"] = 0
+
     return clean_dsn, kwargs
 
 

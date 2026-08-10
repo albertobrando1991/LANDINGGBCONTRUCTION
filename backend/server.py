@@ -17,9 +17,9 @@ from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depend
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, TypeAdapter, ValidationError
-from bson import ObjectId
+from document_id import ObjectId
+from document_store import PostgresDocumentDatabase
 import json
 
 import auth as authlib
@@ -40,19 +40,13 @@ from edilos_routes import register_edilos_routes
 from financial_routes import register_financial_routes
 from contextlib import asynccontextmanager
 
-# Railway espone spesso MONGO_PUBLIC_URL / MONGO_URL; fallback locale solo in dev.
-mongo_url = (
-    os.environ.get("MONGO_URL")
-    or os.environ.get("MONGO_PUBLIC_URL")
-    or os.environ.get("MONGODB_URI")
-    or "mongodb://localhost:27017"
+# Il runtime documentale storico vive ora nello schema private di Supabase.
+# L'adapter conserva l'API usata dai servizi durante il cutover, senza una
+# seconda fonte dati e senza dipendenze Mongo nel processo applicativo.
+db = PostgresDocumentDatabase(
+    db_pg,
+    os.environ.get("DEFAULT_TENANT_SLUG", "gbconstruction"),
 )
-client = AsyncIOMotorClient(mongo_url)
-db = client[
-    os.environ.get("DB_NAME")
-    or os.environ.get("PROD_DB_NAME")
-    or "gb_construction"
-]
 
 app = FastAPI(title="GB Construction Lead Engine")
 api = APIRouter(prefix="/api")
@@ -1953,8 +1947,8 @@ async def preventivi(request: Request, user: dict = Depends(current_user)):
             tenant_slug = tenant["slug"]
             pg_preventivi = await boq_service.lista_preventivi(conn, tenant["id"])
 
-    # Mongo è il datastore legacy della sola GB Construction. Per gli altri
-    # tenant mostrare quei record sarebbe una fuga dati cross-tenant.
+    # I documenti runtime appartengono alla sola GB Construction. Per gli
+    # altri tenant mostrarli sarebbe una fuga dati cross-tenant.
     if tenant_slug != tenancy.DEFAULT_TENANT_SLUG:
         return pg_preventivi
 
@@ -2362,22 +2356,23 @@ async def _payment_reminders_loop() -> None:
 async def startup():
     global _payment_reminders_task
     authlib.validate_production_security_configuration()
+    await db_pg.init_pool()
+    if not db_pg.pool_ready():
+        raise RuntimeError(
+            "Supabase non configurato: imposta CONNECTION_STRING_SUPABASE o SUPABASE_DB_URL"
+        )
+    await db.startup()
+    logger.info("Postgres pool ready; Supabase is the canonical runtime store")
     try:
-        await db_pg.init_pool()
-        if db_pg.pool_ready():
-            logger.info("Postgres pool ready (Supabase)")
-            try:
-                from system_jobs.sync_campania_prezzario import run as sync_campania
+        from system_jobs.sync_campania_prezzario import run as sync_campania
 
-                sync_result = await sync_campania()
-                logger.info("Prezzario Campania 2026 verificato: %s", sync_result)
-            except Exception as sync_exc:
-                logger.warning("Sync Prezzario Campania non eseguito: %s", sync_exc)
-            _payment_reminders_task = asyncio.create_task(
-                _payment_reminders_loop(), name="payment-reminders"
-            )
-    except Exception as exc:
-        logger.warning("Postgres pool non avviato: %s", exc)
+        sync_result = await sync_campania()
+        logger.info("Prezzario Campania 2026 verificato: %s", sync_result)
+    except Exception as sync_exc:
+        logger.warning("Sync Prezzario Campania non eseguito: %s", sync_exc)
+    _payment_reminders_task = asyncio.create_task(
+        _payment_reminders_loop(), name="payment-reminders"
+    )
     await db.users.create_index("email", unique=True)
     await db.leads.create_index("origine")
     await db.leads.create_index("email_norm")
@@ -2442,7 +2437,6 @@ async def shutdown():
             pass
         _payment_reminders_task = None
     await db_pg.close_pool()
-    client.close()
 
 
 app.include_router(api)

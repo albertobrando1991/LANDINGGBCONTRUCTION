@@ -2,7 +2,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from bson import ObjectId
+from document_id import ObjectId
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

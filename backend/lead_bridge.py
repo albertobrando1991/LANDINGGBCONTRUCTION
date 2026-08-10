@@ -1,4 +1,4 @@
-"""Bridge on-demand dai lead legacy Mongo ai record tenant-scoped Postgres."""
+"""Bridge tra documenti runtime storici e record normalizzati tenant-scoped."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 import asyncpg
-from bson import ObjectId
+from document_id import ObjectId
 from fastapi import HTTPException
 
 VALID_STATUSES = {

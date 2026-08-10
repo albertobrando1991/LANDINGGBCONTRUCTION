@@ -137,9 +137,9 @@ def uuid_or_400(value: str, label: str = "ID") -> UUID:
 
 
 async def resolve_cantiere_uuid(conn, tenant_id: str, value: str) -> str:
-    """Risolvi un cantiere sia per UUID Supabase sia per ID Mongo legacy.
+    """Risolvi un cantiere sia per UUID Supabase sia per ID storico.
 
-    Le schermate Cantieri legacy continuano a inviare l'ObjectId Mongo, mentre
+    Le schermate Cantieri legacy continuano a inviare l'ID esadecimale, mentre
     le tabelle EdilOS usano UUID. Il mapping viene mantenuto in
     ``cantieri.legacy_mongo_id`` e deve essere sempre limitato al tenant.
     """
