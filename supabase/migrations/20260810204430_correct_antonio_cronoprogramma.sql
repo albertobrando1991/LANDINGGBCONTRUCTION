@@ -14,7 +14,9 @@ begin
       and tenant_id = tenant_id_gb
       and stato = 'confermato'
   ) then
-    raise exception 'Computo Antonio sorgente non trovato o non confermato';
+    -- Database nuovi, test e tenant diversi non contengono questo documento.
+    -- La migrazione di prodotto deve restare riproducibile anche senza dati live.
+    return;
   end if;
 
   if exists (
