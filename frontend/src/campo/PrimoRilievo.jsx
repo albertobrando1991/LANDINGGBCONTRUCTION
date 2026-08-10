@@ -43,6 +43,11 @@ import {
 import { canUseTenantStorage } from "@/lib/storage";
 import { useAuth } from "@/context/AuthContext";
 import { useTenant } from "@/context/TenantContext";
+import {
+  applyRilievoLeadSelection,
+  normalizeRilievoLeads,
+  rilievoLeadLabel,
+} from "./rilievoLeadSelection";
 
 const EMPTY_RILIEVO = {
   sopralluogo_legacy_id: "",
@@ -710,6 +715,22 @@ export default function PrimoRilievo({ isOnline }) {
     enabled: creating && isOnline,
     retry: 1,
   });
+  const leadsQuery = useQuery({
+    queryKey: ["leads", "campo-rilievo-picker"],
+    queryFn: async () =>
+      (
+        await client.get("/leads", {
+          params: { status: "tutti", origine: "tutte" },
+        })
+      ).data,
+    enabled: creating && isOnline,
+    retry: 1,
+    staleTime: 30_000,
+  });
+  const leadOptions = useMemo(
+    () => normalizeRilievoLeads(leadsQuery.data),
+    [leadsQuery.data],
+  );
 
   useEffect(() => {
     if (!rilievo?.id) return;
@@ -896,16 +917,25 @@ export default function PrimoRilievo({ isOnline }) {
     const item = (appointmentsQuery.data || []).find(
       (appointment) => appointment.id === id,
     );
-    setCreateForm((current) => ({
-      ...current,
-      sopralluogo_legacy_id: id,
-      lead_id: item?.lead_id || "",
-      cliente: item?.cliente || current.cliente,
-      indirizzo: item?.indirizzo || current.indirizzo,
-      data_rilievo: item?.data || current.data_rilievo,
-      tecnico: item?.tecnico || current.tecnico,
-    }));
+    setCreateForm((current) =>
+      id
+        ? {
+            ...current,
+            sopralluogo_legacy_id: id,
+            lead_id: item?.lead_id || "",
+            cliente: item?.cliente || current.cliente,
+            indirizzo: item?.indirizzo || current.indirizzo,
+            data_rilievo: item?.data || current.data_rilievo,
+            tecnico: item?.tecnico || current.tecnico,
+          }
+        : { ...current, sopralluogo_legacy_id: "" },
+    );
   };
+
+  const selectLead = (id) =>
+    setCreateForm((current) =>
+      applyRilievoLeadSelection(current, id, leadOptions),
+    );
 
   const addRoom = async () => {
     const clientUuid = newUuid();
@@ -1019,6 +1049,39 @@ export default function PrimoRilievo({ isOnline }) {
               </button>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
+              <label className="campo-field md:col-span-2">
+                <span>
+                  Cliente dai lead <em>facoltativo</em>
+                </span>
+                <select
+                  aria-label="Cliente dai lead"
+                  value={createForm.lead_id}
+                  onChange={(event) => selectLead(event.target.value)}
+                >
+                  <option value="">Inserimento manuale</option>
+                  {leadOptions.map((lead) => (
+                    <option key={lead.id} value={lead.id}>
+                      {rilievoLeadLabel(lead)}
+                    </option>
+                  ))}
+                </select>
+                {leadsQuery.isLoading && (
+                  <small className="text-fog">Caricamento lead…</small>
+                )}
+                {leadsQuery.isError && (
+                  <small className="text-red-400">
+                    Lead non disponibili. Puoi continuare con l'inserimento
+                    manuale.
+                  </small>
+                )}
+                {!leadsQuery.isLoading &&
+                  !leadsQuery.isError &&
+                  leadOptions.length === 0 && (
+                    <small className="text-fog">
+                      Nessun lead disponibile: inserisci il cliente manualmente.
+                    </small>
+                  )}
+              </label>
               <label className="campo-field md:col-span-2">
                 <span>
                   Sopralluogo prenotato <em>facoltativo</em>
