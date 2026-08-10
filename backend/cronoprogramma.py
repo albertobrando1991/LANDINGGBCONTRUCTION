@@ -8,8 +8,10 @@ economica, sovrapposizioni parziali e attese tecniche.
 """
 from __future__ import annotations
 
+import json
 import math
 import statistics
+from collections.abc import Mapping
 from typing import Iterable
 
 from fasi_lavorazione import raggruppa_per_fase
@@ -165,6 +167,13 @@ def _superficie_dalle_voci(voci: list[dict]) -> float | None:
 
 
 def _durate_manuali(durate_fasi: dict | None) -> dict[int, int]:
+    if isinstance(durate_fasi, str):
+        try:
+            durate_fasi = json.loads(durate_fasi)
+        except (TypeError, ValueError):
+            durate_fasi = {}
+    if not isinstance(durate_fasi, Mapping):
+        durate_fasi = {}
     normalizzate: dict[int, int] = {}
     for chiave, valore in (durate_fasi or {}).items():
         try:

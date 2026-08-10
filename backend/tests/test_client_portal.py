@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -8,6 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 import client_portal_service
+import contract_workflow_service
 import edilos_routes
 from server import api
 from system_jobs import client_invites
@@ -35,6 +37,8 @@ def test_route_portale_complete_sono_registrate():
     )
     assert callable(_endpoint("/api/cantieri/{cantiere_id}/portale", "GET"))
     assert callable(_endpoint("/api/cantieri/{cantiere_id}/portale/invita", "POST"))
+    assert callable(_endpoint("/api/leads/{lead_id}/portale", "GET"))
+    assert callable(_endpoint("/api/leads/{lead_id}/portale/invita", "POST"))
     assert callable(_endpoint("/api/preventivi/{preventivo_id}/contratto/pdf", "GET"))
     assert callable(_endpoint("/api/preventivi/{preventivo_id}/contratto", "GET"))
     assert callable(
@@ -158,6 +162,154 @@ def test_invito_collega_utente_supabase_come_client(monkeypatch):
     assert result["invited"] is True
     assert result["email"] == "cliente@example.com"
     assert conn.execute.await_count == 1
+
+
+def test_scheda_lead_mostra_accesso_e_scelta_pagamento_del_preventivo_recente():
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "preventivo_id": "40000000-0000-4000-8000-000000000001",
+        "numero_preventivo": "PREV-2026-0042",
+        "stato_preventivo": "inviato",
+        "cliente_nome": "Cliente Test",
+        "cliente_email": "cliente@example.com",
+        "accesso_attivo": True,
+        "modalita_pagamento": "sal",
+        "pagamento_confermato_at": "2026-08-10T12:00:00Z",
+    }
+
+    result = asyncio.run(
+        contract_workflow_service.get_lead_portal_access(
+            conn,
+            TENANT_ID,
+            "50000000-0000-4000-8000-000000000001",
+        )
+    )
+
+    assert result["available"] is True
+    assert result["accesso_attivo"] is True
+    assert result["pagamento_confermato"] is True
+    assert result["modalita_pagamento"] == "sal"
+    query = conn.fetchrow.await_args.args[0]
+    assert "p.lead_id = $2::uuid" in query
+    assert "order by p.created_at desc" in query.lower()
+
+
+def test_scheda_lead_senza_preventivo_disabilita_invito_portale():
+    conn = AsyncMock()
+    conn.fetchrow.return_value = None
+
+    result = asyncio.run(
+        contract_workflow_service.get_lead_portal_access(
+            conn,
+            TENANT_ID,
+            "50000000-0000-4000-8000-000000000001",
+        )
+    )
+
+    assert result == {
+        "available": False,
+        "preventivo_id": None,
+        "accesso_attivo": False,
+        "pagamento_confermato": False,
+    }
+
+
+def test_reinvio_staff_non_riscrive_membership_cliente_esistente(monkeypatch):
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [
+        {
+            "id": "40000000-0000-4000-8000-000000000001",
+            "cliente_nome": "Cliente Test",
+            "cliente_email": "cliente@example.com",
+        },
+        {
+            "tenant_id": TENANT_ID,
+            "preventivo_id": "40000000-0000-4000-8000-000000000001",
+            "user_id": USER_ID,
+            "email": "cliente@example.com",
+            "attivo": True,
+        },
+    ]
+    conn.fetchval.return_value = "client"
+    monkeypatch.setattr(
+        contract_workflow_service,
+        "find_or_invite_user",
+        lambda email, nome=None, **kwargs: (
+            SimpleNamespace(id=USER_ID, email=email),
+            False,
+        ),
+    )
+
+    result = asyncio.run(
+        contract_workflow_service.invite_preventivo_client(
+            conn,
+            TENANT_ID,
+            "40000000-0000-4000-8000-000000000001",
+            email="cliente@example.com",
+            nome="Cliente Test",
+        )
+    )
+
+    assert result["invited"] is False
+    conn.execute.assert_not_awaited()
+
+
+def test_nuovo_cliente_viene_inserito_senza_permesso_update(monkeypatch):
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [
+        {
+            "id": "40000000-0000-4000-8000-000000000001",
+            "cliente_nome": "Cliente Test",
+            "cliente_email": "cliente@example.com",
+        },
+        {
+            "tenant_id": TENANT_ID,
+            "preventivo_id": "40000000-0000-4000-8000-000000000001",
+            "user_id": USER_ID,
+            "email": "cliente@example.com",
+            "attivo": True,
+        },
+    ]
+    conn.fetchval.side_effect = [None, "client"]
+    monkeypatch.setattr(
+        contract_workflow_service,
+        "find_or_invite_user",
+        lambda email, nome=None, **kwargs: (
+            SimpleNamespace(id=USER_ID, email=email),
+            True,
+        ),
+    )
+
+    result = asyncio.run(
+        contract_workflow_service.invite_preventivo_client(
+            conn,
+            TENANT_ID,
+            "40000000-0000-4000-8000-000000000001",
+            email="cliente@example.com",
+            nome="Cliente Test",
+        )
+    )
+
+    assert result["invited"] is True
+    membership_sql = conn.execute.await_args.args[0].lower()
+    assert "on conflict (tenant_id,user_id) do nothing" in membership_sql
+    assert "do update" not in membership_sql
+
+
+def test_policy_staff_consente_soltanto_inserimento_ruolo_client():
+    migration = (
+        Path(__file__).parents[2]
+        / "supabase"
+        / "migrations"
+        / "20260810204601_allow_internal_client_invites.sql"
+    ).read_text(encoding="utf-8")
+    normalized = " ".join(migration.lower().split())
+
+    assert "for insert to authenticated" in normalized
+    assert "role = 'client'::public.tenant_role" in normalized
+    assert "public.is_internal_member(tenant_id)" in normalized
+    assert "create policy members_update" not in normalized
+    assert "create policy members_delete" not in normalized
 
 
 def test_request_ip_scartando_header_non_valido():

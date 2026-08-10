@@ -204,6 +204,17 @@ def test_durate_manuali_sostituiscono_la_singola_fase_e_ricalcolano_il_totale():
     assert piano["durate_manuali"] == {"15": 4, "70": 6}
 
 
+def test_durate_manuali_accettano_json_testuale_restituito_da_asyncpg():
+    piano = cronoprogramma.stima(
+        [_voce(*DEMOLIZIONI, 7000)],
+        superficie_mq=100,
+        durate_fasi='{"15": 4}',
+    )
+
+    assert piano["giorni_totali"] == 4
+    assert piano["durate_manuali"] == {"15": 4}
+
+
 def test_durate_manuali_degli_impianti_restano_coordinate_in_parallelo():
     piano = cronoprogramma.stima(
         [_voce(*IDRICO, 4000), _voce(*ELETTRICO, 8000)],
