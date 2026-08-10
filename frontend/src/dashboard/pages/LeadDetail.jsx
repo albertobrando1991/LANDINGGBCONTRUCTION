@@ -12,6 +12,7 @@ import { formatEuro, formatDateTime } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { openEmailCompose } from "@/lib/emailCompose";
 import { refreshLeadViews } from "@/lib/leadSync";
+import { normalizeLeadList } from "@/lib/leadData";
 import { STATI, PIPELINE_ORDER, priority, initials } from "@/dashboard/leadMeta";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -25,7 +26,7 @@ export default function LeadDetail() {
   const [note, setNote] = useState("");
   const [noteType, setNoteType] = useState("nota");
 
-  const { data: lead, isLoading } = useQuery({
+  const { data: lead, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["lead", id],
     queryFn: async () => (await client.get(`/leads/${id}`)).data,
   });
@@ -80,11 +81,34 @@ export default function LeadDetail() {
     queryFn: async () => (await client.get(`/ai-architect/jobs/${aiJobId}`)).data,
   });
 
-  if (isLoading || !lead) return <div className="text-fog font-display uppercase animate-pulse">Caricamento…</div>;
+  if (isLoading) return <div className="text-fog font-display uppercase animate-pulse">Caricamento…</div>;
+  if (isError || !lead) {
+    return (
+      <div className="bg-surface border border-danger/40 rounded-2xl p-6 space-y-3">
+        <div className="font-display font-semibold uppercase text-danger">
+          Impossibile aprire la scheda lead
+        </div>
+        <p className="font-body text-sm text-fog">
+          {formatApiErrorDetail(error?.response?.data?.detail)}
+        </p>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          className="rounded-full bg-brand px-4 py-2 font-display text-xs uppercase text-white"
+        >
+          Riprova
+        </button>
+      </div>
+    );
+  }
 
   const est = lead.estimate?.pacchetti || {};
   const pkg = est[lead.livello] || {};
-  const alerts = lead.estimate?.alerts || [];
+  const alerts = normalizeLeadList(lead.estimate?.alerts);
+  const ambienti = normalizeLeadList(lead.ambienti);
+  const tags = normalizeLeadList(lead.tags);
+  const categorie = normalizeLeadList(pkg.categorie);
+  const timeline = normalizeLeadList(lead.timeline);
   const whatsappUrl = buildWhatsappUrl(lead.telefono, lead.nome);
 
   const aiOutputs = aiJob?.outputs || [];
@@ -189,10 +213,10 @@ export default function LeadDetail() {
           <div className="bg-surface border border-stroke rounded-2xl p-6">
             <h4 className="font-display font-semibold uppercase text-sm text-ink mb-3">Tag</h4>
             <div className="flex flex-wrap gap-2">
-              {(lead.tags || []).map((t) => (
+              {tags.map((t) => (
                 <span key={t} className="font-display uppercase text-[10px] bg-brand/15 text-brand px-3 py-1 rounded-full">{t}</span>
               ))}
-              {(!lead.tags || lead.tags.length === 0) && <span className="font-body text-xs text-fog">Nessun tag</span>}
+              {tags.length === 0 && <span className="font-body text-xs text-fog">Nessun tag</span>}
             </div>
           </div>
 
@@ -224,7 +248,7 @@ export default function LeadDetail() {
               <Info label="Tempistiche" value={lead.tempistiche} />
               <Info label="File" value={lead.has_files ? "Sì" : "No"} />
             </div>
-            <div className="mt-3"><Info label="Ambienti" value={(lead.ambienti || []).join(", ")} /></div>
+            <div className="mt-3"><Info label="Ambienti" value={ambienti.join(", ")} /></div>
           </div>
 
           <div className="bg-surface border border-stroke rounded-2xl p-6">
@@ -239,7 +263,7 @@ export default function LeadDetail() {
               ))}
             </div>
 
-            {pkg.categorie && (
+            {categorie.length > 0 && (
               <Accordion type="single" collapsible>
                 <AccordionItem value="computo" className="border-stroke">
                   <AccordionTrigger data-testid="computo-toggle" className="font-display uppercase text-xs text-ink hover:no-underline">
@@ -247,7 +271,7 @@ export default function LeadDetail() {
                   </AccordionTrigger>
                   <AccordionContent>
                     <div className="space-y-1">
-                      {pkg.categorie.map((c) => (
+                      {categorie.map((c) => (
                         <div key={c.categoria} className="flex justify-between font-body text-xs py-1.5 border-b border-stroke/50">
                           <span className="text-fog">{c.categoria} <span className="text-stroke">({c.voci})</span></span>
                           <span className="text-ink">{formatEuro(c.totale)}</span>
@@ -364,7 +388,7 @@ export default function LeadDetail() {
             </Tabs>
 
             <div className="mt-5 space-y-3 max-h-[400px] overflow-y-auto pr-1">
-              {(lead.timeline || []).map((ev) => (
+              {timeline.map((ev) => (
                 <div key={ev.id} className="relative pl-5 border-l border-stroke">
                   <span className="absolute -left-[5px] top-1 w-2.5 h-2.5 rounded-full bg-brand" />
                   <div className="font-body text-sm text-ink">{ev.testo}</div>

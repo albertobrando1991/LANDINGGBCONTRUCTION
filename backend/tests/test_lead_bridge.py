@@ -103,7 +103,8 @@ def test_preventivo_aggiorna_il_lead_legacy_usato_da_inbox_e_pipeline():
                 "legacy_mongo_id": mongo_id,
                 "status": "preventivo_inviato",
                 "prossima_azione": "Follow-up",
-                "timeline": [{"tipo": "preventivo"}],
+                # asyncpg restituisce JSONB come testo senza un codec custom.
+                "timeline": '[{"tipo":"preventivo"}]',
             }
 
     class Result:
@@ -113,10 +114,33 @@ def test_preventivo_aggiorna_il_lead_legacy_usato_da_inbox_e_pipeline():
         async def update_one(self, query, operation):
             assert str(query["_id"]) == mongo_id
             assert operation["$set"]["status"] == "preventivo_inviato"
+            assert operation["$set"]["timeline"] == [{"tipo": "preventivo"}]
             return Result()
 
     class Mongo:
         leads = Leads()
 
     result = asyncio.run(sync_legacy_lead(Conn(), Mongo(), TENANT_ID, pg_id))
+    assert result is True
+
+
+def test_pipeline_ripara_timeline_legacy_serializzata_prima_del_mirror():
+    mongo_id = "64b64c8f2f9b2d7a1c000001"
+
+    class Conn:
+        async def execute(self, _sql, *args):
+            assert args[2] == '[{"tipo": "nota"}]'
+            return "UPDATE 1"
+
+    result = asyncio.run(
+        sync_existing_postgres_lead(
+            Conn(),
+            TENANT_ID,
+            {
+                "_id": mongo_id,
+                "status": "nuovo",
+                "timeline": '[{"tipo":"nota"}]',
+            },
+        )
+    )
     assert result is True

@@ -29,6 +29,19 @@ def _json(value: Any, fallback: Any) -> str:
     return json.dumps(value if value is not None else fallback, default=str)
 
 
+def _json_array(value: Any) -> list[Any]:
+    """Converte un JSONB asyncpg o un valore legacy in una lista nativa."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
 def _score(value: Any) -> Optional[int]:
     if value is None:
         return None
@@ -139,7 +152,7 @@ async def resolve_lead_id(
         _json(legacy.get("config"), {}),
         _json(legacy.get("stima") or legacy.get("estimate"), None),
         _json(legacy.get("tracking"), {}),
-        _json(legacy.get("timeline"), []),
+        _json(_json_array(legacy.get("timeline")), []),
         legacy.get("note_cliente") or legacy.get("note"),
         legacy.get("prossima_azione"),
         str(legacy.get("ai_architect_job_id") or "") or None,
@@ -176,7 +189,7 @@ async def sync_existing_postgres_lead(
         """,
         status,
         legacy.get("owner"),
-        _json(legacy.get("timeline"), []),
+        _json(_json_array(legacy.get("timeline")), []),
         legacy.get("prossima_azione"),
         legacy_id,
         tenant_id,
@@ -210,7 +223,7 @@ async def sync_legacy_lead(
             "$set": {
                 "status": row["status"],
                 "prossima_azione": row["prossima_azione"],
-                "timeline": row["timeline"] or [],
+                "timeline": _json_array(row["timeline"]),
                 "status_changed_at": datetime.now(timezone.utc).isoformat(),
             }
         },
