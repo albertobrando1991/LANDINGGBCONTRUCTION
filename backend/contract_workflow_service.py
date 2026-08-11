@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -175,6 +175,180 @@ def payment_snapshot(tipo: str, totale: Any) -> dict:
         "totale": float(total),
         "rate": rate,
     }
+
+
+def _money(value: Any, label: str) -> Decimal:
+    try:
+        amount = Decimal(str(value)).quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(status_code=422, detail=f"{label} non valido")
+    return amount
+
+
+def contract_payment_snapshot(
+    tipo: str, preventivo: dict, dettaglio: dict | None = None
+) -> dict:
+    """Crea il piano fiscale editabile che viene congelato nel contratto."""
+
+    if tipo not in PAYMENT_METHODS:
+        raise HTTPException(status_code=400, detail="Modalità di pagamento non valida")
+    totale = _money(preventivo.get("totale_documento"), "Totale contratto")
+    if totale <= 0:
+        raise HTTPException(status_code=409, detail="Il preventivo non ha un totale valido")
+    iva_percentuale = _money(
+        preventivo.get("iva_percentuale") or 0, "Aliquota IVA"
+    )
+    if iva_percentuale < 0 or iva_percentuale > 100:
+        raise HTTPException(status_code=422, detail="Aliquota IVA non valida")
+
+    imponibile_atteso = _money(
+        preventivo.get("totale_imponibile")
+        if preventivo.get("totale_imponibile") is not None
+        else totale / (Decimal("1") + iva_percentuale / Decimal("100")),
+        "Totale imponibile",
+    )
+    iva_attesa = (totale - imponibile_atteso).quantize(Decimal("0.01"))
+    if imponibile_atteso < 0 or iva_attesa < 0:
+        raise HTTPException(status_code=422, detail="Totali fiscali del preventivo non validi")
+
+    if dettaglio and dettaglio.get("tipo") not in (None, tipo):
+        raise HTTPException(
+            status_code=422,
+            detail="Il dettaglio non corrisponde alla modalità scelta dal cliente",
+        )
+    source_rates = (dettaglio or {}).get("rate")
+    if source_rates is None:
+        source_rates = payment_snapshot(tipo, totale)["rate"]
+    if not isinstance(source_rates, list) or not 1 <= len(source_rates) <= 30:
+        raise HTTPException(
+            status_code=422, detail="Il piano deve contenere da 1 a 30 scadenze"
+        )
+
+    clean_rates: list[dict] = []
+    totale_rate = Decimal("0")
+    for index, rata in enumerate(source_rates, 1):
+        riferimento = str(rata.get("riferimento") or "").strip()
+        descrizione = str(rata.get("descrizione") or "").strip()
+        if not riferimento or len(riferimento) > 200:
+            raise HTTPException(
+                status_code=422, detail=f"Scadenza {index}: riferimento non valido"
+            )
+        if not descrizione or len(descrizione) > 300:
+            raise HTTPException(
+                status_code=422, detail=f"Scadenza {index}: descrizione non valida"
+            )
+        importo = _money(rata.get("importo"), f"Importo scadenza {index}")
+        if importo <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail=f"L'importo della scadenza {index} deve essere maggiore di zero",
+            )
+        totale_rate += importo
+        clean_rates.append(
+            {
+                "riferimento": riferimento,
+                "descrizione": descrizione,
+                "importo": importo,
+            }
+        )
+    totale_rate = totale_rate.quantize(Decimal("0.01"))
+    if totale_rate != totale:
+        differenza = (totale - totale_rate).quantize(Decimal("0.01"))
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "La somma delle scadenze deve coincidere con il totale IVA inclusa "
+                f"del contratto (differenza: {differenza:+.2f} euro)"
+            ),
+        )
+
+    imponibile_distribuito = Decimal("0")
+    fattore_iva = Decimal("1") + iva_percentuale / Decimal("100")
+    for index, rata in enumerate(clean_rates):
+        if index == len(clean_rates) - 1:
+            imponibile = imponibile_atteso - imponibile_distribuito
+        else:
+            imponibile = (rata["importo"] / fattore_iva).quantize(Decimal("0.01"))
+            imponibile_distribuito += imponibile
+        iva_importo = (rata["importo"] - imponibile).quantize(Decimal("0.01"))
+        if imponibile < 0 or iva_importo < 0:
+            raise HTTPException(
+                status_code=422, detail="Ripartizione fiscale delle scadenze non valida"
+            )
+        rata.update(
+            {
+                "percentuale": float(
+                    (rata["importo"] * Decimal("100") / totale).quantize(
+                        Decimal("0.001")
+                    )
+                ),
+                "imponibile": float(imponibile),
+                "iva_percentuale": float(iva_percentuale),
+                "iva_importo": float(iva_importo),
+                "importo": float(rata["importo"]),
+            }
+        )
+
+    return {
+        "tipo": tipo,
+        **PAYMENT_METHODS[tipo],
+        "condizioni_generali": GENERAL_PAYMENT_TERMS,
+        "totale_imponibile": float(imponibile_atteso),
+        "iva_percentuale": float(iva_percentuale),
+        "totale_iva": float(iva_attesa),
+        "totale": float(totale),
+        "rate": clean_rates,
+    }
+
+
+def _euro_text(value: Any) -> str:
+    text = f"{_money(value, 'Importo'):,.2f}"
+    return text.replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def payment_article_text(snapshot: dict) -> str:
+    aliquota = float(snapshot.get("iva_percentuale") or 0)
+    aliquota_text = f"{aliquota:g}".replace(".", ",")
+    righe = []
+    for index, rata in enumerate(snapshot.get("rate") or [], 1):
+        righe.append(
+            f"{index}) {rata['riferimento']} — {rata['descrizione']}: "
+            f"imponibile € {_euro_text(rata['imponibile'])}, "
+            f"IVA {aliquota_text}% € {_euro_text(rata['iva_importo'])}, "
+            f"totale IVA inclusa € {_euro_text(rata['importo'])}."
+        )
+    return (
+        f"Il pagamento avviene con la modalità «{snapshot['titolo']}». "
+        f"Corrispettivo imponibile € {_euro_text(snapshot['totale_imponibile'])}, "
+        f"IVA {aliquota_text}% € {_euro_text(snapshot['totale_iva'])}, "
+        f"totale contrattuale IVA inclusa € {_euro_text(snapshot['totale'])}. "
+        "La ripartizione concordata è la seguente: "
+        + " ".join(righe)
+        + " I pagamenti saranno effettuati tramite bonifico alle coordinate indicate in fattura."
+    )
+
+
+def sections_with_payment_article(sections: list[dict], snapshot: dict) -> list[dict]:
+    result = [dict(section) for section in sections]
+    replacement = {
+        "titolo": "ART. 13 — CONDIZIONI DI PAGAMENTO",
+        "testo": payment_article_text(snapshot),
+    }
+    for index, section in enumerate(result):
+        title = str(section.get("titolo") or "").upper().replace("ART 13", "ART. 13")
+        if title.startswith("ART. 13"):
+            result[index] = replacement
+            return result
+    insert_at = next(
+        (
+            index
+            for index, section in enumerate(result)
+            if str(section.get("titolo") or "").upper().startswith("ART. 14")
+        ),
+        len(result),
+    )
+    result.insert(insert_at, replacement)
+    return result
 
 
 def default_sections(preventivo: dict) -> list[dict]:
@@ -477,6 +651,15 @@ async def get_editor(conn, tenant_id: str, preventivo_id: str) -> dict:
             contract["id"],
         )
     sections = _json(version["sezioni"]) if version else default_sections(preventivo)
+    payment_detail = None
+    if choice:
+        stored_payment = _json(version["pagamento_snapshot"]) if version else None
+        if not stored_payment or not stored_payment.get("rate"):
+            stored_payment = _json(choice["condizioni"]) if choice["condizioni"] else None
+        payment_detail = contract_payment_snapshot(
+            str(choice["tipo"]), preventivo, stored_payment
+        )
+        sections = sections_with_payment_article(sections, payment_detail)
     return {
         "preventivo": preventivo,
         "contratto": _row(contract),
@@ -484,6 +667,7 @@ async def get_editor(conn, tenant_id: str, preventivo_id: str) -> dict:
         "sezioni": sections,
         "clienti": _rows(clients),
         "scelta_pagamento": _row(choice),
+        "pagamento_dettaglio": payment_detail,
         "documenti": _rows(documents),
         "modalita_pagamento": payment_options(),
         "condizioni_generali": GENERAL_PAYMENT_TERMS,
@@ -491,10 +675,33 @@ async def get_editor(conn, tenant_id: str, preventivo_id: str) -> dict:
 
 
 async def save_draft(
-    conn, tenant_id: str, preventivo_id: str, sections: list[dict], actor_id: str
+    conn,
+    tenant_id: str,
+    preventivo_id: str,
+    sections: list[dict],
+    actor_id: str,
+    payment_detail: dict | None = None,
 ) -> dict:
     preventivo = await _preventivo(conn, tenant_id, preventivo_id)
     clean = validate_sections(sections)
+    choice = await conn.fetchrow(
+        """select * from public.scelte_pagamento_cliente
+           where tenant_id=$1::uuid and preventivo_id=$2::uuid and stato='confermata'
+           order by confermata_at desc limit 1""",
+        tenant_id,
+        preventivo_id,
+    )
+    payment = {}
+    if choice:
+        payment = contract_payment_snapshot(
+            str(choice["tipo"]), preventivo, payment_detail
+        )
+        clean = sections_with_payment_article(clean, payment)
+    elif payment_detail:
+        raise HTTPException(
+            status_code=409,
+            detail="Il cliente deve prima confermare la modalità di pagamento",
+        )
     contract = await conn.fetchrow(
         """insert into public.contratti (tenant_id,preventivo_id,cantiere_id,numero,stato)
            values ($1::uuid,$2::uuid,$3::uuid,$4,'bozza')
@@ -511,15 +718,20 @@ async def save_draft(
         tenant_id,
         contract["id"],
     )
-    raw = json.dumps(clean, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    raw = json.dumps(
+        {"sezioni": clean, "pagamento": payment},
+        ensure_ascii=False,
+        sort_keys=True,
+    ).encode("utf-8")
     row = await conn.fetchrow(
         """insert into public.contratto_versioni
            (tenant_id,contratto_id,versione,stato,sezioni,pagamento_snapshot,contenuto_hash,created_by)
-           values ($1::uuid,$2::uuid,$3,'bozza',$4::jsonb,'{}'::jsonb,$5,$6::uuid) returning *""",
+           values ($1::uuid,$2::uuid,$3,'bozza',$4::jsonb,$5::jsonb,$6,$7::uuid) returning *""",
         tenant_id,
         contract["id"],
         next_version,
         json.dumps(clean, ensure_ascii=False),
+        json.dumps(payment, ensure_ascii=False),
         hashlib.sha256(raw).hexdigest(),
         actor_id,
     )
@@ -571,10 +783,18 @@ async def validate_contract(
             status_code=409,
             detail="Il cliente deve prima confermare la modalità di pagamento nel portale",
         )
-    snapshot = payment_snapshot(str(choice["tipo"]), preventivo.get("totale_documento"))
+    stored_payment = _json(draft["pagamento_snapshot"])
+    snapshot = contract_payment_snapshot(
+        str(choice["tipo"]),
+        preventivo,
+        stored_payment if stored_payment and stored_payment.get("rate") else None,
+    )
+    validated_sections = sections_with_payment_article(
+        _json(draft["sezioni"]), snapshot
+    )
     next_version = int(draft["versione"]) + 1
     raw = json.dumps(
-        {"sezioni": _json(draft["sezioni"]), "pagamento": snapshot},
+        {"sezioni": validated_sections, "pagamento": snapshot},
         ensure_ascii=False,
         sort_keys=True,
     ).encode("utf-8")
@@ -585,7 +805,7 @@ async def validate_contract(
         tenant_id,
         contract["id"],
         next_version,
-        json.dumps(_json(draft["sezioni"]), ensure_ascii=False),
+        json.dumps(validated_sections, ensure_ascii=False),
         json.dumps(snapshot, ensure_ascii=False),
         hashlib.sha256(raw).hexdigest(),
         actor_id,
@@ -635,11 +855,16 @@ async def validated_contract_payload(conn, tenant_id: str, preventivo_id: str) -
             status_code=409,
             detail="Il contratto deve essere validato dopo la scelta del pagamento",
         )
+    pagamento = contract_payment_snapshot(
+        str(_json(row["pagamento_snapshot"]).get("tipo")),
+        preventivo,
+        _json(row["pagamento_snapshot"]),
+    )
     return {
         "preventivo": preventivo,
         "contratto": _row(row),
-        "sezioni": _json(row["sezioni"]),
-        "pagamento": _json(row["pagamento_snapshot"]),
+        "sezioni": sections_with_payment_article(_json(row["sezioni"]), pagamento),
+        "pagamento": pagamento,
         "tenant_piva": row["tenant_piva"],
     }
 

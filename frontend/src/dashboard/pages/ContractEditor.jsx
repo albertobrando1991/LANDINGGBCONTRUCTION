@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CheckCircle2,
+  CircleDollarSign,
   Download,
   FilePlus2,
   Loader2,
@@ -29,6 +30,26 @@ const DOCUMENT_TYPES = [
   ["altro", "Altro"],
 ];
 
+const money = new Intl.NumberFormat("it-IT", {
+  style: "currency",
+  currency: "EUR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+function paymentTotals(detail) {
+  const total = Number(detail?.totale || 0);
+  const distributed = (detail?.rate || []).reduce(
+    (sum, row) => sum + (Number(row.importo) || 0),
+    0,
+  );
+  return {
+    total,
+    distributed,
+    difference: Math.round((total - distributed) * 100) / 100,
+  };
+}
+
 function statusLabel(status) {
   return (
     {
@@ -45,6 +66,7 @@ export default function ContractEditor() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [sections, setSections] = useState([]);
+  const [paymentDetail, setPaymentDetail] = useState(null);
   const [invite, setInvite] = useState({ email: "", nome: "" });
   const [document, setDocument] = useState({
     tipo: "altro",
@@ -58,6 +80,14 @@ export default function ContractEditor() {
 
   useEffect(() => {
     if (data?.sezioni) setSections(data.sezioni);
+    setPaymentDetail(
+      data?.pagamento_dettaglio
+        ? {
+            ...data.pagamento_dettaglio,
+            rate: data.pagamento_dettaglio.rate.map((rate) => ({ ...rate })),
+          }
+        : null,
+    );
     if (data?.preventivo) {
       setInvite((current) => ({
         email: current.email || data.preventivo.cliente_email || "",
@@ -71,7 +101,10 @@ export default function ContractEditor() {
 
   const save = useMutation({
     mutationFn: () =>
-      client.put(`/preventivi/${id}/contratto/bozza`, { sezioni: sections }),
+      client.put(`/preventivi/${id}/contratto/bozza`, {
+        sezioni: sections,
+        pagamento_dettaglio: paymentDetail,
+      }),
     onSuccess: () => {
       refresh();
       toast.success("Bozza e nuova versione salvate");
@@ -82,6 +115,7 @@ export default function ContractEditor() {
     mutationFn: async () => {
       await client.put(`/preventivi/${id}/contratto/bozza`, {
         sezioni: sections,
+        pagamento_dettaglio: paymentDetail,
       });
       return client.post(`/preventivi/${id}/contratto/valida`);
     },
@@ -136,6 +170,31 @@ export default function ContractEditor() {
       { titolo: `ART. ${current.length + 1} — NUOVA SEZIONE`, testo: "" },
     ]);
 
+  const updatePaymentRate = (index, field, value) =>
+    setPaymentDetail((current) => ({
+      ...current,
+      rate: current.rate.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, [field]: value } : row,
+      ),
+    }));
+  const removePaymentRate = (index) =>
+    setPaymentDetail((current) => ({
+      ...current,
+      rate: current.rate.filter((_, rowIndex) => rowIndex !== index),
+    }));
+  const addPaymentRate = () =>
+    setPaymentDetail((current) => ({
+      ...current,
+      rate: [
+        ...current.rate,
+        {
+          riferimento: "Scadenza da definire",
+          descrizione: "Quota contrattuale",
+          importo: "",
+        },
+      ],
+    }));
+
   const downloadContract = async () => {
     try {
       const response = await client.get(`/preventivi/${id}/contratto/pdf`, {
@@ -178,6 +237,17 @@ export default function ContractEditor() {
     (item) => item.tipo === choice?.tipo,
   );
   const ready = Boolean(choice);
+  const totals = paymentTotals(paymentDetail);
+  const paymentReady =
+    ready &&
+    paymentDetail?.rate?.length > 0 &&
+    paymentDetail.rate.every(
+      (row) =>
+        String(row.riferimento || "").trim() &&
+        String(row.descrizione || "").trim() &&
+        Number(row.importo) > 0,
+    ) &&
+    Math.abs(totals.difference) < 0.005;
 
   return (
     <div className="space-y-6 pb-16">
@@ -288,6 +358,137 @@ export default function ContractEditor() {
         </div>
       </section>
 
+      {ready && paymentDetail && (
+        <section className="rounded-2xl border border-brand/35 bg-surface p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-brand">
+                <CircleDollarSign className="h-4 w-4" />
+                <h2 className="font-display text-xs uppercase">
+                  Dettaglio pagamenti — Art. 13
+                </h2>
+              </div>
+              <p className="mt-2 max-w-3xl text-xs leading-5 text-fog">
+                Specifica scadenza, causale e importo IVA inclusa di ogni quota.
+                Imponibile e IVA vengono calcolati e verificati prima della
+                validazione, quindi riportati nell’art. 13 e nel PDF.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={addPaymentRate}
+              disabled={paymentDetail.rate.length >= 30}
+              className="inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 font-display text-[10px] uppercase text-fog hover:border-brand hover:text-brand disabled:opacity-40"
+            >
+              <Plus className="h-4 w-4" /> Aggiungi scadenza
+            </button>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {paymentDetail.rate.map((rate, index) => {
+              const gross = Number(rate.importo) || 0;
+              const vatRate = Number(paymentDetail.iva_percentuale) || 0;
+              const taxable = gross / (1 + vatRate / 100);
+              const vat = gross - taxable;
+              return (
+                <div
+                  key={index}
+                  className="grid gap-3 rounded-xl border border-stroke bg-bg p-3 lg:grid-cols-[1.05fr_1.15fr_170px_auto]"
+                >
+                  <label className="text-[10px] uppercase text-fog">
+                    Scadenza
+                    <input
+                      value={rate.riferimento}
+                      onChange={(event) =>
+                        updatePaymentRate(
+                          index,
+                          "riferimento",
+                          event.target.value,
+                        )
+                      }
+                      className="mt-1 w-full rounded-lg border border-stroke bg-surface px-3 py-2 text-sm normal-case text-ink"
+                    />
+                  </label>
+                  <label className="text-[10px] uppercase text-fog">
+                    Descrizione
+                    <input
+                      value={rate.descrizione}
+                      onChange={(event) =>
+                        updatePaymentRate(
+                          index,
+                          "descrizione",
+                          event.target.value,
+                        )
+                      }
+                      className="mt-1 w-full rounded-lg border border-stroke bg-surface px-3 py-2 text-sm normal-case text-ink"
+                    />
+                  </label>
+                  <label className="text-[10px] uppercase text-fog">
+                    Importo IVA inclusa
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={rate.importo}
+                      onChange={(event) =>
+                        updatePaymentRate(index, "importo", event.target.value)
+                      }
+                      className="mt-1 w-full rounded-lg border border-stroke bg-surface px-3 py-2 text-right text-sm text-ink"
+                    />
+                    <span className="mt-1 block normal-case leading-4 text-fog">
+                      Imponibile {money.format(taxable)} · IVA {vatRate}%{" "}
+                      {money.format(vat)}
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removePaymentRate(index)}
+                    disabled={paymentDetail.rate.length === 1}
+                    aria-label={`Rimuovi scadenza ${index + 1}`}
+                    className="self-center rounded-xl border border-stroke p-2 text-fog hover:text-red-400 disabled:opacity-30"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          <div
+            className={`mt-4 grid gap-3 rounded-xl border p-4 sm:grid-cols-4 ${paymentReady ? "border-emerald-500/40 bg-emerald-500/5" : "border-amber-500/40 bg-amber-500/5"}`}
+          >
+            <div>
+              <p className="text-[10px] uppercase text-fog">Imponibile</p>
+              <p className="mt-1 text-sm font-semibold text-ink">
+                {money.format(paymentDetail.totale_imponibile || 0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase text-fog">
+                IVA {paymentDetail.iva_percentuale || 0}%
+              </p>
+              <p className="mt-1 text-sm font-semibold text-ink">
+                {money.format(paymentDetail.totale_iva || 0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase text-fog">Totale contratto</p>
+              <p className="mt-1 text-sm font-semibold text-ink">
+                {money.format(totals.total)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase text-fog">Da distribuire</p>
+              <p
+                className={`mt-1 text-sm font-semibold ${paymentReady ? "text-emerald-400" : "text-amber-300"}`}
+              >
+                {money.format(totals.difference)}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -351,7 +552,7 @@ export default function ContractEditor() {
         )}
         <button
           type="button"
-          disabled={save.isPending}
+          disabled={save.isPending || (ready && !paymentReady)}
           onClick={() => save.mutate()}
           className="inline-flex items-center gap-2 rounded-xl border border-brand px-4 py-3 font-display text-[10px] uppercase text-brand disabled:opacity-40"
         >
@@ -359,7 +560,7 @@ export default function ContractEditor() {
         </button>
         <button
           type="button"
-          disabled={!ready || validate.isPending}
+          disabled={!paymentReady || validate.isPending}
           onClick={() => validate.mutate()}
           className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-3 font-display text-[10px] uppercase text-white disabled:opacity-40"
         >

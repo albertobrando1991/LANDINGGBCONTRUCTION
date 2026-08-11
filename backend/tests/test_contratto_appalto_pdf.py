@@ -118,3 +118,42 @@ def test_contract_does_not_invent_missing_tax_identifier():
         assert "C.F./P. IVA non indicato" in text
     finally:
         document.close()
+
+
+def test_contract_payment_table_shows_taxable_vat_and_gross_amounts():
+    rates = [
+        {
+            "riferimento": "Alla firma",
+            "descrizione": "Acconto personalizzato",
+            "percentuale": 30,
+            "imponibile": 3750,
+            "iva_percentuale": 10,
+            "iva_importo": 375,
+            "importo": 4125,
+        },
+        {
+            "riferimento": "Alla consegna",
+            "descrizione": "Saldo personalizzato",
+            "percentuale": 70,
+            "imponibile": 8750,
+            "iva_percentuale": 10,
+            "iva_importo": 875,
+            "importo": 9625,
+        },
+    ]
+    document, text = _text(
+        genera_pdf_contratto(
+            _preventivo(),
+            _tenant(),
+            piano_pagamenti_override=rates,
+        )
+    )
+    try:
+        assert "IMPONIBILE" in text
+        assert "TOTALE IVA INCL." in text
+        assert "Acconto personalizzato" in text
+        assert "3.750,00" in text
+        assert "375,00" in text
+        assert "4.125,00" in text
+    finally:
+        document.close()

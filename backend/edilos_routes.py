@@ -516,8 +516,20 @@ class PortaleCondivisioneBody(BaseModel):
     descrizione: Optional[str] = Field(default=None, max_length=1000)
 
 
+class ContrattoRataBody(BaseModel):
+    riferimento: str = Field(min_length=1, max_length=200)
+    descrizione: str = Field(min_length=1, max_length=300)
+    importo: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+
+
+class ContrattoPagamentoBody(BaseModel):
+    tipo: Literal["sal", "scaglionato_fisso", "due_tranche"]
+    rate: List[ContrattoRataBody] = Field(min_length=1, max_length=30)
+
+
 class ContrattoBozzaBody(BaseModel):
     sezioni: List[Dict[str, str]] = Field(min_length=1, max_length=80)
+    pagamento_dettaglio: Optional[ContrattoPagamentoBody] = None
 
 
 class SceltaPagamentoBody(BaseModel):
@@ -1775,7 +1787,16 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_portal_internal_role(tenant)
             return await contract_workflow_service.save_draft(
-                conn, tenant["id"], preventivo_uuid, body.sezioni, actor_uuid
+                conn,
+                tenant["id"],
+                preventivo_uuid,
+                body.sezioni,
+                actor_uuid,
+                (
+                    body.pagamento_dettaglio.model_dump(mode="json")
+                    if body.pagamento_dettaglio
+                    else None
+                ),
             )
 
     @api.post("/preventivi/{preventivo_id}/contratto/valida")

@@ -544,27 +544,67 @@ def genera_pdf_contratto(
         story.append(Paragraph(title, styles["article"]))
         story.extend(Paragraph(text, styles["body"]) for text in paragraphs)
         if title.startswith("ART. 13") and piano_pagamenti:
+            fiscal_rows = []
+            default_iva = float(preventivo.get("iva_percentuale") or 0)
+            for rata in piano_pagamenti:
+                totale_rata = float(rata.get("importo") or 0)
+                aliquota = float(rata.get("iva_percentuale") or default_iva)
+                imponibile_rata = rata.get("imponibile")
+                if imponibile_rata is None:
+                    imponibile_rata = round(
+                        totale_rata / (1 + aliquota / 100), 2
+                    )
+                iva_rata = rata.get("iva_importo")
+                if iva_rata is None:
+                    iva_rata = round(totale_rata - float(imponibile_rata), 2)
+                fiscal_rows.append(
+                    {
+                        **rata,
+                        "importo": totale_rata,
+                        "imponibile": float(imponibile_rata),
+                        "iva_percentuale": aliquota,
+                        "iva_importo": float(iva_rata),
+                    }
+                )
             payment_rows = [
                 [
                     Paragraph("SCADENZA", styles["table_head"]),
                     Paragraph("DESCRIZIONE", styles["table_head"]),
                     Paragraph("QUOTA", styles["table_head"]),
-                    Paragraph("IMPORTO", styles["table_head"]),
+                    Paragraph("IMPONIBILE", styles["table_head"]),
+                    Paragraph("IVA", styles["table_head"]),
+                    Paragraph("TOTALE IVA INCL.", styles["table_head"]),
                 ]
             ]
-            for rata in piano_pagamenti:
+            for rata in fiscal_rows:
+                iva_label = f"{float(rata['iva_percentuale']):g}".replace(".", ",")
                 payment_rows.append(
                     [
                         Paragraph(_safe(rata.get("riferimento")), styles["table"]),
                         Paragraph(_safe(rata.get("descrizione")), styles["table"]),
                         f"{float(rata.get('percentuale') or 0):.1f}%".replace(".", ","),
+                        importo(rata.get("imponibile")),
+                        Paragraph(
+                            f"{importo(rata.get('iva_importo'))}<br/><font size='6'>({iva_label}%)</font>",
+                            styles["table"],
+                        ),
                         importo(rata.get("importo")),
                     ]
                 )
+            payment_rows.append(
+                [
+                    "",
+                    Paragraph("<b>TOTALE</b>", styles["table"]),
+                    "100,0%",
+                    importo(sum(row["imponibile"] for row in fiscal_rows)),
+                    importo(sum(row["iva_importo"] for row in fiscal_rows)),
+                    importo(sum(row["importo"] for row in fiscal_rows)),
+                ]
+            )
             payments = Table(
                 payment_rows,
                 repeatRows=1,
-                colWidths=[54 * mm, 64 * mm, 18 * mm, 36 * mm],
+                colWidths=[36 * mm, 43 * mm, 15 * mm, 27 * mm, 23 * mm, 28 * mm],
             )
             payments.setStyle(
                 TableStyle(
@@ -575,10 +615,11 @@ def genera_pdf_contratto(
                         ("BACKGROUND", (0, 1), (-1, -1), soft),
                         ("VALIGN", (0, 0), (-1, -1), "TOP"),
                         ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
-                        ("FONTNAME", (3, 1), (3, -1), "Helvetica-Bold"),
-                        ("FONTSIZE", (0, 1), (-1, -1), 7.3),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 2.3 * mm),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 2.3 * mm),
+                        ("FONTNAME", (5, 1), (5, -1), "Helvetica-Bold"),
+                        ("FONTNAME", (1, -1), (-1, -1), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 1), (-1, -1), 6.7),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 1.5 * mm),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 1.5 * mm),
                         ("TOPPADDING", (0, 0), (-1, -1), 2 * mm),
                         ("BOTTOMPADDING", (0, 0), (-1, -1), 2 * mm),
                     ]
