@@ -14,6 +14,10 @@ jest.mock("./storage", () => ({
   tenantIdFromUser: jest.fn(() => ""),
 }));
 
+jest.mock("./photoCompressorClient", () => ({
+  compressPhotoInWorker: jest.fn(),
+}));
+
 import {
   campoPhotoPath,
   rilievoGeneralPhotoPath,
@@ -27,6 +31,8 @@ const TENANT = "10000000-0000-4000-8000-000000000001";
 const CANTIERE = "20000000-0000-4000-8000-000000000001";
 const CLIENT = "30000000-0000-4000-8000-000000000001";
 const PHOTO = "40000000-0000-4000-8000-000000000001";
+
+beforeEach(() => jest.clearAllMocks());
 
 test("genera un path foto tenant-scoped accettato dal backend", () => {
   expect(
@@ -103,5 +109,42 @@ test("carica le foto rilievo tramite backend con autenticazione legacy", async (
   expect(client.post).toHaveBeenCalledWith(
     `/campo/rilievi/${CANTIERE}/assets`,
     expect.any(FormData),
+    expect.objectContaining({ onUploadProgress: expect.any(Function) }),
   );
+});
+
+test("carica al massimo tre foto insieme e mantiene l'ordine", async () => {
+  let active = 0;
+  let peak = 0;
+  const progress = jest.fn();
+  client.post.mockImplementation(async (_url, form, config) => {
+    active += 1;
+    peak = Math.max(peak, active);
+    config.onUploadProgress({ loaded: 2, total: 4 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const file = form.get("file");
+    config.onUploadProgress({ loaded: 4, total: 4 });
+    active -= 1;
+    return { data: { path: `path/${file.name}` } };
+  });
+  const photos = [0, 1, 2, 3].map((index) => ({
+    id: `${PHOTO.slice(0, -1)}${index}`,
+    name: `foto-${index}.jpg`,
+    size: 4,
+    blob: new File(["foto"], `foto-${index}.jpg`, { type: "image/jpeg" }),
+  }));
+
+  await expect(
+    uploadRilievoGeneralPhotos({
+      rilievoId: CANTIERE,
+      photos,
+      onProgress: progress,
+    }),
+  ).resolves.toEqual(photos.map((photo) => `path/${photo.name}`));
+  expect(peak).toBe(3);
+  expect(progress).toHaveBeenLastCalledWith({
+    uploaded: 16,
+    total: 16,
+    count: 4,
+  });
 });

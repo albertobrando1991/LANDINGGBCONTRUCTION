@@ -10,6 +10,7 @@ import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ArrowRight, ChevronDown } from "lucide-react";
 import { ASSETS } from "@/lib/assets";
+import { prefersLightMedia } from "@/lib/network";
 import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 
 gsap.registerPlugin(ScrollTrigger);
@@ -22,7 +23,7 @@ const OVERLAY_ENTER_DURATION = 0.055;
 const OVERLAY_WORD_DURATION = 0.085;
 const OVERLAY_EXIT_DURATION = 0.055;
 const PUBLIC_MEDIA_BASE = `${process.env.PUBLIC_URL || ""}/cantieri`;
-const PLANIMETRIA_OVERLAY_SRC = `${PUBLIC_MEDIA_BASE}/planimetria-napoli-overlay.png`;
+const PLANIMETRIA_OVERLAY_SRC = `${PUBLIC_MEDIA_BASE}/planimetria-napoli-overlay.webp`;
 
 const STORY_OVERLAYS = [
   {
@@ -117,23 +118,6 @@ function createFrameSources({ basePath, step, preferPngEndpoints = true }) {
   }
 
   return frames;
-}
-
-const SLOW_EFFECTIVE_TYPES = new Set(["slow-2g", "2g", "3g"]);
-
-// Su rete lenta o con risparmio dati la sequenza di frame (150+ MB) non arriva
-// mai a schermo: meglio servire subito la hero statica gia usata per reduced-motion.
-function prefersLightHeroExperience() {
-  if (typeof navigator === "undefined") return false;
-
-  const connection =
-    navigator.connection ||
-    navigator.mozConnection ||
-    navigator.webkitConnection;
-  if (!connection) return false;
-
-  if (connection.saveData) return true;
-  return SLOW_EFFECTIVE_TYPES.has(connection.effectiveType);
 }
 
 function isMobileScrollViewport() {
@@ -1192,9 +1176,10 @@ export default function ImmersiveHero() {
     typeof window !== "undefined" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // Decisione congelata al mount: un cambio di rete a meta scroll
-  // rimonterebbe la hero e farebbe perdere la posizione all'utente.
-  const [isLightConnection] = useState(prefersLightHeroExperience);
+  // Su rete lenta la sequenza di 190 frame non arriva mai a schermo: serviamo
+  // subito la hero statica. Decisione congelata al mount, perche un cambio di
+  // rete a meta scroll rimonterebbe la hero e farebbe perdere la posizione.
+  const [isLightConnection] = useState(prefersLightMedia);
 
   if (prefersReducedMotion || isLightConnection) {
     return <ReducedMotionHero lightweight={isLightConnection} />;

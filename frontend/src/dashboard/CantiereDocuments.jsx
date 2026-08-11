@@ -36,7 +36,7 @@ function formatDate(value) {
   });
 }
 
-export default function CantiereDocuments({ cantiereId }) {
+export default function CantiereDocuments({ cantiereId, refreshKey = 0 }) {
   const { user } = useAuth();
   const tenantId = tenantIdFromUser(user);
   const enabled = canUseTenantStorage(user);
@@ -62,7 +62,7 @@ export default function CantiereDocuments({ cantiereId }) {
 
   useEffect(() => {
     if (open && enabled) loadDocuments();
-  }, [enabled, loadDocuments, open]);
+  }, [enabled, loadDocuments, open, refreshKey]);
 
   const upload = async (event) => {
     const file = event.target.files?.[0];

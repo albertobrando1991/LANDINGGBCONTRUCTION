@@ -16,7 +16,7 @@ import {
   Smartphone,
 } from "lucide-react";
 import { toast } from "sonner";
-import client, { formatApiErrorDetail } from "@/lib/api";
+import client, { extractErrorDetail, formatApiErrorDetail } from "@/lib/api";
 import {
   azioneStatoSal,
   periodoMensile,
@@ -416,7 +416,7 @@ export default function Sal() {
       URL.revokeObjectURL(href);
       toast.success(`PDF SAL ${numero} scaricato`);
     } catch (error) {
-      toast.error(formatApiErrorDetail(error.response?.data?.detail));
+      toast.error(await extractErrorDetail(error));
     } finally {
       setPdfDownloading(false);
     }

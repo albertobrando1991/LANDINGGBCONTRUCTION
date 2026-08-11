@@ -1,7 +1,7 @@
 // GB Construction — asset pubblici (forniti dal cliente)
 export const ASSETS = {
   logo: `${process.env.PUBLIC_URL || ""}/brand/gb-logo.png`,
-  cemento: `${process.env.PUBLIC_URL || ""}/brand/cemento-scuro-premium.png`,
+  cemento: `${process.env.PUBLIC_URL || ""}/brand/cemento-scuro-premium.webp`,
   heroVideo: `${process.env.PUBLIC_URL || ""}/brand/hero-construction-loop.mp4`,
   beforeAfter1: `${process.env.PUBLIC_URL || ""}/brand/before-after-1.mp4`,
   beforeAfter2: `${process.env.PUBLIC_URL || ""}/brand/before-after-2.mp4`,
@@ -34,56 +34,56 @@ const cantiereAsset = (fileName) =>
 export const CANTIERE_VIDEOS = [
   {
     src: cantiereAsset("ACERRA.mp4"),
-    poster: cantiereAsset("ACERRA.png"),
+    poster: cantiereAsset("ACERRA.webp"),
     nome: "Acerra",
     citta: "Acerra",
     label: "Video reale",
   },
   {
     src: cantiereAsset("CASALNUOVO.mp4"),
-    poster: cantiereAsset("CASALNUOVO.png"),
+    poster: cantiereAsset("CASALNUOVO.webp"),
     nome: "Casalnuovo",
     citta: "Casalnuovo di Napoli",
     label: "Video reale",
   },
   {
     src: cantiereAsset("CASALNUOVO 2.mp4"),
-    poster: cantiereAsset("CASALNUOVO 2 (2).png"),
+    poster: cantiereAsset("CASALNUOVO 2 (2).webp"),
     nome: "Casalnuovo 2",
     citta: "Casalnuovo di Napoli",
     label: "Video reale",
   },
   {
     src: cantiereAsset("MEDAGLIE D'ORO.mp4"),
-    poster: cantiereAsset("medaglie d'oro.png"),
+    poster: cantiereAsset("medaglie d'oro.webp"),
     nome: "Medaglie d'Oro",
     citta: "Napoli",
     label: "Video reale",
   },
   {
     src: cantiereAsset("POMIGLIANO.mp4"),
-    poster: cantiereAsset("POMIGLIANO.png"),
+    poster: cantiereAsset("POMIGLIANO.webp"),
     nome: "Pomigliano",
     citta: "Pomigliano d'Arco",
     label: "Video reale",
   },
   {
     src: cantiereAsset("TAVERNANOVA.mp4"),
-    poster: cantiereAsset("TAVERNANOVA.png"),
+    poster: cantiereAsset("TAVERNANOVA.webp"),
     nome: "Tavernanova",
     citta: "Casalnuovo di Napoli",
     label: "Video reale",
   },
   {
     src: cantiereAsset("VOLLA.mp4"),
-    poster: cantiereAsset("VOLLA.png"),
+    poster: cantiereAsset("VOLLA.webp"),
     nome: "Volla",
     citta: "Volla",
     label: "Video reale",
   },
   {
     src: cantiereAsset("ZONA OSPEDALIERA.mp4"),
-    poster: cantiereAsset("ZONA OSPEDALIERA.png"),
+    poster: cantiereAsset("ZONA OSPEDALIERA.webp"),
     nome: "Zona Ospedaliera",
     citta: "Napoli",
     label: "Video reale",
@@ -92,36 +92,36 @@ export const CANTIERE_VIDEOS = [
 
 // Foto staff GB Construction (nomi reali: famiglia Brancale)
 export const STAFF_PHOTOS = {
-  "Giuseppe Brancale": `${process.env.PUBLIC_URL || ""}/brand/staff-giuseppe.png`,
-  "Giovanni Brancale": `${process.env.PUBLIC_URL || ""}/brand/staff-giovanni.png`,
-  "Vincenzo Brancale": `${process.env.PUBLIC_URL || ""}/brand/staff-vincenzo.png`,
+  "Giuseppe Brancale": `${process.env.PUBLIC_URL || ""}/brand/staff-giuseppe.webp`,
+  "Giovanni Brancale": `${process.env.PUBLIC_URL || ""}/brand/staff-giovanni.webp`,
+  "Vincenzo Brancale": `${process.env.PUBLIC_URL || ""}/brand/staff-vincenzo.webp`,
 };
 
 // Testimonianze (card grafiche fornite)
 export const TESTIMONIAL_IMAGES = [
   {
-    src: `${process.env.PUBLIC_URL || ""}/brand/testimonianza-1.png`,
+    src: `${process.env.PUBLIC_URL || ""}/brand/testimonianza-1.webp`,
     nome: "Alberto B.",
   },
   {
-    src: `${process.env.PUBLIC_URL || ""}/brand/testimonianza-4.png`,
+    src: `${process.env.PUBLIC_URL || ""}/brand/testimonianza-4.webp`,
     nome: "Alessia C.",
   },
   {
-    src: `${process.env.PUBLIC_URL || ""}/brand/testimonianza-2.png`,
+    src: `${process.env.PUBLIC_URL || ""}/brand/testimonianza-2.webp`,
     nome: "Alessia O.",
   },
   {
-    src: `${process.env.PUBLIC_URL || ""}/brand/testimonianza-3.png`,
+    src: `${process.env.PUBLIC_URL || ""}/brand/testimonianza-3.webp`,
     nome: "Marianna D.",
   },
 ];
 
 // Poster proposte commerciali (sezione pacchetti + output)
 export const PROPOSAL_POSTERS = {
-  essenziale: `${process.env.PUBLIC_URL || ""}/brand/gb-essenziale.png`,
-  premium: `${process.env.PUBLIC_URL || ""}/brand/gb-premium.png`,
-  luxury: `${process.env.PUBLIC_URL || ""}/brand/gb-luxury.png`,
+  essenziale: `${process.env.PUBLIC_URL || ""}/brand/gb-essenziale.webp`,
+  premium: `${process.env.PUBLIC_URL || ""}/brand/gb-premium.webp`,
+  luxury: `${process.env.PUBLIC_URL || ""}/brand/gb-luxury.webp`,
 };
 
 // Immagini ambient cantiere/architettura (gallery + sfondi sezioni)

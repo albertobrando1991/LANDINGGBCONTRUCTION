@@ -389,11 +389,11 @@ export default function Campo() {
               cantiereId: form.cantiere_id,
               clientUuid: body.client_uuid,
               photos,
-              onProgress: ({ index, count, uploaded, total }) => {
+              onProgress: ({ uploaded, total }) => {
                 const percent = total
                   ? Math.round((uploaded / total) * 100)
                   : 0;
-                setPhotoProgress(`Foto ${index + 1}/${count} · ${percent}%`);
+                setPhotoProgress(`Upload foto · ${percent}%`);
               },
             });
             requestBody = { ...body, foto_paths: paths };

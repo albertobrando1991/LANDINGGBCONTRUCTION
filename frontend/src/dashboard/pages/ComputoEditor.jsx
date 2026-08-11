@@ -11,7 +11,7 @@ import {
   Save,
   Trash2,
 } from "lucide-react";
-import client from "@/lib/api";
+import client, { extractErrorDetail } from "@/lib/api";
 import { moveVoceIds, raggruppaVociPerFase } from "@/lib/computo";
 import { fetchComputo, prefetchComputi } from "@/lib/computiPrefetch";
 import { toast } from "sonner";
@@ -525,10 +525,7 @@ export default function ComputoEditor() {
       anchor.click();
       URL.revokeObjectURL(url);
     },
-    onError: (error) =>
-      toast.error(
-        error?.response?.data?.detail || "Anteprima PDF non disponibile",
-      ),
+    onError: async (error) => toast.error(await extractErrorDetail(error)),
   });
 
   if (isLoading || !computo) {

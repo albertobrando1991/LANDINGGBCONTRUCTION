@@ -9,6 +9,7 @@ import {
   CloudOff,
   Loader2,
   Map as MapIcon,
+  PenLine,
   Plus,
   RefreshCw,
   Ruler,
@@ -51,6 +52,11 @@ import {
   normalizeRilievoLeads,
   rilievoLeadLabel,
 } from "./rilievoLeadSelection";
+import { formatDecimale, parseDecimale } from "./rilievoNumeri";
+import { ALTEZZA_PRESETS, AMBIENTE_TEMPLATES } from "./rilievoTemplates";
+import { mapLimit } from "@/lib/network";
+import DictationHint from "./DictationHint";
+import PhotoAnnotatorModal from "./PhotoAnnotatorModal";
 import RilievoTavola from "./RilievoTavola";
 
 const EMPTY_RILIEVO = {
@@ -91,12 +97,6 @@ function newUuid() {
   });
 }
 
-function optionalNumber(value) {
-  if (value === "" || value == null) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
 function detailMessage(error) {
   return formatApiErrorDetail(error?.response?.data?.detail || error?.message);
 }
@@ -106,7 +106,7 @@ function isRetryable(error) {
   return !error?.response || status === 408 || status === 429 || status >= 500;
 }
 
-function PreviewBlob({ photo, onRemove }) {
+function PreviewBlob({ photo, onRemove, onAnnotate }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
     const next = URL.createObjectURL(photo.blob);
@@ -130,6 +130,14 @@ function PreviewBlob({ photo, onRemove }) {
       >
         <X className="h-4 w-4" />
       </button>
+      <button
+        type="button"
+        onClick={onAnnotate}
+        aria-label="Annota foto"
+        className="absolute bottom-1 left-1 flex min-h-8 items-center gap-1 rounded-full bg-black/75 px-2 text-[9px] uppercase text-white"
+      >
+        <PenLine className="h-3.5 w-3.5" /> Annota
+      </button>
     </div>
   );
 }
@@ -149,6 +157,7 @@ function AmbienteEditor({
   const [savedPhotos, setSavedPhotos] = useState([]);
   const [saveState, setSaveState] = useState("salvato");
   const [photoProgress, setPhotoProgress] = useState("");
+  const [annotatingPhoto, setAnnotatingPhoto] = useState(null);
   const inputRef = useRef(null);
   const savingRef = useRef(false);
   const lastSavedRef = useRef("");
@@ -160,12 +169,15 @@ function AmbienteEditor({
       tipologia: ambiente.tipologia || "",
       piano: ambiente.piano || "",
       ordine: Number(ambiente.ordine || 0),
-      lunghezza: ambiente.lunghezza ?? "",
-      larghezza: ambiente.larghezza ?? "",
-      altezza: ambiente.altezza ?? "",
-      superficie: ambiente.superficie ?? "",
+      lunghezza: formatDecimale(ambiente.lunghezza),
+      larghezza: formatDecimale(ambiente.larghezza),
+      altezza: formatDecimale(ambiente.altezza),
+      superficie: formatDecimale(ambiente.superficie),
       misure_extra: Array.isArray(ambiente.misure_extra)
-        ? ambiente.misure_extra
+        ? ambiente.misure_extra.map((item) => ({
+            ...item,
+            valore: formatDecimale(item.valore),
+          }))
         : [],
       note: ambiente.note || "",
       foto_paths: ambiente.foto_paths || [],
@@ -185,11 +197,32 @@ function AmbienteEditor({
     };
   }, [draft?.foto_paths, rilievo.id]);
 
+  const numericState = useMemo(() => {
+    if (!draft) return { values: {}, extraValues: {}, errors: {} };
+    const values = {};
+    const extraValues = {};
+    const errors = {};
+    for (const field of ["lunghezza", "larghezza", "altezza", "superficie"]) {
+      const parsed = parseDecimale(draft[field]);
+      values[field] = parsed.value;
+      if (!parsed.ok) errors[field] = parsed.error;
+    }
+    for (const item of draft.misure_extra || []) {
+      const parsed = parseDecimale(item.valore);
+      extraValues[item.id] = parsed.value;
+      if (!parsed.ok) errors[`extra-${item.id}`] = parsed.error;
+    }
+    return { values, extraValues, errors };
+  }, [draft]);
+
+  const numberErrors = numericState.errors;
+  const hasNumberErrors = Object.keys(numberErrors).length > 0;
+
   const payload = useMemo(() => {
     if (!draft) return null;
-    const length = optionalNumber(draft.lunghezza);
-    const width = optionalNumber(draft.larghezza);
-    const manualSurface = optionalNumber(draft.superficie);
+    const length = numericState.values.lunghezza;
+    const width = numericState.values.larghezza;
+    const manualSurface = numericState.values.superficie;
     return {
       nome: String(draft.nome || "").trim(),
       tipologia: String(draft.tipologia || "").trim() || null,
@@ -197,28 +230,39 @@ function AmbienteEditor({
       ordine: Number(draft.ordine || 0),
       lunghezza: length,
       larghezza: width,
-      altezza: optionalNumber(draft.altezza),
+      altezza: numericState.values.altezza,
       superficie:
         manualSurface ??
         (length != null && width != null
           ? Number((length * width).toFixed(3))
           : null),
       misure_extra: (draft.misure_extra || [])
-        .filter((item) => item.etichetta?.trim() && item.valore !== "")
+        .filter(
+          (item) =>
+            item.etichetta?.trim() && String(item.valore ?? "").trim() !== "",
+        )
         .map((item) => ({
           id: item.id,
           etichetta: item.etichetta.trim(),
-          valore: Number(item.valore),
+          valore: numericState.extraValues[item.id],
           unita: item.unita || "m",
         })),
       note: String(draft.note || "").trim() || null,
       foto_paths: draft.foto_paths || [],
     };
-  }, [draft]);
+  }, [draft, numericState]);
 
   const persist = useCallback(
     async (showToast = false) => {
-      if (!payload?.nome || savingRef.current || locked) return;
+      if (!payload?.nome || savingRef.current || locked || annotatingPhoto)
+        return;
+      if (hasNumberErrors) {
+        setSaveState("errore");
+        if (showToast) {
+          toast.error("Correggi le misure non valide prima di salvare");
+        }
+        return;
+      }
       savingRef.current = true;
       setSaveState(isOnline ? "salvataggio" : "in_attesa");
       try {
@@ -231,9 +275,9 @@ function AmbienteEditor({
               rilievoId: rilievo.id,
               ambienteClientUuid: ambiente.client_uuid,
               photos: pendingPhotos,
-              onProgress: ({ index, count, uploaded: done, total }) =>
+              onProgress: ({ uploaded: done, total }) =>
                 setPhotoProgress(
-                  `Foto ${index + 1}/${count} · ${total ? Math.round((done / total) * 100) : 0}%`,
+                  `Upload foto · ${total ? Math.round((done / total) * 100) : 0}%`,
                 ),
             });
             body = {
@@ -289,12 +333,15 @@ function AmbienteEditor({
             description: detailMessage(error),
           });
       } finally {
+        setPhotoProgress("");
         savingRef.current = false;
       }
     },
     [
       ambiente.client_uuid,
+      annotatingPhoto,
       draft,
+      hasNumberErrors,
       isOnline,
       locked,
       onSaved,
@@ -307,7 +354,11 @@ function AmbienteEditor({
   );
 
   useEffect(() => {
-    if (!draft || locked || !payload?.nome) return undefined;
+    if (!draft || locked || annotatingPhoto || !payload?.nome) return undefined;
+    if (hasNumberErrors) {
+      setSaveState("errore");
+      return undefined;
+    }
     const snapshot = JSON.stringify({
       draft,
       pending: pendingPhotos.map((photo) => photo.id),
@@ -316,7 +367,15 @@ function AmbienteEditor({
     setSaveState("modificato");
     const timer = window.setTimeout(() => void persist(false), 1100);
     return () => window.clearTimeout(timer);
-  }, [draft, locked, payload?.nome, pendingPhotos, persist]);
+  }, [
+    annotatingPhoto,
+    draft,
+    hasNumberErrors,
+    locked,
+    payload?.nome,
+    pendingPhotos,
+    persist,
+  ]);
 
   if (!draft) return null;
 
@@ -335,11 +394,29 @@ function AmbienteEditor({
       return;
     }
     try {
-      const compressed = [];
-      for (const file of files.slice(0, available)) {
-        compressed.push(await compressCampoPhoto(file));
-      }
+      const results = await mapLimit(
+        files.slice(0, available),
+        3,
+        async (file) => {
+          try {
+            return { photo: await compressCampoPhoto(file), file };
+          } catch (error) {
+            return { error, file };
+          }
+        },
+      );
+      const compressed = results.flatMap((result) =>
+        result.photo ? [result.photo] : [],
+      );
+      const failed = results.filter((result) => result.error);
       setPendingPhotos((current) => [...current, ...compressed]);
+      if (failed.length) {
+        toast.error(`${failed.length} foto non aggiunte`, {
+          description: failed
+            .map((result) => `${result.file.name}: ${result.error.message}`)
+            .join(" · "),
+        });
+      }
     } catch (error) {
       toast.error("Foto non aggiunta", { description: error.message });
     }
@@ -408,6 +485,32 @@ function AmbienteEditor({
         </div>
       </div>
 
+      {!locked && (
+        <div className="mb-4 rounded-xl border border-stroke bg-bg p-3">
+          <p className="font-display text-[10px] uppercase text-fog">
+            Template ambiente
+          </p>
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+            {AMBIENTE_TEMPLATES.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                onClick={() =>
+                  setDraft((current) => ({
+                    ...current,
+                    tipologia: template.tipologia,
+                    altezza: template.altezza,
+                  }))
+                }
+                className="min-h-10 shrink-0 rounded-full border border-brand/40 px-3 text-[10px] uppercase text-brand"
+              >
+                {template.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-3 md:grid-cols-3">
         <label className="campo-field md:col-span-2">
           <span>Nome ambiente</span>
@@ -450,17 +553,36 @@ function AmbienteEditor({
           <label className="campo-field" key={field}>
             <span>{label}</span>
             <input
-              type="number"
+              type="text"
               inputMode="decimal"
-              min="0"
-              step="0.001"
+              autoComplete="off"
               value={draft[field]}
               disabled={locked}
+              aria-invalid={Boolean(numberErrors[field])}
               onChange={(event) => setField(field, event.target.value)}
             />
+            {numberErrors[field] && (
+              <small className="text-red-400">{numberErrors[field]}</small>
+            )}
           </label>
         ))}
       </div>
+
+      {!locked && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-[10px] uppercase text-fog">Altezza rapida</span>
+          {ALTEZZA_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setField("altezza", preset)}
+              className="min-h-9 rounded-full border border-stroke px-3 text-[10px] text-ink hover:border-brand"
+            >
+              {preset} m
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="mt-5 rounded-xl border border-stroke bg-bg p-3">
         <div className="flex items-center justify-between gap-2">
@@ -510,26 +632,33 @@ function AmbienteEditor({
                   )
                 }
               />
-              <input
-                aria-label={`Valore misura ${index + 1}`}
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.001"
-                className="rounded-lg border border-stroke bg-surface px-2 text-sm text-ink"
-                value={misura.valore}
-                disabled={locked}
-                onChange={(event) =>
-                  setField(
-                    "misure_extra",
-                    draft.misure_extra.map((item) =>
-                      item.id === misura.id
-                        ? { ...item, valore: event.target.value }
-                        : item,
-                    ),
-                  )
-                }
-              />
+              <div className="min-w-0">
+                <input
+                  aria-label={`Valore misura ${index + 1}`}
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  aria-invalid={Boolean(numberErrors[`extra-${misura.id}`])}
+                  className="h-full w-full rounded-lg border border-stroke bg-surface px-2 text-sm text-ink"
+                  value={misura.valore}
+                  disabled={locked}
+                  onChange={(event) =>
+                    setField(
+                      "misure_extra",
+                      draft.misure_extra.map((item) =>
+                        item.id === misura.id
+                          ? { ...item, valore: event.target.value }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+                {numberErrors[`extra-${misura.id}`] && (
+                  <small className="block text-[9px] text-red-400">
+                    {numberErrors[`extra-${misura.id}`]}
+                  </small>
+                )}
+              </div>
               <select
                 aria-label={`Unita misura ${index + 1}`}
                 className="rounded-lg border border-stroke bg-surface px-1 text-sm text-ink"
@@ -582,6 +711,11 @@ function AmbienteEditor({
           onChange={(event) => setField("note", event.target.value)}
         />
       </label>
+      <DictationHint
+        value={draft.note}
+        disabled={locked}
+        onChange={(value) => setField("note", value)}
+      />
 
       <div className="mt-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -640,6 +774,7 @@ function AmbienteEditor({
                     current.filter((item) => item.id !== photo.id),
                   )
                 }
+                onAnnotate={() => setAnnotatingPhoto(photo)}
               />
             ))}
           </div>
@@ -657,6 +792,21 @@ function AmbienteEditor({
         >
           <Save className="h-4 w-4" /> Salva adesso
         </button>
+      )}
+      {annotatingPhoto && (
+        <PhotoAnnotatorModal
+          photo={annotatingPhoto}
+          onClose={() => setAnnotatingPhoto(null)}
+          onSave={(annotated) => {
+            setPendingPhotos((items) =>
+              items.map((item) =>
+                item.id === annotated.id ? annotated : item,
+              ),
+            );
+            setAnnotatingPhoto(null);
+            setSaveState("modificato");
+          }}
+        />
       )}
     </section>
   );
@@ -1205,6 +1355,14 @@ export default function PrimoRilievo({ isOnline }) {
                   }
                 />
               </label>
+              <div className="md:col-span-2">
+                <DictationHint
+                  value={createForm.note}
+                  onChange={(value) =>
+                    setCreateForm((current) => ({ ...current, note: value }))
+                  }
+                />
+              </div>
             </div>
             <button
               type="button"
@@ -1388,6 +1546,16 @@ export default function PrimoRilievo({ isOnline }) {
                     }
                   />
                 </label>
+                <DictationHint
+                  value={surveyDraft.note}
+                  disabled={locked}
+                  onChange={(value) =>
+                    setSurveyDraft((current) => ({
+                      ...current,
+                      note: value,
+                    }))
+                  }
+                />
               </div>
               {locked ? (
                 <button

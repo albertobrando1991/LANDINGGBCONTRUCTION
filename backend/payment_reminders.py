@@ -59,10 +59,14 @@ def _message(row: dict) -> tuple[str, str]:
 
 
 def _send_whatsapp(row: dict, body: str) -> str:
-    token = (os.environ.get("WHATSAPP_ACCESS_TOKEN") or "").strip()
+    token = (
+        os.environ.get("WHATSAPP_ACCESS_TOKEN")
+        or os.environ.get("WHATSAPP_TOKEN")
+        or ""
+    ).strip()
     phone_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
     template = (os.environ.get("WHATSAPP_PAYMENT_TEMPLATE") or "").strip()
-    version = (os.environ.get("META_GRAPH_API_VERSION") or "v23.0").strip()
+    version = (os.environ.get("META_GRAPH_API_VERSION") or "v25.0").strip()
     if not token or not phone_id or not template:
         raise RuntimeError(
             "WhatsApp Cloud API non configurata: servono token, phone number ID e template approvato"

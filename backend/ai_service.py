@@ -18,6 +18,11 @@ def _ai_available() -> bool:
     return bool(_openai_api_key())
 
 
+def ai_available() -> bool:
+    """Indica se gli insight possono usare il provider, senza esporre la chiave."""
+    return _ai_available()
+
+
 def _fallback_next_action() -> str:
     return (
         "Contatta il cliente via WhatsApp entro 2 ore, richiamando metratura, zona e soluzione scelta. "
@@ -85,19 +90,19 @@ async def suggest_next_action(lead: dict) -> str:
         return _fallback_next_action()
 
 
-async def generate_insights(stats: dict) -> str:
+async def generate_insights(stats: dict) -> tuple[str, str]:
     if not _ai_available():
-        return _fallback_insights()
+        return _fallback_insights(), "fallback"
 
     system = (
         "Sei un analista business di GB Construction. Dai 2-3 insight azionabili e concisi (in italiano) "
         "sui dati del funnel di vendita per migliorare la conversione. Niente preamboli."
     )
     prompt = (
-        f"Dati mese corrente:\n"
+        f"Periodo analizzato: {stats.get('period_label') or 'storico completo'}\n"
         f"- Lead ricevuti: {stats.get('lead_ricevuti')}\n"
         f"- Lead qualificati: {stats.get('lead_qualificati')}\n"
-        f"- Sopralluoghi fissati: {stats.get('sopralluoghi')}\n"
+        f"- Lead arrivati al sopralluogo: {stats.get('sopralluoghi')}\n"
         f"- Preventivi inviati: {stats.get('preventivi')}\n"
         f"- Contratti chiusi: {stats.get('chiusi_vinti')}\n"
         f"- Lead persi: {stats.get('chiusi_persi')}\n"
@@ -105,6 +110,6 @@ async def generate_insights(stats: dict) -> str:
         f"- Valore pipeline aperta: {stats.get('valore_pipeline')} EUR\n"
     )
     try:
-        return await asyncio.to_thread(_chat_completion, system, prompt)
+        return await asyncio.to_thread(_chat_completion, system, prompt), "ai"
     except Exception:
-        return _fallback_insights()
+        return _fallback_insights(), "fallback"

@@ -34,6 +34,7 @@ import meta_leads_service
 import api_security
 import boq_service
 import lead_bridge
+import report_service
 import db as db_pg
 import tenancy
 from edilos_routes import register_edilos_routes
@@ -299,6 +300,7 @@ class CantiereFase(BaseModel):
 
 class CantiereCreate(BaseModel):
     cliente: Optional[str] = ""
+    telefono: Optional[str] = Field(default=None, max_length=40)
     indirizzo: Optional[str] = ""
     avanzamento: int = Field(default=0, ge=0, le=100)
     milestone: Optional[str] = ""
@@ -314,6 +316,7 @@ class CantiereCreate(BaseModel):
 
 class CantiereUpdate(BaseModel):
     cliente: Optional[str] = None
+    telefono: Optional[str] = Field(default=None, max_length=40)
     indirizzo: Optional[str] = None
     avanzamento: Optional[int] = Field(default=None, ge=0, le=100)
     milestone: Optional[str] = None
@@ -2095,6 +2098,33 @@ def _lead_importo_medio(lead: Optional[Dict[str, Any]]) -> float:
     return round((basso + alto) / 2) if basso or alto else 0
 
 
+async def _hydrate_cantiere_telefoni(
+    docs: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    missing_by_lead: Dict[str, List[Dict[str, Any]]] = {}
+    for doc in docs:
+        if _clean_text(doc.get("telefono")):
+            continue
+        lead_id = _clean_text(doc.get("lead_id"))
+        if not lead_id or not ObjectId.is_valid(lead_id):
+            continue
+        missing_by_lead.setdefault(lead_id, []).append(doc)
+    if not missing_by_lead:
+        return docs
+
+    leads = await db.leads.find(
+        {"_id": {"$in": [ObjectId(lead_id) for lead_id in missing_by_lead]}},
+        {"telefono": 1},
+    ).to_list(len(missing_by_lead))
+    for lead in leads:
+        telefono = _clean_text(lead.get("telefono"))
+        if not telefono:
+            continue
+        for doc in missing_by_lead.get(str(lead.get("_id")), []):
+            doc["telefono"] = telefono
+    return docs
+
+
 async def _load_cantiere_lead(lead_id: Optional[str]) -> Optional[Dict[str, Any]]:
     lead_id = _clean_text(lead_id)
     if not lead_id:
@@ -2119,6 +2149,9 @@ def _build_cantiere_doc(body: CantiereCreate, lead: Optional[Dict[str, Any]], us
         capocantiere = _clean_text(lead.get("owner"))
     doc = {
         "cliente": cliente,
+        "telefono": _clean_text(data.get("telefono"))
+        or _clean_text(lead.get("telefono") if lead else "")
+        or None,
         "indirizzo": indirizzo,
         "avanzamento": int(data.get("avanzamento") or 0),
         "milestone": _clean_text(data.get("milestone")) or "Apertura cantiere",
@@ -2177,6 +2210,7 @@ async def cantieri(stato: Optional[str] = "attivo", user: dict = Depends(current
         else:
             query["stato"] = clean_stato
     docs = await db.cantieri.find(query).sort([("milestone_data", 1), ("updated_at", -1)]).to_list(500)
+    await _hydrate_cantiere_telefoni(docs)
     return [serialize(d) for d in docs]
 
 
@@ -2214,6 +2248,8 @@ async def update_cantiere(cantiere_id: str, body: CantiereUpdate, user: dict = D
         if not cliente:
             raise HTTPException(status_code=400, detail="Cliente obbligatorio")
         updates["cliente"] = cliente
+    if "telefono" in data:
+        updates["telefono"] = _clean_text(data.get("telefono")) or None
     if "criticita" in data:
         updates["criticita"] = _clean_text(data.get("criticita")) or None
     if "milestone_data" in data:
@@ -2233,6 +2269,8 @@ async def update_cantiere(cantiere_id: str, body: CantiereUpdate, user: dict = D
         lead = await _load_cantiere_lead(data.get("lead_id"))
         updates["lead_id"] = _clean_text(data.get("lead_id")) or None
         if lead:
+            if not _clean_text(existing.get("telefono")):
+                updates["telefono"] = _clean_text(lead.get("telefono")) or None
             await _mark_lead_as_cantiere(lead, cantiere_id, user)
 
     if not updates:
@@ -2241,98 +2279,105 @@ async def update_cantiere(cantiere_id: str, body: CantiereUpdate, user: dict = D
     updates["updated_by"] = user.get("name") or user.get("email")
     await db.cantieri.update_one({"_id": oid}, {"$set": updates})
     saved = await db.cantieri.find_one({"_id": oid})
+    await _hydrate_cantiere_telefoni([saved])
     return serialize(saved)
 
 
 @api.delete("/cantieri/{cantiere_id}")
 async def delete_cantiere(cantiere_id: str, user: dict = Depends(require_admin)):
     oid = object_id_or_400(cantiere_id, "Cantiere")
+    existing = await db.cantieri.find_one({"_id": oid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
     res = await db.cantieri.delete_one({"_id": oid})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Cantiere non trovato")
-    return {"ok": True}
+
+    lead_id = _clean_text(existing.get("lead_id"))
+    if lead_id and ObjectId.is_valid(lead_id):
+        event = {
+            "id": "ev-" + uuid.uuid4().hex[:8],
+            "tipo": "cantiere",
+            "testo": f"Cantiere eliminato da {user.get('name') or 'amministratore'}",
+            "ts": now_iso(),
+            "autore": user.get("name"),
+        }
+        await db.leads.update_one(
+            {"_id": ObjectId(lead_id), "cantiere_id": cantiere_id},
+            {
+                "$unset": {"cantiere_id": ""},
+                "$set": {"last_contact": event["ts"], "updated_at": event["ts"]},
+                "$push": {"timeline": {"$each": [event], "$position": 0}},
+            },
+        )
+    return {"ok": True, "deleted": cantiere_id}
+
+
+REPORT_PERIOD = Literal["30d", "90d", "180d", "365d", "all"]
+
+
+async def _sales_report(period: REPORT_PERIOD) -> dict:
+    # Nessun limite artificiale: il precedente to_list(1000) rendeva i KPI
+    # incompleti appena lo storico superava mille lead. La collection e gia
+    # filtrata per tenant dall'adapter Postgres.
+    projection = {
+        "nome": 1,
+        "citta": 1,
+        "tipo_immobile": 1,
+        "livello": 1,
+        "status": 1,
+        "range_basso": 1,
+        "range_alto": 1,
+        "created_at": 1,
+        "status_changed_at": 1,
+    }
+    leads = await db.leads.find({}, projection).to_list(None)
+    return report_service.build_sales_report(
+        [serialize(document) for document in leads],
+        period=period,
+    )
 
 
 @api.get("/reports")
-async def reports(user: dict = Depends(require_admin)):
-    leads = await db.leads.find({}).to_list(1000)
-    leads = [serialize(d) for d in leads]
-    total = len(leads)
-    qualificati = len([l for l in leads if l.get("status") not in ("nuovo",)])
-    sopr = len([l for l in leads if l.get("status") in ("sopralluogo_fissato", "sopralluogo_fatto")])
-    prev = len([l for l in leads if l.get("status") in ("preventivo_inviato", "follow_up", "in_trattativa", "chiuso_vinto", "chiuso_perso")])
-    vinti = [l for l in leads if l.get("status") == "chiuso_vinto"]
-    persi = [l for l in leads if l.get("status") == "chiuso_perso"]
-    conv = round((len(vinti) / total * 100) if total else 0, 1)
-    aperti = [l for l in leads if l.get("status") not in ("chiuso_vinto", "chiuso_perso")]
-    valore_pipeline = round(sum((l.get("range_alto", 0) + l.get("range_basso", 0)) / 2 for l in aperti))
-    valore_chiuso = round(sum((l.get("range_alto", 0) + l.get("range_basso", 0)) / 2 for l in vinti))
-
-    # distribuzione pacchetti
-    pac = {}
-    for l in leads:
-        pac[l.get("livello", "premium")] = pac.get(l.get("livello", "premium"), 0) + 1
-    distribuzione = [{"name": k.capitalize(), "value": v} for k, v in pac.items()]
-
-    # provenienza geografica
-    geo = {}
-    for l in leads:
-        c = l.get("citta") or "Altro"
-        geo[c] = geo.get(c, 0) + 1
-    geografia = sorted([{"citta": k, "lead": v} for k, v in geo.items()], key=lambda x: x["lead"], reverse=True)
-
-    # funnel
-    funnel = [
-        {"step": "Lead", "value": total},
-        {"step": "Qualificati", "value": qualificati},
-        {"step": "Sopralluoghi", "value": sopr},
-        {"step": "Preventivi", "value": prev},
-        {"step": "Vinti", "value": len(vinti)},
-    ]
-
-    # lead nel tempo (ultimi 6 mesi semplificato per giorno arrivo)
-    serie = {}
-    for l in leads:
-        day = (l.get("created_at") or "")[:10]
-        serie[day] = serie.get(day, 0) + 1
-    timeline = sorted([{"data": k, "lead": v} for k, v in serie.items() if k], key=lambda x: x["data"])
-
-    return {
-        "kpi": {
-            "lead_ricevuti": total, "lead_qualificati": qualificati,
-            "sopralluoghi": sopr, "preventivi": prev,
-            "chiusi_vinti": len(vinti), "chiusi_persi": len(persi),
-            "conversione": conv, "valore_pipeline": valore_pipeline,
-            "valore_chiuso": valore_chiuso,
-        },
-        "distribuzione": distribuzione, "geografia": geografia,
-        "funnel": funnel, "timeline": timeline,
-        "persi": [{"nome": l["nome"], "citta": l.get("citta"), "livello": l.get("livello"),
-                   "range": l.get("range_alto")} for l in persi],
-    }
+async def reports(
+    period: REPORT_PERIOD = Query("all"),
+    user: dict = Depends(require_admin),
+):
+    return await _sales_report(period)
 
 
 @api.post("/reports/insights")
-async def reports_insights(user: dict = Depends(require_admin)):
-    rep = await reports(user)
-    await ai_credit_service.require_available_for_generation(
-        db,
-        ai_credit_service.RATE_CARD["report_insights"]["credits"],
-        user=user,
-    )
+async def reports_insights(
+    period: REPORT_PERIOD = Query("all"),
+    user: dict = Depends(require_admin),
+):
+    rep = await _sales_report(period)
+    provider_available = ai_service.ai_available()
+    if provider_available:
+        await ai_credit_service.require_available_for_generation(
+            db,
+            ai_credit_service.RATE_CARD["report_insights"]["credits"],
+            user=user,
+        )
     try:
-        text = await ai_service.generate_insights(rep["kpi"])
+        text, source = await ai_service.generate_insights(
+            {
+                **rep["kpi"],
+                "period_label": rep.get("meta", {}).get("period_label"),
+            }
+        )
     except Exception as e:
         logger.exception("insights failed")
         raise HTTPException(status_code=502, detail=f"Servizio AI non disponibile: {e}")
-    await ai_credit_service.charge_credits(
-        db,
-        action_key="report_insights",
-        idempotency_key=f"report_insights:{user.get('id')}:{uuid.uuid4().hex}",
-        user=user,
-        metadata={"kpi": rep.get("kpi")},
-    )
-    return {"insights": text}
+    if source == "ai":
+        await ai_credit_service.charge_credits(
+            db,
+            action_key="report_insights",
+            idempotency_key=f"report_insights:{user.get('id')}:{uuid.uuid4().hex}",
+            user=user,
+            metadata={"kpi": rep.get("kpi"), "period": period},
+        )
+    return {"insights": text, "source": source}
 
 
 # ----------------------- AI credits -----------------------

@@ -9,12 +9,9 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import client, { formatApiErrorDetail } from "@/lib/api";
+import client, { extractErrorDetail } from "@/lib/api";
 import { formatEuro } from "@/lib/format";
-import {
-  contrattoGenerabile,
-  preventivoGestibile,
-} from "@/lib/preventivi";
+import { contrattoGenerabile, preventivoGestibile } from "@/lib/preventivi";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { STATI } from "@/dashboard/leadMeta";
 import NuovoPreventivoModal from "@/dashboard/NuovoPreventivoModal";
@@ -50,10 +47,7 @@ export default function Preventivi() {
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (error) {
-      toast.error(
-        formatApiErrorDetail(error?.response?.data?.detail) ||
-          "Download del PDF non riuscito.",
-      );
+      toast.error(await extractErrorDetail(error));
     }
   };
 
