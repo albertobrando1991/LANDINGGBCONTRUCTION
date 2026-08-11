@@ -12,7 +12,11 @@ import {
   Trash2,
 } from "lucide-react";
 import client, { extractErrorDetail } from "@/lib/api";
-import { moveVoceIds, raggruppaVociPerFase } from "@/lib/computo";
+import {
+  moveVoceIds,
+  raggruppaVociPerFase,
+  vociDaClassificare,
+} from "@/lib/computo";
 import { fetchComputo, prefetchComputi } from "@/lib/computiPrefetch";
 import { toast } from "sonner";
 import VarianteComparison from "@/dashboard/components/VarianteComparison";
@@ -266,6 +270,9 @@ export default function ComputoEditor() {
     superficie_mq: "",
     durate_fasi: {},
   });
+  const [cronoprogrammaSaveState, setCronoprogrammaSaveState] =
+    useState("idle");
+  const [cronoprogrammaSavedAt, setCronoprogrammaSavedAt] = useState("");
 
   const { data: computo, isLoading } = useQuery({
     queryKey: ["computo", id],
@@ -287,6 +294,11 @@ export default function ComputoEditor() {
       ),
     });
   }, [computo]);
+
+  useEffect(() => {
+    setCronoprogrammaSaveState("idle");
+    setCronoprogrammaSavedAt("");
+  }, [id]);
 
   const { data: prezzari = [] } = useQuery({
     queryKey: ["prezzari"],
@@ -410,7 +422,15 @@ export default function ComputoEditor() {
         })
       ).data;
     },
+    onMutate: () => setCronoprogrammaSaveState("saving"),
     onSuccess: async () => {
+      setCronoprogrammaSaveState("saved");
+      setCronoprogrammaSavedAt(
+        new Date().toLocaleTimeString("it-IT", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      );
       toast.success(
         computo?.preventivo_bozza_id
           ? "Cronoprogramma salvato e PDF della bozza aggiornato"
@@ -418,10 +438,12 @@ export default function ComputoEditor() {
       );
       await refresh();
     },
-    onError: (error) =>
+    onError: (error) => {
+      setCronoprogrammaSaveState("error");
       toast.error(
         error?.response?.data?.detail || "Cronoprogramma non salvato",
-      ),
+      );
+    },
   });
 
   const confirm = useMutation({
@@ -542,8 +564,12 @@ export default function ComputoEditor() {
   const locked = LOCKED_STATES.has(computo.stato);
   const gruppi = raggruppaVociPerFase(voci);
   const fasiDisponibili = computo.fasi_disponibili || [];
+  const fasiClassificabili = fasiDisponibili.filter(
+    (fase) => fase !== "Da classificare",
+  );
   const controlli = computo.controlli || [];
-  const senzaFase = Number(computo.n_senza_fase || 0);
+  const vociSenzaFase = vociDaClassificare(voci);
+  const senzaFase = vociSenzaFase.length;
   const crono = computo.cronoprogramma || {};
   const superficieNumero = Number(cronoprogrammaDraft.superficie_mq);
   const superficieValida =
@@ -551,13 +577,13 @@ export default function ComputoEditor() {
     Number.isFinite(superficieNumero) &&
     superficieNumero >= 5 &&
     superficieNumero <= 10000;
-  const durateValide = Object.values(
-    cronoprogrammaDraft.durate_fasi,
-  ).every((giorni) => {
-    if (String(giorni).trim() === "") return true;
-    const value = Number(giorni);
-    return Number.isInteger(value) && value >= 0 && value <= 730;
-  });
+  const durateValide = Object.values(cronoprogrammaDraft.durate_fasi).every(
+    (giorni) => {
+      if (String(giorni).trim() === "") return true;
+      const value = Number(giorni);
+      return Number.isInteger(value) && value >= 0 && value <= 730;
+    },
+  );
   const fasiCronoprogramma = (crono.blocchi || []).filter(
     (blocco) => !blocco.continuativa && Number(blocco.fase_ordine) !== 99,
   );
@@ -707,13 +733,19 @@ export default function ComputoEditor() {
                 ? navigate("/dashboard/preventivi")
                 : toPreventivo.mutate()
             }
-            disabled={computo.stato !== "confermato" || toPreventivo.isPending}
+            disabled={
+              (!computo.preventivo_bozza_id &&
+                (computo.stato !== "confermato" || senzaFase > 0)) ||
+              toPreventivo.isPending
+            }
             title={
-              computo.stato !== "confermato"
-                ? "Conferma prima i dati finali"
-                : computo.preventivo_bozza_id
-                  ? "Apri il preventivo confermato"
-                  : "Crea preventivo"
+              computo.preventivo_bozza_id
+                ? "Apri il preventivo confermato"
+                : senzaFase > 0
+                  ? `Classifica prima le ${senzaFase} voci evidenziate`
+                  : computo.stato !== "confermato"
+                    ? "Conferma prima i dati finali"
+                    : "Crea preventivo"
             }
             className="rounded-xl border border-brand/40 px-3 py-2 text-xs font-display uppercase text-brand disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -759,12 +791,13 @@ export default function ComputoEditor() {
               max="10000"
               step="0.01"
               value={cronoprogrammaDraft.superficie_mq}
-              onChange={(event) =>
+              onChange={(event) => {
+                setCronoprogrammaSaveState("dirty");
                 setCronoprogrammaDraft((current) => ({
                   ...current,
                   superficie_mq: event.target.value,
-                }))
-              }
+                }));
+              }}
               placeholder={
                 crono.superficie_stimata_mq
                   ? String(crono.superficie_stimata_mq)
@@ -776,17 +809,21 @@ export default function ComputoEditor() {
           <div className="rounded-xl border border-stroke/70 bg-surface-2 px-4 py-3 text-xs leading-5 text-fog">
             {crono.superficie_richiede_conferma ? (
               <>
-                Il sistema propone <strong className="text-ink">{crono.superficie_stimata_mq} m²</strong>{" "}
+                Il sistema propone{" "}
+                <strong className="text-ink">
+                  {crono.superficie_stimata_mq} m²
+                </strong>{" "}
                 dalle quantità del computo. Confermali prima di generare il
                 preventivo.
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    setCronoprogrammaSaveState("dirty");
                     setCronoprogrammaDraft((current) => ({
                       ...current,
                       superficie_mq: String(crono.superficie_stimata_mq || ""),
-                    }))
-                  }
+                    }));
+                  }}
                   className="ml-2 text-brand underline underline-offset-2"
                 >
                   Usa questa superficie
@@ -802,10 +839,88 @@ export default function ComputoEditor() {
         </div>
 
         {senzaFase > 0 && (
-          <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-300">
-            Restano {senzaFase} voci da classificare. Il preventivo non potrà
-            essere generato finché non assegni una fase corretta.
-          </p>
+          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-amber-300">
+                  {senzaFase} voci da classificare
+                </p>
+                <p className="mt-1 text-xs leading-5 text-amber-200/80">
+                  Queste lavorazioni non hanno ancora una fase valida e bloccano
+                  la generazione del preventivo.
+                </p>
+              </div>
+              {locked && (
+                <button
+                  type="button"
+                  disabled={duplicate.isPending}
+                  onClick={() =>
+                    duplicate.mutate({ tipo: "variante", variante: true })
+                  }
+                  className="min-h-11 rounded-xl border border-amber-400/40 px-3 text-xs font-display uppercase text-amber-200 disabled:opacity-40"
+                >
+                  {duplicate.isPending
+                    ? "Creazione…"
+                    : "Crea variante per classificarle"}
+                </button>
+              )}
+            </div>
+
+            <ul className="mt-3 grid max-h-96 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
+              {vociSenzaFase.map((voce, index) => (
+                <li
+                  key={voce.id}
+                  className="rounded-lg border border-amber-400/20 bg-bg/50 p-3"
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-display text-amber-300">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words text-xs leading-5 text-ink">
+                        {voce.descrizione}
+                      </p>
+                      <p className="mt-1 text-[10px] text-fog">
+                        {voce.um || "UM non indicata"} ·{" "}
+                        {euro(
+                          voce.totale ??
+                            Number(voce.qta || 0) *
+                              Number(voce.prezzo_unitario || 0),
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  {!locked && (
+                    <select
+                      aria-label={`Assegna fase a ${voce.descrizione}`}
+                      value=""
+                      disabled={update.isPending}
+                      onChange={(event) => {
+                        const fase = event.target.value;
+                        if (fase)
+                          update.mutate({ id: voce.id, patch: { fase } });
+                      }}
+                      className="mt-2 min-h-11 w-full rounded-lg border border-amber-400/30 bg-surface-2 px-2 text-xs text-ink disabled:opacity-40"
+                    >
+                      <option value="">Assegna una fase…</option>
+                      {fasiClassificabili.map((fase) => (
+                        <option key={fase} value={fase}>
+                          {fase}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            {locked && (
+              <p className="mt-3 text-[11px] leading-5 text-amber-200/70">
+                Il computo confermato è bloccato: crea una variante per
+                assegnare le fasi senza modificare lo storico confermato.
+              </p>
+            )}
+          </div>
         )}
 
         <div className="mt-5 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -832,15 +947,16 @@ export default function ComputoEditor() {
                   step="1"
                   value={valore}
                   placeholder={`${blocco.giorni} gg`}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    setCronoprogrammaSaveState("dirty");
                     setCronoprogrammaDraft((current) => ({
                       ...current,
                       durate_fasi: {
                         ...current.durate_fasi,
                         [ordine]: event.target.value,
                       },
-                    }))
-                  }
+                    }));
+                  }}
                   className="w-full rounded-lg border border-stroke bg-bg px-2 py-1.5 text-right text-sm text-ink focus:border-brand focus:outline-none"
                 />
               </label>
@@ -848,36 +964,69 @@ export default function ComputoEditor() {
           })}
         </div>
 
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              setCronoprogrammaDraft((current) => ({
-                ...current,
-                durate_fasi: {},
-              }))
-            }
-            className="rounded-xl border border-stroke px-4 py-2 text-xs font-display uppercase text-fog"
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-stroke/70 pt-4">
+          <div
+            role="status"
+            aria-live="polite"
+            className={`inline-flex min-h-8 items-center gap-2 text-xs ${
+              cronoprogrammaSaveState === "saved"
+                ? "text-success"
+                : cronoprogrammaSaveState === "dirty"
+                  ? "text-amber-300"
+                  : cronoprogrammaSaveState === "error"
+                    ? "text-red-400"
+                    : "text-fog"
+            }`}
           >
-            Ripristina durate automatiche
-          </button>
-          <button
-            type="button"
-            disabled={
-              !superficieValida ||
-              !durateValide ||
-              salvaCronoprogramma.isPending
-            }
-            onClick={() => salvaCronoprogramma.mutate()}
-            className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-2 text-xs font-display uppercase text-white disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {salvaCronoprogramma.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
+            {cronoprogrammaSaveState === "saved" && (
+              <Check className="h-4 w-4" />
             )}
-            Salva cronoprogramma
-          </button>
+            {cronoprogrammaSaveState === "saving"
+              ? "Salvataggio in corso…"
+              : cronoprogrammaSaveState === "saved"
+                ? `Cronoprogramma salvato alle ${cronoprogrammaSavedAt}`
+                : cronoprogrammaSaveState === "dirty"
+                  ? "Modifiche al cronoprogramma da salvare"
+                  : cronoprogrammaSaveState === "error"
+                    ? "Salvataggio non riuscito: riprova"
+                    : "Lo stato del salvataggio apparirà qui"}
+          </div>
+          <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
+            <button
+              type="button"
+              onClick={() => {
+                setCronoprogrammaSaveState("dirty");
+                setCronoprogrammaDraft((current) => ({
+                  ...current,
+                  durate_fasi: {},
+                }));
+              }}
+              className="min-h-11 flex-1 rounded-xl border border-stroke px-4 text-xs font-display uppercase text-fog sm:flex-none"
+            >
+              Ripristina durate automatiche
+            </button>
+            <button
+              type="button"
+              disabled={
+                !superficieValida ||
+                !durateValide ||
+                salvaCronoprogramma.isPending
+              }
+              onClick={() => salvaCronoprogramma.mutate()}
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-xs font-display uppercase text-white disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
+            >
+              {salvaCronoprogramma.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : cronoprogrammaSaveState === "saved" ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {cronoprogrammaSaveState === "saved"
+                ? "Cronoprogramma salvato"
+                : "Salva cronoprogramma"}
+            </button>
+          </div>
         </div>
       </section>
 

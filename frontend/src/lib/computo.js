@@ -1,6 +1,21 @@
 const FASE_NON_CLASSIFICATA = 99;
 const NOME_NON_CLASSIFICATA = "Da classificare";
 
+export function isVoceDaClassificare(voce) {
+  const fase = String(voce?.fase || "").trim();
+  const ordine = Number(voce?.fase_ordine ?? FASE_NON_CLASSIFICATA);
+  return (
+    !fase ||
+    ordine === FASE_NON_CLASSIFICATA ||
+    fase.toLocaleLowerCase("it-IT") ===
+      NOME_NON_CLASSIFICATA.toLocaleLowerCase("it-IT")
+  );
+}
+
+export function vociDaClassificare(voci = []) {
+  return voci.filter(isVoceDaClassificare);
+}
+
 function totaleVoce(voce) {
   if (voce.totale !== undefined && voce.totale !== null)
     return Number(voce.totale);
@@ -14,10 +29,11 @@ function totaleVoce(voce) {
 export function raggruppaVociPerFase(voci) {
   const gruppi = new Map();
   voci.forEach((voce, index) => {
-    const ordine = Number(
-      voce.fase_ordine ?? (voce.fase ? 0 : FASE_NON_CLASSIFICATA),
-    );
-    const fase = voce.fase || NOME_NON_CLASSIFICATA;
+    const daClassificare = isVoceDaClassificare(voce);
+    const ordine = daClassificare
+      ? FASE_NON_CLASSIFICATA
+      : Number(voce.fase_ordine);
+    const fase = daClassificare ? NOME_NON_CLASSIFICATA : voce.fase;
     const corrente = gruppi.get(fase) || {
       fase,
       fase_ordine: ordine,
@@ -38,7 +54,10 @@ export function raggruppaVociPerFase(voci) {
   const elenco = [...gruppi.values()].sort(
     (a, b) => a.fase_ordine - b.fase_ordine || a.posizione - b.posizione,
   );
-  const complessivo = elenco.reduce((somma, gruppo) => somma + gruppo.totale, 0);
+  const complessivo = elenco.reduce(
+    (somma, gruppo) => somma + gruppo.totale,
+    0,
+  );
   return elenco.map((gruppo) => ({
     ...gruppo,
     totale: Math.round(gruppo.totale * 100) / 100,

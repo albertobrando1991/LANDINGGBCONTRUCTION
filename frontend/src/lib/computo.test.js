@@ -1,4 +1,9 @@
-import { moveVoceIds, raggruppaVociPerFase } from "./computo";
+import {
+  isVoceDaClassificare,
+  moveVoceIds,
+  raggruppaVociPerFase,
+  vociDaClassificare,
+} from "./computo";
 
 const voci = [{ id: "a" }, { id: "b" }, { id: "c" }];
 
@@ -38,8 +43,45 @@ test("conserva l'indice piatto necessario al riordino", () => {
 });
 
 test("le voci senza fase finiscono in Da classificare", () => {
-  const gruppi = raggruppaVociPerFase([{ id: "x", qta: 2, prezzo_unitario: 50 }]);
+  const gruppi = raggruppaVociPerFase([
+    { id: "x", qta: 2, prezzo_unitario: 50 },
+  ]);
 
   expect(gruppi[0].fase).toBe("Da classificare");
   expect(gruppi[0].totale).toBe(100);
+});
+
+test("fase ordine 99 resta visibile come Da classificare anche con un nome fase", () => {
+  const voce = {
+    id: "x",
+    fase: "Importazione ACCA",
+    fase_ordine: 99,
+    totale: 100,
+  };
+
+  expect(isVoceDaClassificare(voce)).toBe(true);
+  expect(vociDaClassificare([voce])).toEqual([voce]);
+  expect(raggruppaVociPerFase([voce])[0]).toMatchObject({
+    fase: "Da classificare",
+    fase_ordine: 99,
+  });
+});
+
+test("separa soltanto le voci che richiedono davvero una fase", () => {
+  const classificata = {
+    id: "ok",
+    fase: "Demolizioni e rimozioni",
+    fase_ordine: 15,
+  };
+  const senzaNome = { id: "vuota", fase: "", fase_ordine: null };
+  const esplicita = {
+    id: "manuale",
+    fase: "Da classificare",
+    fase_ordine: 99,
+  };
+
+  expect(vociDaClassificare([classificata, senzaNome, esplicita])).toEqual([
+    senzaNome,
+    esplicita,
+  ]);
 });
