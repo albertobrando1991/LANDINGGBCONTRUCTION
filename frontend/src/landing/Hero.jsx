@@ -125,8 +125,9 @@ export default function Hero() {
           className="mt-8 font-body text-base md:text-lg text-fog max-w-2xl mx-auto"
         >
           Compila pochi dati sul tuo immobile. Ricevi una stima personalizzata
-          su 3 livelli, un'anteprima visiva del progetto e una proposta di
-          sopralluogo gratuito.
+          su 3 livelli, un confronto chiaro delle soluzioni e una proposta di
+          sopralluogo gratuito. I render personalizzati sono disponibili come
+          servizio premium separato.
         </p>
 
         <div ref={ctaRef} style={{ opacity: 0 }} className="mt-10">

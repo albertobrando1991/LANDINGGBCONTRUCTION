@@ -26,6 +26,7 @@ import AIArchitect from "@/landing/AIArchitect";
 
 const TABS = [
   { key: "new", label: "Nuovo" },
+  { key: "requested", label: "Richieste clienti" },
   { key: "needs_review", label: "Da approvare" },
   { key: "processing", label: "In lavorazione" },
   { key: "needs_confirmation", label: "Da confermare" },
@@ -34,6 +35,10 @@ const TABS = [
 ];
 
 const STATUS = {
+  requested: {
+    label: "Richiesta cliente · €300",
+    cls: "bg-gold/15 text-gold",
+  },
   queued: { label: "In coda", cls: "bg-fog/10 text-fog" },
   processing: { label: "In lavorazione", cls: "bg-brand/15 text-brand" },
   needs_confirmation: {
@@ -139,7 +144,8 @@ function ImageRefiner({ output, compact = false, busy, onSubmit }) {
   const overlayRef = useRef(null);
   const dragStart = useRef(null);
 
-  if (!output?.image_url || !output?.id || isPdfUrl(output.image_url)) return null;
+  if (!output?.image_url || !output?.id || isPdfUrl(output.image_url))
+    return null;
 
   const reset = () => {
     setInstruction("");
@@ -290,7 +296,11 @@ function ImageRefiner({ output, compact = false, busy, onSubmit }) {
           }`}
         >
           <Crop className="w-3 h-3" />
-          {selecting ? "Trascina sull'area" : region ? "Area selezionata" : "Seleziona area"}
+          {selecting
+            ? "Trascina sull'area"
+            : region
+              ? "Area selezionata"
+              : "Seleziona area"}
         </button>
         {region && !selecting && (
           <button
@@ -347,7 +357,7 @@ export default function AIArchitectReview() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const deepLinkJob = searchParams.get("job");
-  const [tab, setTab] = useState(deepLinkJob ? "tutti" : "needs_review");
+  const [tab, setTab] = useState(deepLinkJob ? "tutti" : "requested");
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState(deepLinkJob || null);
   const [conceptFeedback, setConceptFeedback] = useState("");
@@ -452,7 +462,11 @@ export default function AIArchitectReview() {
   const reanalyze = useMutation({
     mutationFn: (jobId) => client.post(`/ai-architect/jobs/${jobId}/reanalyze`),
     onSuccess: async (_, jobId) => {
-      toast.success("Ri-analisi planimetria avviata.");
+      toast.success(
+        selectedJob?.status === "requested"
+          ? "Lavorazione della richiesta avviata."
+          : "Ri-analisi planimetria avviata.",
+      );
       await invalidateJob(jobId);
     },
     onError: (err) =>
@@ -652,7 +666,9 @@ export default function AIArchitectReview() {
                   {unlimitedCredits
                     ? `Whitelist attiva per ${(
                         creditSummary.unlimited_generation_emails || []
-                      ).join(", ")}. Il consumo viene tracciato ma non scala il saldo.`
+                      ).join(
+                        ", ",
+                      )}. Il consumo viene tracciato ma non scala il saldo.`
                     : `Inclusi mensili: ${formatCredits(
                         creditSummary.monthly?.remaining_credits,
                       )} / ${formatCredits(
@@ -729,7 +745,6 @@ export default function AIArchitectReview() {
           </div>
           <div className="rounded-2xl border border-stroke bg-surface p-4 md:p-6">
             <AIArchitect
-              staffMode
               embedded
               onComplete={async (aiJob) => {
                 await qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] });
@@ -981,10 +996,36 @@ export default function AIArchitectReview() {
                         ) : (
                           <Brain className="w-4 h-4" />
                         )}
-                        Ri-analizza
+                        {selectedJob.status === "requested"
+                          ? "Avvia lavorazione"
+                          : "Ri-analizza"}
                       </button>
                     </div>
                   </div>
+                  {selectedJob.status === "requested" && (
+                    <div className="mt-5 rounded-2xl border border-gold/40 bg-gold/10 p-4">
+                      <p className="font-display font-semibold uppercase text-sm text-ink">
+                        Servizio render personalizzati · €300
+                      </p>
+                      <p className="font-body text-xs leading-relaxed text-fog mt-2">
+                        Il cliente ha caricato la planimetria e le preferenze.
+                        Contattalo per conferma e pagamento, poi usa “Avvia
+                        lavorazione” per preparare i materiali dalla dashboard.
+                      </p>
+                      {selectedJob.requested_rooms?.length > 0 && (
+                        <p className="font-body text-xs leading-relaxed text-ink mt-3">
+                          <strong>Ambienti richiesti:</strong>{" "}
+                          {selectedJob.requested_rooms.join(", ")}
+                        </p>
+                      )}
+                      {selectedJob.created_by_email && (
+                        <p className="font-body text-xs text-fog mt-2">
+                          Cliente: {selectedJob.created_by_name || "—"} ·{" "}
+                          {selectedJob.created_by_email}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-5">
@@ -1443,9 +1484,12 @@ export default function AIArchitectReview() {
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-display uppercase text-[10px] text-brand truncate inline-flex items-center gap-1">
                                   {render.room_name}
-                                  {render.json_content?.refinement?.revision && (
+                                  {render.json_content?.refinement
+                                    ?.revision && (
                                     <span className="rounded-full bg-brand/15 px-1.5 py-0.5 text-[8px] text-brand">
-                                      v{render.json_content.refinement.revision + 1}
+                                      v
+                                      {render.json_content.refinement.revision +
+                                        1}
                                     </span>
                                   )}
                                 </span>
@@ -1495,18 +1539,19 @@ export default function AIArchitectReview() {
                       <span className="font-display uppercase text-[10px] text-fog">
                         {
                           learnedMemories.filter(
-                            (m) => m.strength === "strong" && m.enabled !== false,
+                            (m) =>
+                              m.strength === "strong" && m.enabled !== false,
                           ).length
                         }{" "}
                         regole attive
                       </span>
                     </div>
                     <p className="font-body text-xs text-fog mb-3 leading-relaxed">
-                      Correzioni dello staff trasformate in vincoli riusabili. Le
-                      regole strutturali (geometria, distribuzione, aperture,
+                      Correzioni dello staff trasformate in vincoli riusabili.
+                      Le regole strutturali (geometria, distribuzione, aperture,
                       proporzioni) guidano le generazioni future; le preferenze
-                      estetiche restano suggerimenti. Disattiva una regola se non
-                      vuoi che influenzi i prossimi progetti.
+                      estetiche restano suggerimenti. Disattiva una regola se
+                      non vuoi che influenzi i prossimi progetti.
                     </p>
                     <div className="space-y-2 max-h-80 overflow-y-auto">
                       {learnedMemories
@@ -1597,24 +1642,35 @@ export default function AIArchitectReview() {
                         onClick={async () => {
                           try {
                             const analisi = {
-                              mq: selectedJob?.mq || selectedJob?.floor_area_mq || estimate?.mq || 80,
+                              mq:
+                                selectedJob?.mq ||
+                                selectedJob?.floor_area_mq ||
+                                estimate?.mq ||
+                                80,
                               bagni: selectedJob?.bagni || 1,
                               camere: selectedJob?.camere || 2,
-                              ...(selectedJob?.metriche || selectedJob?.metrics || {}),
+                              ...(selectedJob?.metriche ||
+                                selectedJob?.metrics ||
+                                {}),
                             };
-                            const { data } = await client.post("/computi/da-ai", {
-                              analisi_ai: analisi,
-                              lead_id: selectedJob?.lead_id || undefined,
-                              config_lead: selectedJob?.config || {},
-                            });
+                            const { data } = await client.post(
+                              "/computi/da-ai",
+                              {
+                                analisi_ai: analisi,
+                                lead_id: selectedJob?.lead_id || undefined,
+                                config_lead: selectedJob?.config || {},
+                              },
+                            );
                             toast.success(
-                              `Bozza creata: ${data.n_voci} voci · € ${Number(data.totale || 0).toLocaleString("it-IT")}`
+                              `Bozza creata: ${data.n_voci} voci · € ${Number(data.totale || 0).toLocaleString("it-IT")}`,
                             );
                             navigate(`/dashboard/computi/${data.id}`);
                           } catch (err) {
                             toast.error(
-                              formatApiErrorDetail(err?.response?.data?.detail) ||
-                                "Generazione bozza non disponibile (serve Supabase)"
+                              formatApiErrorDetail(
+                                err?.response?.data?.detail,
+                              ) ||
+                                "Generazione bozza non disponibile (serve Supabase)",
                             );
                           }
                         }}
@@ -1623,8 +1679,9 @@ export default function AIArchitectReview() {
                       </button>
                     </div>
                     <p className="font-body text-[11px] text-fog">
-                      L&apos;AI estrae solo quantità. I prezzi arrivano dal prezzario del tenant.
-                      Ogni voce nasce non validata: conferma bloccata finché non le approvi.
+                      L&apos;AI estrae solo quantità. I prezzi arrivano dal
+                      prezzario del tenant. Ogni voce nasce non validata:
+                      conferma bloccata finché non le approvi.
                     </p>
                   </div>
                 )}

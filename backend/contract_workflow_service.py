@@ -338,14 +338,25 @@ async def invite_preventivo_client(
         raise HTTPException(
             status_code=409, detail="L'email appartiene già a un membro interno"
         )
-    await conn.execute(
-        """insert into public.tenant_members (tenant_id,user_id,role,nome)
-           values ($1::uuid,$2::uuid,'client',$3)
-           on conflict (tenant_id,user_id) do update set nome=coalesce(excluded.nome,tenant_members.nome)""",
-        tenant_id,
-        user_id,
-        (nome or preventivo.get("cliente_nome") or "").strip() or None,
-    )
+    if not existing_role:
+        await conn.execute(
+            """insert into public.tenant_members (tenant_id,user_id,role,nome)
+               values ($1::uuid,$2::uuid,'client',$3)
+               on conflict (tenant_id,user_id) do nothing""",
+            tenant_id,
+            user_id,
+            (nome or preventivo.get("cliente_nome") or "").strip() or None,
+        )
+        linked_role = await conn.fetchval(
+            "select role from public.tenant_members where tenant_id=$1::uuid and user_id=$2::uuid",
+            tenant_id,
+            user_id,
+        )
+        if str(linked_role or "") != "client":
+            raise HTTPException(
+                status_code=409,
+                detail="L'email non puo essere collegata come cliente",
+            )
     row = await conn.fetchrow(
         """insert into public.preventivo_clienti (tenant_id,preventivo_id,user_id,email,nome,attivo)
            values ($1::uuid,$2::uuid,$3::uuid,$4,$5,true)
@@ -360,6 +371,73 @@ async def invite_preventivo_client(
     )
     result = _row(row)
     result["invited"] = invited
+    return result
+
+
+async def get_lead_portal_access(
+    conn: asyncpg.Connection, tenant_id: str, lead_id: str
+) -> dict:
+    """Stato dell'accesso cliente per il preventivo piu recente del lead."""
+
+    row = await conn.fetchrow(
+        """
+        select p.id as preventivo_id,
+               p.numero as numero_preventivo,
+               p.stato as stato_preventivo,
+               coalesce(l.nome, cl.nome) as cliente_nome,
+               coalesce(l.email, cl.email) as cliente_email,
+               exists (
+                 select 1
+                 from public.preventivo_clienti pc
+                 where pc.tenant_id = p.tenant_id
+                   and pc.preventivo_id = p.id
+                   and pc.attivo = true
+               ) as accesso_attivo,
+               (
+                 select sp.tipo
+                 from public.scelte_pagamento_cliente sp
+                 where sp.tenant_id = p.tenant_id
+                   and sp.preventivo_id = p.id
+                   and sp.stato = 'confermata'
+                 order by sp.confermata_at desc
+                 limit 1
+               ) as modalita_pagamento,
+               (
+                 select sp.confermata_at
+                 from public.scelte_pagamento_cliente sp
+                 where sp.tenant_id = p.tenant_id
+                   and sp.preventivo_id = p.id
+                   and sp.stato = 'confermata'
+                 order by sp.confermata_at desc
+                 limit 1
+               ) as pagamento_confermato_at
+        from public.preventivi p
+        left join public.leads l
+          on l.id = p.lead_id and l.tenant_id = p.tenant_id
+        left join public.clienti cl
+          on cl.id = p.cliente_id and cl.tenant_id = p.tenant_id
+        where p.tenant_id = $1::uuid
+          and p.lead_id = $2::uuid
+        order by p.created_at desc, p.id desc
+        limit 1
+        """,
+        tenant_id,
+        lead_id,
+    )
+    if not row:
+        return {
+            "available": False,
+            "preventivo_id": None,
+            "accesso_attivo": False,
+            "pagamento_confermato": False,
+        }
+
+    result = _row(row)
+    result["available"] = True
+    result["accesso_attivo"] = bool(result.get("accesso_attivo"))
+    result["pagamento_confermato"] = bool(
+        result.get("pagamento_confermato_at")
+    )
     return result
 
 

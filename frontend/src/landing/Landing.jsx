@@ -9,11 +9,7 @@ import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 const SocialProof = lazy(() => import("@/landing/SocialProof"));
 const Packages = lazy(() => import("@/landing/Packages"));
 const Configurator = lazy(() => import("@/landing/Configurator"));
-const PUBLIC_AI_ARCHITECT_ENABLED =
-  process.env.REACT_APP_AI_ARCHITECT_PUBLIC_ENABLED === "true";
-const AIArchitect = PUBLIC_AI_ARCHITECT_ENABLED
-  ? lazy(() => import("@/landing/AIArchitect"))
-  : null;
+const RenderRequest = lazy(() => import("@/landing/RenderRequest"));
 const QuickDetails = lazy(() => import("@/landing/QuickDetails"));
 const ContactGate = lazy(() => import("@/landing/ContactGate"));
 const Output = lazy(() => import("@/landing/Output"));
@@ -30,8 +26,8 @@ function SectionFallback({ label = "Caricamento sezione" }) {
 
 export default function Landing() {
   const [loading, setLoading] = useState(true);
-  // Nuovo ordine: prima i dati e il lead, poi (opzionale) l'analisi planimetria.
-  const [phase, setPhase] = useState("config"); // config | details | gate | output | architect
+  // Prima i dati e il lead, poi l'eventuale richiesta premium dei render.
+  const [phase, setPhase] = useState("config"); // config | details | gate | output | render_request
   const [config, setConfig] = useState(null);
   const [result, setResult] = useState(null);
   const flowRef = useRef(null);
@@ -84,25 +80,24 @@ export default function Landing() {
     scrollFlow();
   };
 
-  const handleStartArchitect = () => {
-    setPhase("architect");
+  const handleStartRenderRequest = () => {
+    setPhase("render_request");
     scrollFlow();
   };
 
-  const handleArchitectDone = (aiProject) => {
+  const handleRenderRequestDone = (renderRequest) => {
     setConfig((current) => ({
       ...current,
       has_files: true,
-      aiArchitect: aiProject,
-      ai_architect_job_id: aiProject.id,
-      ai_architect_summary: aiProject.ai_architect_summary,
+      renderRequest,
+      render_request_id: renderRequest.id,
     }));
     setPhase("output");
     scrollFlow();
   };
 
-  const handleArchitectSkip = () => {
-    // L'analisi planimetria e opzionale: torna al preventivo gia generato.
+  const handleRenderRequestSkip = () => {
+    // Il servizio render e opzionale: torna al preventivo gia generato.
     setPhase("output");
     scrollFlow();
   };
@@ -135,25 +130,21 @@ export default function Landing() {
           {phase === "output" && (
             <Output
               estimate={result?.estimate}
-              aiProject={config?.aiArchitect}
-              onStartArchitect={
-                PUBLIC_AI_ARCHITECT_ENABLED && !config?.aiArchitect
-                  ? handleStartArchitect
-                  : undefined
+              renderRequest={config?.renderRequest}
+              onStartRenderRequest={
+                !config?.renderRequest ? handleStartRenderRequest : undefined
               }
               bookingContext={config?.lead_contact}
             />
           )}
-          {PUBLIC_AI_ARCHITECT_ENABLED &&
-            AIArchitect &&
-            phase === "architect" && (
-              <AIArchitect
-                baseConfig={config}
-                leadId={config?.lead_id}
-                onComplete={handleArchitectDone}
-                onSkip={handleArchitectSkip}
-              />
-            )}
+          {phase === "render_request" && (
+            <RenderRequest
+              baseConfig={config}
+              leadId={config?.lead_id}
+              onComplete={handleRenderRequestDone}
+              onSkip={handleRenderRequestSkip}
+            />
+          )}
         </Suspense>
       </div>
 

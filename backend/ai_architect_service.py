@@ -3537,6 +3537,12 @@ def _room_shapes_from_analysis(job: Dict[str, Any], mode: str) -> List[tuple[str
 def _room_names_for_generation(job: Dict[str, Any]) -> List[str]:
     detected = [str(room.get("name")).strip().title() for room in _analysis_rooms(job, min_confidence=0.45)]
     names = []
+    requested = job.get("requested_rooms") or []
+    if isinstance(requested, list):
+        for room in requested:
+            name = str(room or "").strip()
+            if name and name not in names:
+                names.append(name)
     for name in detected:
         if name and name not in names:
             names.append(name)

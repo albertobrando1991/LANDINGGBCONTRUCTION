@@ -89,17 +89,7 @@ PUBLIC_BOOKING_MAX_PER_HOUR = max(1, int(os.getenv("PUBLIC_BOOKING_MAX_PER_HOUR"
 EMAIL_ADDRESS_ADAPTER = TypeAdapter(EmailStr)
 MAX_EMAIL_ATTACHMENT_BYTES = 15 * 1024 * 1024
 MAX_EMAIL_TOTAL_ATTACHMENT_BYTES = 25 * 1024 * 1024
-
-
-def ai_architect_public_enabled() -> bool:
-    """AI Architect resta staff-only finche il ground-truth non ottiene GO."""
-    return os.getenv("AI_ARCHITECT_PUBLIC_ENABLED", "false").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
+RENDER_SERVICE_PRICE_EUR = 300
 
 # ----------------------- Helpers -----------------------
 def serialize(doc: dict) -> dict:
@@ -658,32 +648,44 @@ def _client_ip(request: Request) -> Optional[str]:
     return request.client.host if request.client else None
 
 
-@api.post("/ai-architect/jobs")
-async def create_ai_architect_job(
+async def _create_manual_render_request(
     request: Request,
-    background_tasks: BackgroundTasks,
-    planimetria: UploadFile = File(...),
-    plan_type_selected: str = Form(...),
-    project_variant_selected: str = Form("premium_suite"),
-    style_selected: str = Form(...),
-    project_goal: str = Form(...),
-    priorities: str = Form("[]"),
-    sqm: Optional[float] = Form(None),
-    residents: Optional[int] = Form(None),
-    budget: Optional[str] = Form(None),
-    notes: Optional[str] = Form(None),
-    lead_id: Optional[str] = Form(None),
+    *,
+    planimetria: UploadFile,
+    plan_type_selected: str,
+    project_variant_selected: str,
+    style_selected: str,
+    project_goal: str,
+    priorities: str,
+    requested_rooms: str,
+    sqm: Optional[float],
+    residents: Optional[int],
+    budget: Optional[str],
+    notes: Optional[str],
+    lead_id: Optional[str],
 ):
-    linked_lead_id = lead_id if (lead_id and ObjectId.is_valid(lead_id)) else None
-    await ai_architect_service.enforce_upload_rate_limit(db, _client_ip(request))
-    await ai_credit_service.require_available_for_generation(
-        db,
-        ai_credit_service.RATE_CARD["ai_architect_preliminary"]["credits"],
-        lead_id=linked_lead_id,
-        public_message=True,
+    if not lead_id or not ObjectId.is_valid(lead_id):
+        raise HTTPException(
+            status_code=422,
+            detail="Completa prima la stima personalizzata.",
+        )
+
+    linked_lead_id = str(lead_id)
+    lead = await db.leads.find_one({"_id": ObjectId(linked_lead_id)})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Stima cliente non trovata.")
+
+    requested_room_list = [
+        room[:80]
+        for room in _parse_priorities(requested_rooms)
+        if room.strip()
+    ][:12]
+    render_room_limit = max(
+        len(requested_room_list),
+        ai_architect_service.AI_RENDER_MAX_ROOMS_STAFF,
     )
-    # Nuovo flusso: il lead viene creato prima, poi si avvia l'analisi planimetria.
-    # Colleghiamo subito il job al lead esistente (bidirezionale) per la dashboard.
+
+    await ai_architect_service.enforce_upload_rate_limit(db, _client_ip(request))
     job = await ai_architect_service.create_job(
         db,
         upload=planimetria,
@@ -697,19 +699,98 @@ async def create_ai_architect_job(
         budget=budget,
         notes=notes,
         lead_id=linked_lead_id,
+        usage_context="staff",
+        created_by_role="client",
+        created_by_name=lead.get("nome"),
+        created_by_email=lead.get("email"),
     )
-    if linked_lead_id:
-        await db.leads.update_one(
-            {"_id": ObjectId(linked_lead_id)},
-            {"$set": {
+
+    requested_at = now_iso()
+    await db.ai_architect_jobs.update_one(
+        {"_id": ObjectId(job["id"])},
+        {
+            "$set": {
+                "status": "requested",
+                "current_step": "awaiting_staff",
+                "progress_percentage": 0,
+                "processing_mode": "manual_staff_fulfillment",
+                "request_source": "customer_paid_upsell",
+                "service_type": "personalized_room_renders",
+                "service_price_eur": RENDER_SERVICE_PRICE_EUR,
+                "requested_rooms": requested_room_list,
+                "render_room_limit": render_room_limit,
+                "payment_status": "pending_staff_confirmation",
+                "requested_at": requested_at,
+                "updated_at": requested_at,
+            }
+        },
+    )
+    await db.leads.update_one(
+        {"_id": ObjectId(linked_lead_id)},
+        {
+            "$set": {
                 "ai_architect_job_id": job["id"],
+                "render_request_id": job["id"],
                 "has_files": True,
-                "updated_at": now_iso(),
+                "prossima_azione": (
+                    "Contattare il cliente per confermare il servizio render da EUR 300"
+                ),
+                "updated_at": requested_at,
             },
-             "$addToSet": {"tags": "AI Architect"}},
-        )
-    background_tasks.add_task(ai_architect_service.process_job, db, job["id"])
-    return await ai_architect_service.get_job_payload(db, job["id"])
+            "$addToSet": {"tags": "Render personalizzati"},
+            "$push": {
+                "timeline": {
+                    "id": "ev-" + uuid.uuid4().hex[:8],
+                    "tipo": "render_richiesti",
+                    "testo": "Richiesto servizio render personalizzati da EUR 300",
+                    "ts": requested_at,
+                }
+            },
+        },
+    )
+
+    # La richiesta entra nella coda staff: nessuna generazione viene avviata
+    # dalla sessione cliente e nessun credito AI viene consumato.
+    return {
+        "id": job["id"],
+        "status": "requested",
+        "price_eur": RENDER_SERVICE_PRICE_EUR,
+        "payment_status": "pending_staff_confirmation",
+        "message": "Richiesta inviata allo staff GB Construction.",
+    }
+
+
+@api.post("/render-requests")
+async def create_render_request(
+    request: Request,
+    planimetria: UploadFile = File(...),
+    plan_type_selected: str = Form(...),
+    project_variant_selected: str = Form("premium_suite"),
+    style_selected: str = Form(...),
+    project_goal: str = Form(...),
+    priorities: str = Form("[]"),
+    requested_rooms: str = Form("[]"),
+    sqm: Optional[float] = Form(None),
+    residents: Optional[int] = Form(None),
+    budget: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    lead_id: str = Form(...),
+):
+    return await _create_manual_render_request(
+        request,
+        planimetria=planimetria,
+        plan_type_selected=plan_type_selected,
+        project_variant_selected=project_variant_selected,
+        style_selected=style_selected,
+        project_goal=project_goal,
+        priorities=priorities,
+        requested_rooms=requested_rooms,
+        sqm=sqm,
+        residents=residents,
+        budget=budget,
+        notes=notes,
+        lead_id=lead_id,
+    )
 
 
 @api.post("/ai-architect/staff/jobs")
@@ -783,6 +864,8 @@ async def list_ai_architect_jobs(
             {"project_goal": {"$regex": pattern, "$options": "i"}},
             {"style_selected": {"$regex": pattern, "$options": "i"}},
             {"plan_type_detected": {"$regex": pattern, "$options": "i"}},
+            {"created_by_name": {"$regex": pattern, "$options": "i"}},
+            {"created_by_email": {"$regex": pattern, "$options": "i"}},
         ]
 
     docs = await db.ai_architect_jobs.find(query).sort("updated_at", -1).to_list(250)
@@ -1095,7 +1178,10 @@ async def quote_from_ai_project(
     request: Request,
     body: AiProjectQuoteCreate,
     background_tasks: BackgroundTasks,
+    user: dict = Depends(current_user),
 ):
+    if user.get("role") not in {"admin", "staff", "operations"}:
+        raise HTTPException(status_code=403, detail="Accesso staff richiesto")
     await api_security.enforce_rate_limit(
         db,
         scope="public_ai_quote",
@@ -2448,13 +2534,9 @@ app.mount(
 
 
 @app.middleware("http")
-async def ai_architect_beta_access(request: Request, call_next):
+async def ai_architect_staff_access(request: Request, call_next):
     is_ai_architect_path = request.url.path.startswith("/api/ai-architect/")
-    if (
-        is_ai_architect_path
-        and request.method.upper() != "OPTIONS"
-        and not ai_architect_public_enabled()
-    ):
+    if is_ai_architect_path and request.method.upper() != "OPTIONS":
         try:
             user = await current_user(request)
             if user.get("role") not in {"admin", "staff", "operations"}:
@@ -2463,7 +2545,7 @@ async def ai_architect_beta_access(request: Request, call_next):
             return JSONResponse(
                 status_code=404,
                 content={
-                    "detail": "AI Architect e attualmente disponibile solo in beta privata."
+                    "detail": "AI Architect e disponibile solo allo staff."
                 },
             )
     return await call_next(request)

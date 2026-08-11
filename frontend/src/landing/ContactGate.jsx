@@ -40,13 +40,8 @@ const schema = z.object({
 });
 
 const VALID_LEVELS = new Set(["essenziale", "premium", "luxury"]);
-const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 
-function isValidObjectId(value) {
-  return typeof value === "string" && OBJECT_ID_RE.test(value);
-}
-
-function buildConfig(cfg = {}, { includeAiJobId = true } = {}) {
+function buildConfig(cfg = {}) {
   const ambienti = [];
   if (cfg.cucina) ambienti.push("Cucina");
   if (cfg.bagni > 0) ambienti.push("Bagni");
@@ -55,11 +50,7 @@ function buildConfig(cfg = {}, { includeAiJobId = true } = {}) {
   if (cfg.ingresso) ambienti.push("Ingresso");
   if (cfg.balconi) ambienti.push("Balconi/Terrazzi");
   const mq = Number.isFinite(Number(cfg.mq)) ? Number(cfg.mq) : 80;
-  const aiJobId = isValidObjectId(cfg.ai_architect_job_id)
-    ? cfg.ai_architect_job_id
-    : undefined;
-  // Flag impiantistici dal percorso "senza planimetria": inviati solo se valorizzati,
-  // così con planimetria/AI Architect il backend mantiene i suoi default per fascia.
+  // I flag impiantistici vengono inviati solo quando il cliente li valorizza.
   const passBool = (v) => (typeof v === "boolean" ? v : undefined);
   const passEnum = (v) => (typeof v === "string" && v ? v : undefined);
   return {
@@ -81,8 +72,6 @@ function buildConfig(cfg = {}, { includeAiJobId = true } = {}) {
     stile: cfg.stile || "Moderno minimal",
     tempistiche: cfg.tempistiche || "Sto valutando",
     has_files: !!cfg.has_files,
-    ai_architect_job_id: includeAiJobId ? aiJobId : undefined,
-    ai_architect_summary: cfg.ai_architect_summary,
   };
 }
 
@@ -127,8 +116,6 @@ export default function ContactGate({ config, onSubmit }) {
 
   const submit = async (values) => {
     try {
-      const aiJobId = config?.ai_architect_job_id;
-      const canUseAiQuote = isValidObjectId(aiJobId);
       const payload = {
         nome: values.nome,
         email: values.email,
@@ -138,25 +125,9 @@ export default function ContactGate({ config, onSubmit }) {
         privacy: values.privacy,
         newsletter: !!values.newsletter,
         tracking: getLeadTracking(),
-        config: buildConfig(config, { includeAiJobId: canUseAiQuote }),
+        config: buildConfig(config),
       };
-      let response;
-      if (canUseAiQuote) {
-        try {
-          response = await client.post("/quote/from-ai-project", {
-            ...payload,
-            ai_architect_job_id: aiJobId,
-          });
-        } catch (err) {
-          if (![400, 404].includes(err.response?.status)) throw err;
-          response = await client.post("/leads", {
-            ...payload,
-            config: buildConfig(config, { includeAiJobId: false }),
-          });
-        }
-      } else {
-        response = await client.post("/leads", payload);
-      }
+      const response = await client.post("/leads", payload);
       const { data } = response;
       toast.success("Stima generata!");
       onSubmit(data, values);
@@ -245,12 +216,7 @@ export default function ContactGate({ config, onSubmit }) {
             <p className="text-ink">
               ✓ Stima dettagliata su Essenziale, Premium e Luxury
             </p>
-            <p className="text-ink">✓ Anteprima visiva del progetto</p>
-            {config?.ai_architect_job_id && (
-              <p className="text-ink">
-                ✓ Report AI Architect collegato alla richiesta
-              </p>
-            )}
+            <p className="text-ink">✓ Confronto chiaro delle tre soluzioni</p>
             <p className="text-ink">
               ✓ Proposta di sopralluogo gratuito questa settimana
             </p>

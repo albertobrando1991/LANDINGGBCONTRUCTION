@@ -1033,7 +1033,7 @@ function AnimatedImmersiveHero({ prefersReducedMotion }) {
             }}
           >
             <div className="font-display font-semibold uppercase tracking-[0.18em] md:tracking-[0.3em] text-[10px] md:text-xs text-brand mb-6">
-              Preventivo smart GB - anteprima reale
+              Preventivo smart GB - stima reale
             </div>
             <h1 className="font-display font-bold uppercase text-[clamp(2.05rem,9.2vw,3.35rem)] leading-[0.98] tracking-normal text-ink drop-shadow-[0_24px_70px_rgba(0,0,0,0.62)] md:hidden">
               {splitWords(["Questo costa", "ristrutturare", "casa tua."]).map(
@@ -1093,8 +1093,9 @@ function AnimatedImmersiveHero({ prefersReducedMotion }) {
                 Compila pochi dati sul tuo immobile.
               </span>
               <span className="block">
-                Ricevi una stima personalizzata su 3 livelli, un'anteprima
-                visiva del progetto e una proposta di sopralluogo gratuito.
+                Ricevi una stima personalizzata su 3 livelli e una proposta di
+                sopralluogo gratuito. I render su misura sono un servizio
+                premium separato.
               </span>
             </p>
             <div className="mt-9 pointer-events-auto">
@@ -1166,8 +1167,8 @@ function ReducedMotionHero({ lightweight = false }) {
         </h1>
         <p className="mx-auto mt-7 max-w-2xl font-body text-sm font-semibold text-white/90 sm:text-base md:text-lg">
           Compila pochi dati sul tuo immobile. Ricevi una stima personalizzata
-          su 3 livelli, un'anteprima visiva e una proposta di sopralluogo
-          gratuito.
+          su 3 livelli e una proposta di sopralluogo gratuito. I render su
+          misura sono un servizio premium separato.
         </p>
         <button
           type="button"

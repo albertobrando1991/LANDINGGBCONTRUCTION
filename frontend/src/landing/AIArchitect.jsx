@@ -150,8 +150,6 @@ export default function AIArchitect({
   baseConfig,
   leadId,
   onComplete,
-  onSkip,
-  staffMode = false,
   embedded = false,
 }) {
   const [step, setStep] = useState(1);
@@ -286,20 +284,13 @@ export default function AIArchitect({
       if (form.budget) payload.append("budget", form.budget);
       if (form.notes) payload.append("notes", form.notes);
       if (leadId) payload.append("lead_id", leadId);
-      const endpoint = staffMode
-        ? "/ai-architect/staff/jobs"
-        : "/ai-architect/jobs";
-      const { data } = await client.post(endpoint, payload, {
+      const { data } = await client.post("/ai-architect/staff/jobs", payload, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setJob(data);
       setConceptFeedback("");
       setStep(3);
-      toast.success(
-        staffMode
-          ? "AI Architect interno avviato"
-          : "Analisi AI Architect avviata",
-      );
+      toast.success("AI Architect interno avviato");
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
     } finally {
@@ -441,9 +432,7 @@ export default function AIArchitect({
   const handleBack = () => {
     if (step > 1) {
       setStep((s) => s - 1);
-      return;
     }
-    onSkip?.();
   };
 
   const goNext = () => {
@@ -468,14 +457,11 @@ export default function AIArchitect({
               AI Architect Layout & Render
             </p>
             <h2 className="font-display font-bold uppercase text-4xl md:text-6xl tracking-tight text-ink leading-none">
-              {staffMode
-                ? "Genera un AI Architect completo dalla dashboard"
-                : "Carica la tua planimetria e visualizza il progetto con l'AI"}
+              Genera un AI Architect completo dalla dashboard
             </h2>
             <p className="font-body text-fog mt-5 max-w-xl">
-              {staffMode
-                ? "Upload interno, analisi, concept 2D, approvazione e render collegati alla pipeline staff."
-                : "Analisi preliminare, concept 2D, vista top-down e render degli ambienti principali prima della richiesta preventivo."}
+              Upload interno, analisi, concept 2D, approvazione e render
+              collegati alla pipeline staff.
             </p>
             <div className="mt-8">
               <div className="flex justify-between font-display text-xs uppercase text-fog mb-2">
@@ -532,22 +518,6 @@ export default function AIArchitect({
                       PDF, PNG, JPG, JPEG, WEBP, DWG, DXF, IFC · massimo 20 MB
                     </p>
                   </label>
-
-                  {!staffMode && onSkip && (
-                    <div className="mt-4 rounded-2xl border border-stroke bg-bg/40 px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <p className="font-body text-sm text-fog">
-                        L'analisi della planimetria è opzionale: il tuo
-                        preventivo è già pronto.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={onSkip}
-                        className="shrink-0 font-display font-semibold uppercase text-sm text-brand hover:text-ink inline-flex items-center gap-2"
-                      >
-                        Torna al preventivo <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
 
                   <div className="mt-7 space-y-6">
                     <div>
@@ -1389,14 +1359,11 @@ export default function AIArchitect({
 
                   <div className="mt-7 rounded-3xl border border-brand/40 bg-brand/10 p-6 text-center">
                     <h4 className="font-display font-bold uppercase text-2xl text-ink">
-                      {staffMode
-                        ? "Job AI Architect interno completato"
-                        : "Progetto collegato alla tua richiesta"}
+                      Job AI Architect interno completato
                     </h4>
                     <p className="font-body text-sm text-fog mt-2">
-                      {staffMode
-                        ? "Analisi, concept, render e report sono salvati nella dashboard staff."
-                        : "Analisi e render sono collegati al preventivo già inviato. GB Construction ti ricontatta per la consulenza."}
+                      Analisi, concept, render e report sono salvati nella
+                      dashboard staff.
                     </p>
                     <div className="flex flex-col sm:flex-row justify-center gap-3 mt-5">
                       <button
@@ -1404,22 +1371,9 @@ export default function AIArchitect({
                         onClick={continueToQuote}
                         className="bg-brand text-white rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2"
                       >
-                        {staffMode
-                          ? "Apri scheda in revisione"
-                          : "Torna al preventivo aggiornato"}{" "}
+                        Apri scheda in revisione{" "}
                         <ArrowRight className="w-5 h-5" />
                       </button>
-                      {!staffMode && (
-                        <a
-                          href={WHATSAPP}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="bg-surface border border-stroke text-ink rounded-full px-7 py-4 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2"
-                        >
-                          <MessageCircle className="w-5 h-5 text-success" />{" "}
-                          Parla con un consulente
-                        </a>
-                      )}
                     </div>
                     {report?.image_url && (
                       <p className="font-body text-xs text-fog mt-4">
@@ -1433,14 +1387,13 @@ export default function AIArchitect({
 
             {step < 3 && (
               <div className="flex items-center justify-between mt-8">
-                {step > 1 || onSkip ? (
+                {step > 1 ? (
                   <button
                     type="button"
                     onClick={handleBack}
                     className="font-display font-semibold uppercase text-sm text-fog hover:text-ink inline-flex items-center gap-2"
                   >
-                    <ArrowLeft className="w-4 h-4" />{" "}
-                    {step === 1 ? "Torna al preventivo" : "Indietro"}
+                    <ArrowLeft className="w-4 h-4" /> Indietro
                   </button>
                 ) : (
                   <span />
