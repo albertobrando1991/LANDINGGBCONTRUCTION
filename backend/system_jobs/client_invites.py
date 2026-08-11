@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlencode, urlparse
 
 from fastapi import HTTPException
 
@@ -40,6 +41,43 @@ def _action_link(response) -> str:
     return str(getattr(properties, "action_link", "") or "").strip()
 
 
+def _public_app_url() -> str:
+    """Restituisce il dominio app corretto, senza localhost nei runtime remoti."""
+
+    canonical = "https://app.gbconstruction.it"
+    configured = (os.environ.get("APP_PUBLIC_URL") or canonical).strip().rstrip("/")
+    hostname = (urlparse(configured).hostname or "").lower()
+    is_remote_runtime = any(
+        os.environ.get(name)
+        for name in (
+            "RAILWAY_ENVIRONMENT_ID",
+            "RAILWAY_ENVIRONMENT_NAME",
+            "RAILWAY_PROJECT_ID",
+            "RAILWAY_PUBLIC_DOMAIN",
+        )
+    )
+    if is_remote_runtime and hostname in {"localhost", "127.0.0.1"}:
+        return canonical
+    return configured
+
+
+def _client_verification_url(response, *, public_url: str) -> str:
+    """Porta il token monouso nell'app, evitando redirect Supabase errati."""
+
+    properties = getattr(response, "properties", None)
+    hashed_token = str(getattr(properties, "hashed_token", "") or "").strip()
+    verification_type = str(
+        getattr(properties, "verification_type", "") or ""
+    ).strip()
+    if hashed_token and verification_type in {"invite", "magiclink", "recovery"}:
+        query = urlencode(
+            {"token_hash": hashed_token, "type": verification_type}
+        )
+        return f"{public_url}/auth/confirm?{query}"
+    # Compatibilita prudenziale con risposte SDK meno recenti.
+    return _action_link(response)
+
+
 def _send_gb_invite(
     *, email: str, nome: str | None, action_url: str, context: str
 ) -> None:
@@ -70,9 +108,7 @@ def find_or_invite_user(
 
     admin = _supabase_admin().auth.admin
     normalized = email.strip().lower()
-    public_url = (
-        os.environ.get("APP_PUBLIC_URL") or "https://app.gbconstruction.it"
-    ).rstrip("/")
+    public_url = _public_app_url()
     set_password_url = f"{public_url}/set-password"
     portal_url = f"{public_url}/portal"
     users = admin.list_users(page=1, per_page=1000)
@@ -103,7 +139,7 @@ def find_or_invite_user(
                     },
                 }
             )
-            action_url = _action_link(link)
+            action_url = _client_verification_url(link, public_url=public_url)
             if not action_url:
                 raise HTTPException(
                     status_code=502,
@@ -127,7 +163,7 @@ def find_or_invite_user(
             },
         },
     )
-    action_url = _action_link(generated)
+    action_url = _client_verification_url(generated, public_url=public_url)
     if not action_url:
         raise HTTPException(
             status_code=502,
@@ -165,9 +201,7 @@ def send_password_reset(email: str) -> bool:
     if not user:
         return False
 
-    public_url = (
-        os.environ.get("APP_PUBLIC_URL") or "https://app.gbconstruction.it"
-    ).rstrip("/")
+    public_url = _public_app_url()
     generated = admin.generate_link(
         {
             "type": "recovery",
@@ -175,7 +209,7 @@ def send_password_reset(email: str) -> bool:
             "options": {"redirect_to": f"{public_url}/set-password"},
         }
     )
-    action_url = _action_link(generated)
+    action_url = _client_verification_url(generated, public_url=public_url)
     if not action_url:
         raise RuntimeError("Supabase non ha generato il link di recupero")
 

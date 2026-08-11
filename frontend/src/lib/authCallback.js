@@ -1,6 +1,6 @@
 const AUTH_CALLBACK_KEY = "gb-auth-callback";
 const AUTH_CALLBACK_MAX_AGE_MS = 2 * 60 * 60 * 1000;
-const PASSWORD_CALLBACK_TYPES = new Set(["invite", "recovery"]);
+const PASSWORD_CALLBACK_TYPES = new Set(["invite", "magiclink", "recovery"]);
 
 function callbackTypeFromLocation(location) {
   if (!location) return "";

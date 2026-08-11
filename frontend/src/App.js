@@ -15,6 +15,7 @@ import { loadComputiPage, loadComputoEditorPage } from "@/lib/computiPrefetch";
 const Landing = lazy(() => import("@/landing/Landing"));
 const Login = lazy(() => import("@/dashboard/Login"));
 const SetPassword = lazy(() => import("@/portal/SetPassword"));
+const AuthConfirm = lazy(() => import("@/portal/AuthConfirm"));
 const LegalPage = lazy(() => import("@/legal/LegalPage"));
 const DashboardLayout = lazy(() => import("@/dashboard/DashboardLayout"));
 const Today = lazy(() => import("@/dashboard/pages/Today"));
@@ -106,6 +107,7 @@ function App() {
               />
               <Route element={<AuthBoundary />}>
                 <Route path="/login" element={<Login />} />
+                <Route path="/auth/confirm" element={<AuthConfirm />} />
                 <Route
                   path="/set-password"
                   element={

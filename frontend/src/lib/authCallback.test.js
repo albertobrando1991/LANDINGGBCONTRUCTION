@@ -9,7 +9,7 @@ describe("auth callback", () => {
     sessionStorage.clear();
   });
 
-  test.each(["invite", "recovery"])(
+  test.each(["invite", "magiclink", "recovery"])(
     "conserva il callback %s prima che Supabase ripulisca l'URL",
     (type) => {
       captureAuthCallback(
@@ -23,7 +23,7 @@ describe("auth callback", () => {
 
   test("ignora un normale accesso autenticato", () => {
     captureAuthCallback(
-      { search: "?next=/portal", hash: "#access_token=token&type=magiclink" },
+      { search: "?next=/portal", hash: "#access_token=token&type=signed_in" },
       sessionStorage,
     );
 

@@ -345,7 +345,9 @@ def test_nuovo_invito_genera_link_senza_email_supabase(monkeypatch):
             return SimpleNamespace(
                 user=user,
                 properties=SimpleNamespace(
-                    action_link="https://project.supabase.co/auth/v1/verify?token=secret"
+                    action_link="https://project.supabase.co/auth/v1/verify?token=secret",
+                    hashed_token="hashed invite",
+                    verification_type="invite",
                 ),
             )
 
@@ -382,7 +384,10 @@ def test_nuovo_invito_genera_link_senza_email_supabase(monkeypatch):
         {
             "to_email": "cliente@example.com",
             "nome": "Mario Rossi",
-            "action_url": "https://project.supabase.co/auth/v1/verify?token=secret",
+            "action_url": (
+                "https://gbconstruction.it/auth/confirm?"
+                "token_hash=hashed+invite&type=invite"
+            ),
             "context": "preventivo",
         }
     ]
@@ -445,9 +450,14 @@ def test_utente_non_confermato_puo_ricevere_di_nuovo_invito_gb(monkeypatch):
             generated_calls.append(params)
             return SimpleNamespace(
                 user=user,
-                properties=SimpleNamespace(action_link="https://auth/retry"),
+                properties=SimpleNamespace(
+                    action_link="https://auth/retry",
+                    hashed_token="hashed-magiclink",
+                    verification_type="magiclink",
+                ),
             )
 
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://app.gbconstruction.it")
     monkeypatch.setattr(
         client_invites,
         "_supabase_admin",
@@ -467,7 +477,10 @@ def test_utente_non_confermato_puo_ricevere_di_nuovo_invito_gb(monkeypatch):
     assert result is user
     assert invited is False
     assert generated_calls[0]["type"] == "magiclink"
-    assert sent[0]["action_url"] == "https://auth/retry"
+    assert sent[0]["action_url"] == (
+        "https://app.gbconstruction.it/auth/confirm?"
+        "token_hash=hashed-magiclink&type=magiclink"
+    )
 
 
 def test_invito_si_blocca_prima_di_supabase_se_email_gb_non_configurata(
@@ -503,7 +516,11 @@ def test_recupero_password_genera_link_e_invia_solo_email_gb(monkeypatch):
         def generate_link(self, params):
             generated_calls.append(params)
             return SimpleNamespace(
-                properties=SimpleNamespace(action_link="https://auth/recovery")
+                properties=SimpleNamespace(
+                    action_link="https://auth/recovery",
+                    hashed_token="hashed-recovery",
+                    verification_type="recovery",
+                )
             )
 
     monkeypatch.setenv("APP_PUBLIC_URL", "https://app.gbconstruction.it")
@@ -533,7 +550,10 @@ def test_recupero_password_genera_link_e_invia_solo_email_gb(monkeypatch):
         {
             "to_email": "cliente@example.com",
             "nome": "Mario Rossi",
-            "action_url": "https://auth/recovery",
+            "action_url": (
+                "https://app.gbconstruction.it/auth/confirm?"
+                "token_hash=hashed-recovery&type=recovery"
+            ),
         }
     ]
 
@@ -551,3 +571,10 @@ def test_recupero_password_non_rivela_un_indirizzo_assente(monkeypatch):
     )
 
     assert client_invites.send_password_reset("assente@example.com") is False
+
+
+def test_runtime_railway_non_puo_generare_link_localhost(monkeypatch):
+    monkeypatch.setenv("APP_PUBLIC_URL", "http://localhost:3000")
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "production-id")
+
+    assert client_invites._public_app_url() == "https://app.gbconstruction.it"
