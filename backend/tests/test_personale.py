@@ -17,6 +17,7 @@ TENANT_ID = "a0000000-0000-4000-8000-000000000001"
 CANTIERE_ID = "10000000-0000-4000-8000-000000000001"
 PERSONALE_ID = "20000000-0000-4000-8000-000000000001"
 ASSEGNAZIONE_ID = "30000000-0000-4000-8000-000000000001"
+PRESENZA_ID = "50000000-0000-4000-8000-000000000001"
 
 
 def test_get_personale_filtra_tenant_tipo_e_attivo():
@@ -179,3 +180,84 @@ def test_aggiorna_assegnazione_blocca_periodo_invertito():
 
     assert exc.value.status_code == 400
     assert "data finale" in exc.value.detail
+
+
+def test_get_presenze_calcola_totali_giornalieri():
+    conn = AsyncMock()
+    conn.fetch.return_value = [
+        {
+            "id": UUID(PRESENZA_ID),
+            "cantiere_id": UUID(CANTIERE_ID),
+            "personale_tipo": "interno",
+            "unita_presenti": 1,
+        },
+        {
+            "id": UUID("50000000-0000-4000-8000-000000000002"),
+            "cantiere_id": UUID(CANTIERE_ID),
+            "personale_tipo": "subappaltatore",
+            "unita_presenti": 4,
+        },
+    ]
+
+    result = asyncio.run(
+        personale_service.get_presenze(
+            conn, TENANT_ID, data=date(2026, 8, 11)
+        )
+    )
+
+    assert result["totale_unita"] == 5
+    assert result["totale_interni"] == 1
+    assert result["totale_subappaltatori"] == 4
+    assert result["cantieri_attivi"] == 1
+    assert "pr.tenant_id = $1::uuid" in conn.fetch.await_args.args[0]
+
+
+def test_crea_presenza_valida_tenant_e_imposta_otto_ore():
+    conn = AsyncMock()
+    conn.fetchval.side_effect = [True, True]
+    conn.fetchrow.return_value = {
+        "id": UUID(PRESENZA_ID),
+        "unita_presenti": 1,
+        "ore_lavorate": Decimal("8.00"),
+    }
+
+    result = asyncio.run(
+        personale_service.crea_presenza(
+            conn,
+            TENANT_ID,
+            {
+                "cantiere_id": CANTIERE_ID,
+                "personale_id": PERSONALE_ID,
+                "data": date(2026, 8, 11),
+                "tipo_giornata": "intera",
+            },
+        )
+    )
+
+    assert result["ore_lavorate"] == 8.0
+    assert conn.fetchval.await_count == 2
+    insert = conn.fetchrow.await_args
+    assert "insert into public.presenze_cantiere" in insert.args[0]
+    assert insert.args[7] == 8
+
+
+def test_presenza_a_ore_richiede_quantita_ore():
+    conn = AsyncMock()
+    conn.fetchval.side_effect = [True, True]
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            personale_service.crea_presenza(
+                conn,
+                TENANT_ID,
+                {
+                    "cantiere_id": CANTIERE_ID,
+                    "personale_id": PERSONALE_ID,
+                    "data": date(2026, 8, 11),
+                    "tipo_giornata": "ore",
+                },
+            )
+        )
+
+    assert exc.value.status_code == 400
+    assert "ore lavorate" in exc.value.detail

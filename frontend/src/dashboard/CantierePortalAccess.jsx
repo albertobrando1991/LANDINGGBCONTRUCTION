@@ -13,11 +13,7 @@ import {
 import { toast } from "sonner";
 import client, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import {
-  canUseTenantStorage,
-  listCantiereDocuments,
-  tenantIdFromUser,
-} from "@/lib/storage";
+import { listCantiereArchive } from "@/lib/cantiereArchive";
 
 function basename(path) {
   return (
@@ -32,8 +28,6 @@ export default function CantierePortalAccess({ cantiereId }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ nome: "", email: "" });
-  const tenantId = tenantIdFromUser(user);
-  const storageEnabled = canUseTenantStorage(user);
   const queryKey = ["cantiere-portale", cantiereId];
   const portal = useQuery({
     queryKey,
@@ -43,8 +37,8 @@ export default function CantierePortalAccess({ cantiereId }) {
   });
   const documents = useQuery({
     queryKey: ["cantiere-portale-documenti", cantiereId],
-    queryFn: () => listCantiereDocuments({ tenantId, cantiereId }),
-    enabled: open && storageEnabled,
+    queryFn: () => listCantiereArchive(cantiereId),
+    enabled: open,
   });
   const sharesByPath = useMemo(
     () =>

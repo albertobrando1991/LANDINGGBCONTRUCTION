@@ -20,6 +20,7 @@ import {
 } from "@/lib/personale";
 import { buildWhatsappUrl, normalizeWhatsappPhone } from "@/lib/whatsapp";
 import PersonaleAssignmentEditor from "@/dashboard/PersonaleAssignmentEditor";
+import PresenzeOverview from "@/dashboard/PresenzeOverview";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-brand";
@@ -163,6 +164,7 @@ export default function Personale() {
   const [showInactive, setShowInactive] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [assignmentEditor, setAssignmentEditor] = useState(null);
+  const [presenceDate, setPresenceDate] = useState("");
 
   const personaleQuery = useQuery({
     queryKey: ["personale"],
@@ -289,6 +291,8 @@ export default function Personale() {
           </button>
         )}
       </header>
+
+      <PresenzeOverview data={presenceDate} onDataChange={setPresenceDate} />
 
       <section className="grid gap-3 rounded-2xl border border-stroke bg-surface p-4 md:grid-cols-3">
         <select

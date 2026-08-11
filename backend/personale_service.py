@@ -267,3 +267,181 @@ async def aggiorna_assegnazione(
         },
         "Assegnazione",
     )
+
+
+def _normalize_presenza(data: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(data)
+    tipo = normalized.get("tipo_giornata", "intera")
+    ore = normalized.get("ore_lavorate")
+    if ore is None and tipo == "intera":
+        normalized["ore_lavorate"] = 8
+    elif ore is None and tipo == "mezza":
+        normalized["ore_lavorate"] = 4
+    elif tipo == "ore" and (ore is None or float(ore) <= 0):
+        raise HTTPException(
+            status_code=400,
+            detail="Indica le ore lavorate per una presenza a ore",
+        )
+    ingresso = normalized.get("ora_ingresso")
+    uscita = normalized.get("ora_uscita")
+    if ingresso is not None and uscita is not None and uscita <= ingresso:
+        raise HTTPException(
+            status_code=400,
+            detail="L'ora di uscita deve essere successiva all'ingresso",
+        )
+    if "note" in normalized:
+        normalized["note"] = _clean(normalized.get("note"))
+    return normalized
+
+
+async def get_presenze(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    *,
+    data: date,
+    cantiere_id: str | None = None,
+) -> dict:
+    if cantiere_id:
+        await economics_service._require_cantiere(conn, tenant_id, cantiere_id)
+    rows = await conn.fetch(
+        """
+        select
+          pr.*,
+          p.nome as personale_nome,
+          p.tipo as personale_tipo,
+          p.ruolo as personale_ruolo,
+          p.telefono,
+          c.cliente as cantiere_cliente,
+          c.legacy_mongo_id as cantiere_legacy_id
+        from public.presenze_cantiere pr
+        join public.personale p
+          on p.tenant_id = pr.tenant_id and p.id = pr.personale_id
+        join public.cantieri c
+          on c.tenant_id = pr.tenant_id and c.id = pr.cantiere_id
+        where pr.tenant_id = $1::uuid
+          and pr.data = $2::date
+          and ($3::uuid is null or pr.cantiere_id = $3::uuid)
+        order by c.cliente, p.tipo, p.nome
+        """,
+        tenant_id,
+        data,
+        cantiere_id,
+    )
+    items = [economics_service._dict(row) for row in rows]
+    return {
+        "data": data.isoformat(),
+        "righe": items,
+        "totale_unita": sum(int(item.get("unita_presenti") or 0) for item in items),
+        "totale_interni": sum(
+            int(item.get("unita_presenti") or 0)
+            for item in items
+            if item.get("personale_tipo") == "interno"
+        ),
+        "totale_subappaltatori": sum(
+            int(item.get("unita_presenti") or 0)
+            for item in items
+            if item.get("personale_tipo") == "subappaltatore"
+        ),
+        "cantieri_attivi": len({item.get("cantiere_id") for item in items}),
+    }
+
+
+async def crea_presenza(
+    conn: asyncpg.Connection, tenant_id: str, data: dict[str, Any]
+) -> dict:
+    await economics_service._require_cantiere(conn, tenant_id, data["cantiere_id"])
+    await economics_service._require_optional_reference(
+        conn, tenant_id, "personale", data["personale_id"], "Persona"
+    )
+    normalized = _normalize_presenza(data)
+    try:
+        row = await conn.fetchrow(
+            """
+            insert into public.presenze_cantiere (
+              tenant_id, cantiere_id, personale_id, data, unita_presenti,
+              tipo_giornata, ore_lavorate, ora_ingresso, ora_uscita, note
+            ) values ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10)
+            returning *
+            """,
+            tenant_id,
+            normalized["cantiere_id"],
+            normalized["personale_id"],
+            normalized.get("data", date.today()),
+            normalized.get("unita_presenti", 1),
+            normalized.get("tipo_giornata", "intera"),
+            normalized.get("ore_lavorate"),
+            normalized.get("ora_ingresso"),
+            normalized.get("ora_uscita"),
+            normalized.get("note"),
+        )
+    except asyncpg.UniqueViolationError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Presenza gia registrata per questa persona e giornata",
+        ) from exc
+    return economics_service._dict(row)
+
+
+async def aggiorna_presenza(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    presenza_id: str,
+    data: dict[str, Any],
+) -> dict:
+    current = await conn.fetchrow(
+        """
+        select * from public.presenze_cantiere
+        where tenant_id = $1::uuid and id = $2::uuid
+        """,
+        tenant_id,
+        presenza_id,
+    )
+    if not current:
+        raise HTTPException(status_code=404, detail="Presenza non trovata")
+    merged = {
+        "tipo_giornata": current["tipo_giornata"],
+        "ore_lavorate": current["ore_lavorate"],
+        "ora_ingresso": current["ora_ingresso"],
+        "ora_uscita": current["ora_uscita"],
+        **data,
+    }
+    if "tipo_giornata" in data and "ore_lavorate" not in data:
+        merged["ore_lavorate"] = None
+    normalized = _normalize_presenza(merged)
+    changed = {key: value for key, value in normalized.items() if key in data}
+    if "tipo_giornata" in data and "ore_lavorate" not in data:
+        changed["ore_lavorate"] = normalized.get("ore_lavorate")
+    return await economics_service._patch_row(
+        conn,
+        tenant_id,
+        "presenze_cantiere",
+        presenza_id,
+        changed,
+        {
+            "data",
+            "unita_presenti",
+            "tipo_giornata",
+            "ore_lavorate",
+            "ora_ingresso",
+            "ora_uscita",
+            "note",
+        },
+        "Presenza",
+    )
+
+
+async def elimina_presenza(
+    conn: asyncpg.Connection, tenant_id: str, presenza_id: str
+) -> dict:
+    row = await conn.fetchrow(
+        """
+        delete from public.presenze_cantiere
+        where tenant_id = $1::uuid and id = $2::uuid
+        returning id
+        """,
+        tenant_id,
+        presenza_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Presenza non trovata")
+    return {"ok": True, "deleted": str(row["id"])}

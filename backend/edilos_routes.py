@@ -7,7 +7,7 @@ import hashlib
 import ipaddress
 import logging
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID, uuid4
@@ -37,6 +37,7 @@ from document_id import ObjectId
 import acca_pdf_parser
 import cronoprogramma
 import boq_service
+import cantiere_archive_service
 import client_portal_service
 import contract_workflow_service
 import db as db_pg
@@ -554,6 +555,31 @@ class AssegnazionePatchBody(BaseModel):
     data_da: Optional[date] = None
     data_a: Optional[date] = None
     stato: Optional[Literal["assegnato", "in_corso", "concluso"]] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class PresenzaCreateBody(BaseModel):
+    personale_id: UUID
+    data: date = Field(default_factory=date.today)
+    unita_presenti: int = Field(default=1, ge=1, le=999)
+    tipo_giornata: Literal["intera", "mezza", "ore"] = "intera"
+    ore_lavorate: Optional[Decimal] = Field(
+        default=None, ge=0, le=24, max_digits=5, decimal_places=2
+    )
+    ora_ingresso: Optional[time] = None
+    ora_uscita: Optional[time] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class PresenzaPatchBody(BaseModel):
+    data: Optional[date] = None
+    unita_presenti: Optional[int] = Field(default=None, ge=1, le=999)
+    tipo_giornata: Optional[Literal["intera", "mezza", "ore"]] = None
+    ore_lavorate: Optional[Decimal] = Field(
+        default=None, ge=0, le=24, max_digits=5, decimal_places=2
+    )
+    ora_ingresso: Optional[time] = None
+    ora_uscita: Optional[time] = None
     note: Optional[str] = Field(default=None, max_length=2000)
 
 
@@ -1611,6 +1637,83 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 body.model_dump(exclude_unset=True),
             )
 
+    @api.get("/personale/presenze")
+    async def personale_presenze(
+        request: Request,
+        data: Optional[date] = None,
+        cantiere_id: Optional[str] = None,
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_read_role(tenant)
+            cantiere_uuid = (
+                await tenancy.resolve_cantiere_uuid(
+                    conn, tenant["id"], cantiere_id
+                )
+                if cantiere_id
+                else None
+            )
+            return await personale_service.get_presenze(
+                conn, tenant["id"], data=data or date.today(), cantiere_id=cantiere_uuid
+            )
+
+    @api.get("/cantieri/{cantiere_id}/presenze")
+    async def cantiere_presenze(
+        request: Request,
+        cantiere_id: str,
+        data: Optional[date] = None,
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_read_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
+            return await personale_service.get_presenze(
+                conn, tenant["id"], data=data or date.today(), cantiere_id=cantiere_uuid
+            )
+
+    @api.post("/cantieri/{cantiere_id}/presenze", status_code=201)
+    async def cantiere_presenza_crea(
+        request: Request, cantiere_id: str, body: PresenzaCreateBody
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_read_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
+            return await personale_service.crea_presenza(
+                conn,
+                tenant["id"],
+                {**body.model_dump(), "cantiere_id": cantiere_uuid},
+            )
+
+    @api.patch("/personale/presenze/{presenza_id}")
+    async def personale_presenza_aggiorna(
+        request: Request, presenza_id: str, body: PresenzaPatchBody
+    ):
+        user = await _user(request, db)
+        item_id = str(tenancy.uuid_or_400(presenza_id, "Presenza"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_read_role(tenant)
+            return await personale_service.aggiorna_presenza(
+                conn,
+                tenant["id"],
+                item_id,
+                body.model_dump(exclude_unset=True),
+            )
+
+    @api.delete("/personale/presenze/{presenza_id}")
+    async def personale_presenza_elimina(request: Request, presenza_id: str):
+        user = await _user(request, db)
+        item_id = str(tenancy.uuid_or_400(presenza_id, "Presenza"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_read_role(tenant)
+            return await personale_service.elimina_presenza(
+                conn, tenant["id"], item_id
+            )
+
     # ---------- Economics cantiere ----------
     @api.get("/economics")
     async def economics_dashboard(request: Request, cantiere_id: Optional[str] = None):
@@ -1795,6 +1898,53 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                     "Content-Disposition": 'attachment; filename="economics-cantieri.csv"'
                 },
             )
+
+    # ---------- Archivio privato cantiere ----------
+    @api.get("/cantieri/{cantiere_id}/archivio")
+    async def cantiere_archivio_elenco(request: Request, cantiere_id: str):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
+            return await cantiere_archive_service.list_documents(
+                conn, tenant["id"], cantiere_uuid
+            )
+
+    @api.post("/cantieri/{cantiere_id}/archivio", status_code=201)
+    async def cantiere_archivio_carica(
+        request: Request, cantiere_id: str, file: UploadFile = File(...)
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
+            return await cantiere_archive_service.upload(
+                conn, tenant["id"], cantiere_uuid, file
+            )
+
+    @api.get("/cantieri/{cantiere_id}/archivio/download")
+    async def cantiere_archivio_scarica(
+        request: Request, cantiere_id: str, path: str = Query(...)
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_portal_internal_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
+            content = await cantiere_archive_service.download(
+                tenant["id"], cantiere_uuid, path
+            )
+        filename = path.rsplit("/", 1)[-1].replace('"', "")
+        return Response(
+            content=content,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     # ---------- Portale cliente finale ----------
     @api.get("/portal")

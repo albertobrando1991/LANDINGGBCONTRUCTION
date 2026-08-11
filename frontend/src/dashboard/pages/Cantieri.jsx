@@ -20,9 +20,9 @@ import { useAuth } from "@/context/AuthContext";
 import client, { formatApiErrorDetail } from "@/lib/api";
 import { formatEuro } from "@/lib/format";
 import { buildCantiereWhatsappUrl } from "@/lib/whatsapp";
-import { canUseTenantStorage } from "@/lib/storage";
 import CantiereDocuments from "@/dashboard/CantiereDocuments";
 import CantierePersonale from "@/dashboard/CantierePersonale";
+import CantierePresenze from "@/dashboard/CantierePresenze";
 import CantierePortalAccess from "@/dashboard/CantierePortalAccess";
 import CantiereQuickPhotoModal from "@/dashboard/CantiereQuickPhotoModal";
 import DictationHint from "@/campo/DictationHint";
@@ -201,7 +201,6 @@ export function CantiereCard({
   saving,
   deleting,
   canDelete,
-  quickPhotoEnabled,
   personale = [],
   assegnazioni = [],
 }) {
@@ -444,12 +443,8 @@ export function CantiereCard({
           <button
             type="button"
             onClick={() => setQuickPhotoOpen(true)}
-            disabled={!quickPhotoEnabled || busy}
-            title={
-              quickPhotoEnabled
-                ? "Scatta o carica una foto"
-                : "Foto rapida disponibile con una sessione Supabase staff"
-            }
+            disabled={busy}
+            title="Scatta o carica una foto"
             aria-label="Foto rapida cantiere"
             className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-stroke bg-bg text-fog hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -712,6 +707,11 @@ export function CantiereCard({
       />
       <CantierePortalAccess cantiereId={cantiere.id} />
       <CantierePersonale
+        cantiere={cantiere}
+        personale={personale}
+        assegnazioni={assegnazioni}
+      />
+      <CantierePresenze
         cantiere={cantiere}
         personale={personale}
         assegnazioni={assegnazioni}
@@ -1226,7 +1226,6 @@ export default function Cantieri() {
               saving={updateCantiere.isPending && savingId === c.id}
               deleting={deleteCantiere.isPending && deletingId === c.id}
               canDelete={user?.role === "admin"}
-              quickPhotoEnabled={canUseTenantStorage(user)}
               personale={personale}
               assegnazioni={assegnazioni}
               onSave={(id, body) => updateCantiere.mutateAsync({ id, body })}

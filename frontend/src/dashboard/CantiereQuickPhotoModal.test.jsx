@@ -3,24 +3,14 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import CantiereQuickPhotoModal from "./CantiereQuickPhotoModal";
 import { compressCampoPhoto } from "@/lib/campoPhotos";
-import {
-  canUseTenantStorage,
-  tenantIdFromUser,
-  uploadCantiereDocument,
-} from "@/lib/storage";
-
-jest.mock("@/context/AuthContext", () => ({
-  useAuth: () => ({ user: { role: "staff", auth_provider: "supabase" } }),
-}));
+import { uploadCantiereArchive } from "@/lib/cantiereArchive";
 
 jest.mock("@/lib/campoPhotos", () => ({
   compressCampoPhoto: jest.fn(),
 }));
 
-jest.mock("@/lib/storage", () => ({
-  canUseTenantStorage: jest.fn(() => true),
-  tenantIdFromUser: jest.fn(() => "10000000-0000-4000-8000-000000000001"),
-  uploadCantiereDocument: jest.fn(),
+jest.mock("@/lib/cantiereArchive", () => ({
+  uploadCantiereArchive: jest.fn(),
 }));
 
 jest.mock("sonner", () => ({
@@ -34,13 +24,11 @@ test("comprime e salva la foto privata associandola alla fase in corso", async (
   const root = createRoot(container);
   const onClose = jest.fn();
   const onUploaded = jest.fn();
-  canUseTenantStorage.mockReturnValue(true);
-  tenantIdFromUser.mockReturnValue("10000000-0000-4000-8000-000000000001");
   const compressed = new File(["jpeg"], "compressa.jpg", {
     type: "image/jpeg",
   });
   compressCampoPhoto.mockResolvedValue({ blob: compressed });
-  uploadCantiereDocument.mockResolvedValue({ path: "privato/foto.jpg" });
+  uploadCantiereArchive.mockResolvedValue({ path: "privato/foto.jpg" });
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -80,14 +68,11 @@ test("comprime e salva la foto privata associandola alla fase in corso", async (
   });
 
   expect(compressCampoPhoto).toHaveBeenCalledWith(source);
-  expect(uploadCantiereDocument).toHaveBeenCalledWith(
-    expect.objectContaining({
-      cantiereId: "64b64c8f2f9b2d7a1c000001",
-      tenantId: "10000000-0000-4000-8000-000000000001",
-      file: expect.objectContaining({ type: "image/jpeg" }),
-    }),
+  expect(uploadCantiereArchive).toHaveBeenCalledWith(
+    "64b64c8f2f9b2d7a1c000001",
+    expect.objectContaining({ type: "image/jpeg" }),
   );
-  expect(uploadCantiereDocument.mock.calls[0][0].file.name).toContain(
+  expect(uploadCantiereArchive.mock.calls[0][1].name).toContain(
     "foto-impianti-",
   );
   expect(onUploaded).toHaveBeenCalledWith({ path: "privato/foto.jpg" });

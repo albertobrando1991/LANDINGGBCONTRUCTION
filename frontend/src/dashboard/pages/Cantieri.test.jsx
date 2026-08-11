@@ -32,6 +32,7 @@ jest.mock("sonner", () => ({
 jest.mock("@/dashboard/CantiereDocuments", () => () => null);
 jest.mock("@/dashboard/CantierePortalAccess", () => () => null);
 jest.mock("@/dashboard/CantiereQuickPhotoModal", () => () => null);
+jest.mock("@/dashboard/CantierePresenze", () => () => null);
 jest.mock("@/campo/DictationHint", () => () => null);
 
 const CANTIERE = {
