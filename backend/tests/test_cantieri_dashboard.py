@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from bson import ObjectId
+from document_id import ObjectId
 
 import server
 

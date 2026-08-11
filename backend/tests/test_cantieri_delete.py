@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from bson import ObjectId
 from fastapi import HTTPException
 
+from document_id import ObjectId
 import server
 
 
