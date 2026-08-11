@@ -46,6 +46,7 @@ def test_route_portale_complete_sono_registrate():
     )
     assert callable(_endpoint("/api/portal/documenti", "POST"))
     assert callable(_endpoint("/api/portal/documenti/{documento_id}/download", "GET"))
+    assert callable(_endpoint("/api/auth/password-reset/request", "POST"))
     assert callable(
         _endpoint("/api/cantieri/{cantiere_id}/portale/condivisioni", "POST")
     )
@@ -484,3 +485,69 @@ def test_invito_si_blocca_prima_di_supabase_se_email_gb_non_configurata(
 
     assert exc.value.status_code == 503
     assert "email ufficiale GB" in str(exc.value.detail)
+
+
+def test_recupero_password_genera_link_e_invia_solo_email_gb(monkeypatch):
+    generated_calls = []
+    sent = []
+    user = SimpleNamespace(
+        id=USER_ID,
+        email="cliente@example.com",
+        user_metadata={"name": "Mario Rossi"},
+    )
+
+    class FakeAdmin:
+        def list_users(self, **kwargs):
+            return SimpleNamespace(users=[user])
+
+        def generate_link(self, params):
+            generated_calls.append(params)
+            return SimpleNamespace(
+                properties=SimpleNamespace(action_link="https://auth/recovery")
+            )
+
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://app.gbconstruction.it")
+    monkeypatch.setattr(
+        client_invites,
+        "_supabase_admin",
+        lambda: SimpleNamespace(auth=SimpleNamespace(admin=FakeAdmin())),
+    )
+    monkeypatch.setattr(client_invites.email_service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        client_invites.email_service,
+        "send_client_password_reset",
+        lambda **kwargs: sent.append(kwargs),
+    )
+
+    assert client_invites.send_password_reset("Cliente@Example.com") is True
+    assert generated_calls == [
+        {
+            "type": "recovery",
+            "email": "cliente@example.com",
+            "options": {
+                "redirect_to": "https://app.gbconstruction.it/set-password"
+            },
+        }
+    ]
+    assert sent == [
+        {
+            "to_email": "cliente@example.com",
+            "nome": "Mario Rossi",
+            "action_url": "https://auth/recovery",
+        }
+    ]
+
+
+def test_recupero_password_non_rivela_un_indirizzo_assente(monkeypatch):
+    class FakeAdmin:
+        def list_users(self, **kwargs):
+            return SimpleNamespace(users=[])
+
+    monkeypatch.setattr(client_invites.email_service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        client_invites,
+        "_supabase_admin",
+        lambda: SimpleNamespace(auth=SimpleNamespace(admin=FakeAdmin())),
+    )
+
+    assert client_invites.send_password_reset("assente@example.com") is False

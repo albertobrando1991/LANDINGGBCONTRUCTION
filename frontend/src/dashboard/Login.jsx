@@ -2,7 +2,11 @@ import { useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { formatApiErrorDetail } from "@/lib/api";
+import client, { formatApiErrorDetail } from "@/lib/api";
+import {
+  browserSessionStorage,
+  pendingPasswordCallback,
+} from "@/lib/authCallback";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -11,11 +15,20 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
+  const mustSetPassword = pendingPasswordCallback(browserSessionStorage());
 
   if (user)
     return (
       <Navigate
-        to={user.role === "client" ? "/portal" : "/dashboard"}
+        to={
+          mustSetPassword
+            ? "/set-password"
+            : user.role === "client"
+              ? "/portal"
+              : "/dashboard"
+        }
         replace
       />
     );
@@ -31,6 +44,26 @@ export default function Login() {
       setError(formatApiErrorDetail(err.response?.data?.detail) || err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const requestPasswordReset = async () => {
+    setError("");
+    setResetMessage("");
+    if (!email.trim()) {
+      setError("Inserisci prima l'email usata per l'invito.");
+      return;
+    }
+    setResetLoading(true);
+    try {
+      const { data } = await client.post("/auth/password-reset/request", {
+        email: email.trim(),
+      });
+      setResetMessage(data?.message || "Controlla la tua casella email.");
+    } catch (err) {
+      setError(formatApiErrorDetail(err.response?.data?.detail) || err.message);
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -69,6 +102,11 @@ export default function Login() {
               className="w-full mt-1 bg-bg border border-stroke rounded-xl px-4 py-3 text-ink focus:outline-none focus:border-brand"
             />
           </div>
+          {resetMessage && (
+            <p className="text-sm text-emerald-400" role="status">
+              {resetMessage}
+            </p>
+          )}
           <div>
             <label className="font-display uppercase text-xs text-fog">
               Password
@@ -81,6 +119,15 @@ export default function Login() {
               required
               className="w-full mt-1 bg-bg border border-stroke rounded-xl px-4 py-3 text-ink focus:outline-none focus:border-brand"
             />
+            <button
+              type="button"
+              data-testid="login-forgot-password-link"
+              onClick={requestPasswordReset}
+              disabled={resetLoading}
+              className="mt-2 text-xs text-brand transition-colors hover:text-brand/80 disabled:opacity-60"
+            >
+              {resetLoading ? "Invio in corso..." : "Password dimenticata?"}
+            </button>
           </div>
           {error && (
             <p data-testid="login-error" className="text-brand text-sm">

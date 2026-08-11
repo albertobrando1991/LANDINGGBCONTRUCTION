@@ -646,6 +646,62 @@ def send_client_portal_invite(
     return {"transport": transport_name(), "message_id": message_id}
 
 
+def send_client_password_reset(
+    *,
+    to_email: str,
+    nome: Optional[str],
+    action_url: str,
+) -> Dict[str, str]:
+    """Invia il recupero password tramite il canale email ufficiale GB."""
+
+    if not is_configured():
+        raise RuntimeError("Servizio email ufficiale non configurato")
+    if not (to_email or "").strip() or not (action_url or "").strip():
+        raise RuntimeError("Destinatario o link di recupero mancante")
+
+    customer_name = (nome or "").strip() or "Cliente"
+    safe_url = _safe(action_url)
+    text_body = "\n".join(
+        [
+            f"Ciao {customer_name},",
+            "",
+            "Hai richiesto una nuova password per la tua area riservata GB Construction.",
+            "",
+            f"Imposta una nuova password: {action_url}",
+            "",
+            "Se non hai richiesto tu questa modifica, puoi ignorare questa email.",
+            "",
+            "A presto,",
+            "GB Construction",
+        ]
+    )
+    html_body = (
+        f"<div style='font-family:Montserrat,Arial,sans-serif;color:{BRAND_ONYX};line-height:1.58'>"
+        f"<p style='margin:0 0 14px;font-size:15px'>Ciao <strong>{_safe(customer_name)}</strong>,</p>"
+        f"<p style='margin:0 0 20px;color:{BRAND_STEEL};font-size:15px'>"
+        "Hai richiesto una nuova password per la tua area riservata GB Construction.</p>"
+        f"<p style='margin:24px 0'><a href='{safe_url}' "
+        f"style='display:inline-block;background:{BRAND_RED};color:#fff;text-decoration:none;"
+        "padding:14px 20px;border-radius:4px;font-family:Oswald,Arial,sans-serif;"
+        "font-weight:700;text-transform:uppercase;letter-spacing:.08em'>"
+        "Imposta nuova password</a></p>"
+        f"<p style='margin:0;color:{BRAND_CONCRETE};font-size:12px'>"
+        "Se non hai richiesto tu questa modifica, puoi ignorare questa email.</p>"
+        f"<p style='margin-top:22px;color:{BRAND_STEEL};font-size:14px'>"
+        f"A presto,<br><strong style='color:{BRAND_ONYX}'>GB Construction</strong></p>"
+        "</div>"
+    )
+    message = _build_message(
+        to_email=to_email.strip().lower(),
+        subject="Reimposta la password della tua area GB Construction",
+        text_body=text_body,
+        html_body=html_body,
+        reply_to=_sender_email() or None,
+    )
+    message_id = _send_message(message)
+    return {"transport": transport_name(), "message_id": message_id}
+
+
 def send_lead_emails(lead: Dict[str, Any], kind: str = "lead") -> None:
     if not is_configured():
         logger.warning("Email transport not configured: lead notifications skipped")

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CheckCircle2, KeyRound, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { browserSessionStorage, clearAuthCallback } from "@/lib/authCallback";
 
 export default function SetPassword() {
   const { user, updatePassword } = useAuth();
@@ -25,6 +26,7 @@ export default function SetPassword() {
     setError("");
     try {
       await updatePassword(password);
+      clearAuthCallback(browserSessionStorage());
       navigate(user?.role === "client" ? "/portal" : "/dashboard", { replace: true });
     } catch (err) {
       setError(err.message || "Impossibile impostare la password.");

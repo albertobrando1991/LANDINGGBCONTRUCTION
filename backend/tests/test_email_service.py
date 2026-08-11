@@ -198,6 +198,52 @@ def test_invito_preventivo_usa_mittente_e_layout_gb(monkeypatch):
     assert "token=secret&amp;x=1" in html_body
 
 
+def test_recupero_password_usa_mittente_e_layout_gb(monkeypatch):
+    _clear_resend(monkeypatch)
+    sent_messages = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None, context=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def login(self, username, password):
+            pass
+
+        def send_message(self, message):
+            sent_messages.append(message)
+
+    monkeypatch.setenv("SMTP_HOST", "mail.gbconstruction.it")
+    monkeypatch.setenv("SMTP_PORT", "465")
+    monkeypatch.setenv("SMTP_USERNAME", "info@gbconstruction.it")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+    monkeypatch.setenv("MAIL_FROM_EMAIL", "info@gbconstruction.it")
+    monkeypatch.setenv("MAIL_FROM_NAME", "GB Construction")
+    monkeypatch.setattr(email_service.smtplib, "SMTP_SSL", FakeSMTP)
+
+    delivery = email_service.send_client_password_reset(
+        to_email="cliente@example.com",
+        nome="Mario Rossi",
+        action_url="https://project.supabase.co/auth/v1/verify?token=secret&x=1",
+    )
+
+    assert delivery == {"transport": "smtp", "message_id": ""}
+    message = sent_messages[0]
+    assert message["From"] == "GB Construction <info@gbconstruction.it>"
+    assert message["Reply-To"] == "info@gbconstruction.it"
+    assert message["Subject"] == "Reimposta la password della tua area GB Construction"
+    html_body = message.get_body(preferencelist=("html",)).get_content()
+    _assert_branded_logo(message, html_body)
+    assert "Mario Rossi" in html_body
+    assert "Imposta nuova password" in html_body
+    assert "token=secret&amp;x=1" in html_body
+
+
 def test_resend_has_priority_and_preserves_brand_reply_to_and_inline_logo(monkeypatch):
     requests_sent = []
 

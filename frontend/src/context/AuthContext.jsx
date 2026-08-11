@@ -32,16 +32,26 @@ export function AuthProvider({ children }) {
     const initialize = async () => {
       if (supabaseConfigured) {
         try {
-          const { data } = await supabase.auth.getSession();
-          if (!active) return;
-          setApiAccessToken(data.session?.access_token);
-
+          // La sottoscrizione deve esistere prima di leggere la sessione: i
+          // callback invite/recovery vengono risolti in modo asincrono dal
+          // client Supabase durante l'inizializzazione.
           const listener = supabase.auth.onAuthStateChange(
-            (_event, session) => {
+            (event, session) => {
               setApiAccessToken(session?.access_token);
+              if (event === "SIGNED_OUT") {
+                setUser(false);
+                setLoading(false);
+              } else if (session?.access_token) {
+                // Fuori dal callback Auth per evitare lock interni di GoTrue.
+                window.setTimeout(() => check(), 0);
+              }
             },
           );
           subscription = listener.data.subscription;
+
+          const { data } = await supabase.auth.getSession();
+          if (!active) return;
+          setApiAccessToken(data.session?.access_token);
         } catch {
           setApiAccessToken(null);
         }

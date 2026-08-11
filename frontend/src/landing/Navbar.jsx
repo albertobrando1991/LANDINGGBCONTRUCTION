@@ -120,14 +120,15 @@ export default function Navbar() {
           </div>
 
           <div className="w-px h-5 bg-stroke mx-2 hidden md:block" />
-          {/* Staff sempre visibile come in originale */}
+          {/* Accesso stabile per personale e clienti invitati */}
           <button
             type="button"
             data-testid="nav-staff-login"
             onClick={() => navigate("/login")}
             className="px-2 py-2 font-display text-[10px] uppercase tracking-[0.12em] text-fog transition-colors hover:text-ink sm:text-xs md:px-3 md:tracking-[0.15em] min-h-10 touch-manipulation"
           >
-            Staff
+            <span className="sm:hidden">Clienti</span>
+            <span className="hidden sm:inline">Area clienti</span>
           </button>
 
           {/* Aggiunta mobile: menu con gli stessi link desktop */}

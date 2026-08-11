@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import ipaddress
 import logging
+import os
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
@@ -31,6 +32,7 @@ from pydantic import (
 )
 
 import auth as authlib
+import api_security
 from document_id import ObjectId
 import acca_pdf_parser
 import cronoprogramma
@@ -522,6 +524,10 @@ class SceltaPagamentoBody(BaseModel):
     tipo: Literal["sal", "scaglionato_fisso", "due_tranche"]
 
 
+class PasswordResetRequestBody(BaseModel):
+    email: EmailStr
+
+
 def _request_ip(request: Request) -> str:
     candidate = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
     if not candidate and request.client:
@@ -534,6 +540,34 @@ def _request_ip(request: Request) -> str:
 
 def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
     """Monta le route su un APIRouter esistente (prefix /api)."""
+
+    @api.post("/auth/password-reset/request")
+    async def request_password_reset(
+        request: Request, body: PasswordResetRequestBody
+    ):
+        await api_security.enforce_rate_limit(
+            db,
+            scope="auth_password_reset",
+            identity=_request_ip(request),
+            limit=max(1, int(os.getenv("AUTH_LOGIN_MAX_PER_15_MIN", "10"))),
+            window_seconds=15 * 60,
+            detail="Troppe richieste. Riprova tra qualche minuto.",
+        )
+        try:
+            from system_jobs.client_invites import send_password_reset
+
+            await asyncio.to_thread(send_password_reset, str(body.email))
+        except Exception:
+            # La risposta resta identica anche per indirizzi inesistenti o
+            # errori di consegna, evitando l'enumerazione degli account.
+            logger.exception("Invio recupero password cliente non riuscito")
+        return {
+            "ok": True,
+            "message": (
+                "Se l'indirizzo e registrato, riceverai un'email "
+                "da GB Construction."
+            ),
+        }
 
     def actor_name(user: dict) -> str:
         return str(user.get("name") or user.get("nome") or user.get("email") or "staff")

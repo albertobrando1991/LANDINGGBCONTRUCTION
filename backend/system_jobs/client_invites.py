@@ -141,3 +141,48 @@ def find_or_invite_user(
     )
     user = getattr(generated, "user", None) or generated
     return user, True
+
+
+def send_password_reset(email: str) -> bool:
+    """Genera un recovery link senza usare le email standard di Supabase."""
+
+    if not email_service.is_configured():
+        raise RuntimeError("Servizio email ufficiale GB non configurato")
+
+    normalized = email.strip().lower()
+    admin = _supabase_admin().auth.admin
+    users = admin.list_users(page=1, per_page=1000)
+    if hasattr(users, "users"):
+        users = users.users
+    user = next(
+        (
+            item
+            for item in users or []
+            if str(getattr(item, "email", "") or "").strip().lower() == normalized
+        ),
+        None,
+    )
+    if not user:
+        return False
+
+    public_url = (
+        os.environ.get("APP_PUBLIC_URL") or "https://app.gbconstruction.it"
+    ).rstrip("/")
+    generated = admin.generate_link(
+        {
+            "type": "recovery",
+            "email": normalized,
+            "options": {"redirect_to": f"{public_url}/set-password"},
+        }
+    )
+    action_url = _action_link(generated)
+    if not action_url:
+        raise RuntimeError("Supabase non ha generato il link di recupero")
+
+    metadata = getattr(user, "user_metadata", None) or {}
+    email_service.send_client_password_reset(
+        to_email=normalized,
+        nome=metadata.get("name") if isinstance(metadata, dict) else None,
+        action_url=action_url,
+    )
+    return True
