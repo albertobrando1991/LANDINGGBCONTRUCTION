@@ -257,6 +257,11 @@ class TestDashboard:
             assert created["stato"] == "attivo"
             assert created["fasi"]
 
+            r = admin_client.get(f"{API}/cantieri/{cantiere_id}")
+            assert r.status_code == 200, r.text
+            assert r.json()["id"] == cantiere_id
+            assert r.json()["cliente"] == payload["cliente"]
+
             r = admin_client.patch(f"{API}/cantieri/{cantiere_id}", json={
                 "avanzamento": 35,
                 "stato": "in_pausa",

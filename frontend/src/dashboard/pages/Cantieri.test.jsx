@@ -1,7 +1,11 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import Cantieri, { CantiereCard, filterCantieri } from "./Cantieri";
+import Cantieri, {
+  CantiereCard,
+  CantiereSummaryCard,
+  filterCantieri,
+} from "./Cantieri";
 import client from "@/lib/api";
 import { toast } from "sonner";
 
@@ -28,6 +32,13 @@ jest.mock("sonner", () => ({
     error: jest.fn(),
   },
 }));
+jest.mock("react-router-dom", () => {
+  const actualReact = jest.requireActual("react");
+  return {
+    Link: ({ to, children, ...props }) =>
+      actualReact.createElement("a", { href: to, ...props }, children),
+  };
+});
 
 jest.mock("@/dashboard/CantiereDocuments", () => () => null);
 jest.mock("@/dashboard/CantierePortalAccess", () => () => null);
@@ -57,10 +68,9 @@ async function flush() {
   });
 }
 
-describe("eliminazione diretta cantieri", () => {
+describe("elenco compatto dei cantieri", () => {
   let container;
   let root;
-  let confirmSpy;
 
   beforeEach(() => {
     global.IS_REACT_ACT_ENVIRONMENT = true;
@@ -70,10 +80,6 @@ describe("eliminazione diretta cantieri", () => {
       if (url === "/cantieri") return Promise.resolve({ data: [CANTIERE] });
       return Promise.resolve({ data: [] });
     });
-    client.delete.mockResolvedValue({
-      data: { ok: true, deleted: CANTIERE.id },
-    });
-    confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -82,7 +88,6 @@ describe("eliminazione diretta cantieri", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
-    confirmSpy.mockRestore();
   });
 
   async function renderPage() {
@@ -102,38 +107,49 @@ describe("eliminazione diretta cantieri", () => {
     await flush();
   }
 
-  test("l'amministratore elimina il cantiere dalla relativa card", async () => {
+  test("mostra una sintesi che apre la schermata dedicata", async () => {
     await renderPage();
 
-    const button = container.querySelector(
-      `[data-testid="delete-cantiere-${CANTIERE.id}"]`,
+    const summary = container.querySelector(
+      `[data-testid="cantiere-summary-${CANTIERE.id}"]`,
     );
-    expect(button).not.toBeNull();
-
-    await act(async () => {
-      button.click();
-      await Promise.resolve();
-    });
-    await flush();
-
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Eliminare definitivamente il cantiere di Cliente Demo?",
-    );
-    expect(client.delete).toHaveBeenCalledWith(`/cantieri/${CANTIERE.id}`);
-    expect(toast.success).toHaveBeenCalledWith("Cantiere eliminato");
-  });
-
-  test("il comando distruttivo non viene mostrato ai ruoli non amministratori", async () => {
-    mockUser = { role: "staff", name: "Staff GB" };
-    await renderPage();
-
+    expect(summary).not.toBeNull();
+    expect(summary.textContent).toContain("Cliente Demo");
+    expect(summary.textContent).toContain("30%");
+    expect(
+      summary.querySelector(`a[href="/dashboard/cantieri/${CANTIERE.id}"]`),
+    ).not.toBeNull();
     expect(
       container.querySelector(`[data-testid="delete-cantiere-${CANTIERE.id}"]`),
     ).toBeNull();
   });
+
+  test("la card compatta non incorpora i moduli operativi", async () => {
+    await act(async () => {
+      root.render(<CantiereSummaryCard cantiere={CANTIERE} />);
+    });
+
+    expect(container.textContent).not.toContain("Presenze giornaliere");
+    expect(container.textContent).not.toContain("Squadra assegnata");
+    expect(
+      container.querySelector('[aria-label="Milestone cantiere"]'),
+    ).toBeNull();
+  });
+
+  test("l'elenco resta disponibile anche ai ruoli staff", async () => {
+    mockUser = { role: "staff", name: "Staff GB" };
+    await renderPage();
+
+    expect(
+      container.querySelector(
+        `[data-testid="cantiere-summary-${CANTIERE.id}"]`,
+      ),
+    ).not.toBeNull();
+    expect(client.delete).not.toHaveBeenCalled();
+  });
 });
 
-describe("integrita e azioni rapide della card cantiere", () => {
+describe("integrita e azioni rapide della scheda panoramica", () => {
   let container;
   let root;
   let props;
@@ -249,33 +265,12 @@ describe("integrita e azioni rapide della card cantiere", () => {
     });
   });
 
-  test("monta il widget squadra con contatto WhatsApp rapido", async () => {
-    await renderCard({
-      ...props,
-      personale: [{ id: "p1", nome: "Mario Rossi", attivo: true }],
-      assegnazioni: [
-        {
-          id: "a1",
-          cantiere_legacy_id: CANTIERE.id,
-          cantiere_id: "10000000-0000-4000-8000-000000000001",
-          personale_id: "p1",
-          personale_nome: "Mario Rossi",
-          personale_tipo: "interno",
-          personale_ruolo: "Muratore",
-          telefono: "3331234567",
-          data_da: "2026-08-01",
-          data_a: null,
-          stato: "in_corso",
-        },
-      ],
-    });
+  test("lascia presenze, squadra e documenti fuori dalla panoramica", async () => {
+    await renderCard();
 
-    expect(container.textContent).toContain("Squadra assegnata");
-    expect(container.textContent).toContain("Mario Rossi");
-    expect(container.textContent).toContain("In cantiere");
-    expect(
-      container.querySelector('a[href^="https://wa.me/393331234567"]'),
-    ).not.toBeNull();
+    expect(container.textContent).not.toContain("Presenze giornaliere");
+    expect(container.textContent).not.toContain("Squadra assegnata");
+    expect(container.textContent).not.toContain("Archivio documenti");
   });
 });
 

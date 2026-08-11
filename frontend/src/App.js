@@ -26,6 +26,7 @@ const Sopralluoghi = lazy(() => import("@/dashboard/pages/Sopralluoghi"));
 const Preventivi = lazy(() => import("@/dashboard/pages/Preventivi"));
 const ContractEditor = lazy(() => import("@/dashboard/pages/ContractEditor"));
 const Cantieri = lazy(() => import("@/dashboard/pages/Cantieri"));
+const CantiereDetail = lazy(() => import("@/dashboard/pages/CantiereDetail"));
 const Personale = lazy(() => import("@/dashboard/pages/Personale"));
 const Report = lazy(() => import("@/dashboard/pages/Report"));
 const Settings = lazy(() => import("@/dashboard/pages/Settings"));
@@ -148,6 +149,10 @@ function App() {
                     element={<ContractEditor />}
                   />
                   <Route path="cantieri" element={<Cantieri />} />
+                  <Route
+                    path="cantieri/:id/:section?"
+                    element={<CantiereDetail />}
+                  />
                   <Route path="personale" element={<Personale />} />
                   <Route path="prezzario" element={<Prezzario />} />
                   <Route

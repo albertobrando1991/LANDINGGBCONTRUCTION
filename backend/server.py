@@ -2214,6 +2214,17 @@ async def cantieri(stato: Optional[str] = "attivo", user: dict = Depends(current
     return [serialize(d) for d in docs]
 
 
+@api.get("/cantieri/{cantiere_id}")
+async def get_cantiere(cantiere_id: str, user: dict = Depends(current_user)):
+    """Restituisce un singolo cantiere per la schermata operativa dedicata."""
+    oid = object_id_or_400(cantiere_id, "Cantiere")
+    doc = await db.cantieri.find_one({"_id": oid})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    await _hydrate_cantiere_telefoni([doc])
+    return serialize(doc)
+
+
 @api.post("/cantieri")
 async def create_cantiere(body: CantiereCreate, user: dict = Depends(current_user)):
     lead = await _load_cantiere_lead(body.lead_id)

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
+  ArrowRight,
   Camera,
   CheckCircle2,
   CirclePause,
@@ -20,10 +22,6 @@ import { useAuth } from "@/context/AuthContext";
 import client, { formatApiErrorDetail } from "@/lib/api";
 import { formatEuro } from "@/lib/format";
 import { buildCantiereWhatsappUrl } from "@/lib/whatsapp";
-import CantiereDocuments from "@/dashboard/CantiereDocuments";
-import CantierePersonale from "@/dashboard/CantierePersonale";
-import CantierePresenze from "@/dashboard/CantierePresenze";
-import CantierePortalAccess from "@/dashboard/CantierePortalAccess";
 import CantiereQuickPhotoModal from "@/dashboard/CantiereQuickPhotoModal";
 import DictationHint from "@/campo/DictationHint";
 
@@ -191,6 +189,103 @@ export function filterCantieri(
   });
 }
 
+export function CantiereSummaryCard({ cantiere }) {
+  const stato = STATO_META[cantiere.stato] || STATO_META.attivo;
+  const StatoIcon = stato.icon;
+  const avanzamento = clampProgress(cantiere.avanzamento);
+  const fasiCompletate = (cantiere.fasi || []).filter(
+    (fase) => fase.stato === "completata",
+  ).length;
+
+  return (
+    <article
+      data-testid={`cantiere-summary-${cantiere.id}`}
+      className="flex h-full flex-col rounded-2xl border border-stroke bg-surface p-5 transition hover:border-brand/50"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand">
+            <HardHat className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="truncate font-display text-sm font-bold uppercase text-ink">
+              {cantiere.cliente}
+            </h2>
+            <p className="mt-1 flex min-w-0 items-center gap-1 text-xs text-fog">
+              <MapPin className="h-3 w-3 shrink-0" />
+              <span className="truncate">
+                {cantiere.indirizzo || "Indirizzo da completare"}
+              </span>
+            </p>
+          </div>
+        </div>
+        <span
+          className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 font-display text-[9px] uppercase ${stato.pill}`}
+        >
+          <StatoIcon className="h-3 w-3" /> {stato.label}
+        </span>
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
+        <div className="rounded-xl border border-stroke bg-bg px-3 py-2.5">
+          <p className="font-display text-[9px] uppercase text-fog">Importo</p>
+          <p className="mt-1 font-display text-sm text-ink">
+            {formatEuro(numberValue(cantiere.importo))}
+          </p>
+        </div>
+        <div className="rounded-xl border border-stroke bg-bg px-3 py-2.5">
+          <p className="font-display text-[9px] uppercase text-fog">Squadra</p>
+          <p className="mt-1 truncate text-ink">
+            {cantiere.capocantiere || "Da assegnare"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <div className="flex items-center justify-between text-[10px]">
+          <span className="font-display uppercase text-fog">Avanzamento</span>
+          <span className="font-display text-ink">{avanzamento}%</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-bg">
+          <div
+            className="h-full rounded-full accent-gradient"
+            style={{ width: `${avanzamento}%` }}
+          />
+        </div>
+        <p className="text-[10px] text-fog">
+          {fasiCompletate}/{(cantiere.fasi || []).length || 0} fasi completate
+        </p>
+      </div>
+
+      <div className="mt-4 flex-1 rounded-xl border border-stroke/80 px-3 py-2.5 text-xs">
+        <p className="font-display text-[9px] uppercase text-fog">
+          Prossima milestone
+        </p>
+        <p className="mt-1 text-ink">
+          {cantiere.milestone || "Da definire"}
+          {cantiere.milestone_data
+            ? ` · ${formatDateLabel(cantiere.milestone_data)}`
+            : ""}
+        </p>
+        {cantiere.criticita && (
+          <p className="mt-2 flex items-start gap-1.5 text-warning">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span className="line-clamp-2">{cantiere.criticita}</span>
+          </p>
+        )}
+      </div>
+
+      <Link
+        to={`/dashboard/cantieri/${encodeURIComponent(cantiere.id)}`}
+        className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 font-display text-[10px] uppercase text-white"
+        aria-label={`Apri il cantiere ${cantiere.cliente}`}
+      >
+        Apri cantiere <ArrowRight className="h-4 w-4" />
+      </Link>
+    </article>
+  );
+}
+
 export function CantiereCard({
   cantiere,
   staffNames,
@@ -201,8 +296,6 @@ export function CantiereCard({
   saving,
   deleting,
   canDelete,
-  personale = [],
-  assegnazioni = [],
 }) {
   const [draft, setDraft] = useState(() => cantiereDraft(cantiere));
   const [saveStatus, setSaveStatus] = useState("salvato");
@@ -701,22 +794,6 @@ export function CantiereCard({
         </div>
       </div>
 
-      <CantiereDocuments
-        cantiereId={cantiere.id}
-        refreshKey={documentsRefreshKey}
-      />
-      <CantierePortalAccess cantiereId={cantiere.id} />
-      <CantierePersonale
-        cantiere={cantiere}
-        personale={personale}
-        assegnazioni={assegnazioni}
-      />
-      <CantierePresenze
-        cantiere={cantiere}
-        personale={personale}
-        assegnazioni={assegnazioni}
-      />
-
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="font-body text-xs text-fog flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="inline-flex items-center gap-1">
@@ -845,16 +922,6 @@ export default function Cantieri() {
       (await client.get("/leads", { params: { status: "chiuso_vinto" } })).data,
   });
 
-  const { data: personale = [] } = useQuery({
-    queryKey: ["personale"],
-    queryFn: async () => (await client.get("/personale")).data,
-  });
-
-  const { data: assegnazioni = [] } = useQuery({
-    queryKey: ["personale-assegnazioni"],
-    queryFn: async () => (await client.get("/personale/assegnazioni")).data,
-  });
-
   const staffNames = useMemo(
     () => staff.map((u) => u.name).filter(Boolean),
     [staff],
@@ -885,43 +952,6 @@ export default function Cantieri() {
     },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
-
-  const updateCantiere = useMutation({
-    mutationFn: async ({ id, body }) =>
-      (await client.patch(`/cantieri/${id}`, body)).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cantieri"] });
-      qc.invalidateQueries({ queryKey: ["leads"] });
-      toast.success("Cantiere aggiornato");
-    },
-    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
-  });
-
-  const deleteCantiere = useMutation({
-    mutationFn: (id) => client.delete(`/cantieri/${id}`),
-    onSuccess: (_, deletedId) => {
-      qc.setQueriesData({ queryKey: ["cantieri"] }, (current) =>
-        Array.isArray(current)
-          ? current.filter((cantiere) => cantiere.id !== deletedId)
-          : current,
-      );
-      qc.invalidateQueries({ queryKey: ["cantieri"] });
-      qc.invalidateQueries({ queryKey: ["leads"] });
-      toast.success("Cantiere eliminato");
-    },
-    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
-  });
-
-  const saveAtomicCantiere = async (id, body) => {
-    const { data } = await client.patch(`/cantieri/${id}`, body);
-    qc.setQueriesData({ queryKey: ["cantieri"] }, (current) =>
-      Array.isArray(current)
-        ? current.map((cantiere) => (cantiere.id === id ? data : cantiere))
-        : current,
-    );
-    qc.invalidateQueries({ queryKey: ["cantieri"] });
-    return data;
-  };
 
   const currentUserName = String(user?.name || "").trim();
   const visibleCantieri = useMemo(
@@ -974,9 +1004,6 @@ export default function Cantieri() {
     }
     createCantiere.mutate(payload);
   };
-
-  const savingId = updateCantiere.variables?.id;
-  const deletingId = deleteCantiere.variables;
 
   return (
     <div className="space-y-6">
@@ -1219,25 +1246,7 @@ export default function Cantieri() {
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
           {visibleCantieri.map((c) => (
-            <CantiereCard
-              key={c.id}
-              cantiere={c}
-              staffNames={staffNames}
-              saving={updateCantiere.isPending && savingId === c.id}
-              deleting={deleteCantiere.isPending && deletingId === c.id}
-              canDelete={user?.role === "admin"}
-              personale={personale}
-              assegnazioni={assegnazioni}
-              onSave={(id, body) => updateCantiere.mutateAsync({ id, body })}
-              onAtomicSave={saveAtomicCantiere}
-              onDelete={(id) => deleteCantiere.mutate(id)}
-              onComplete={(id) =>
-                updateCantiere.mutate({
-                  id,
-                  body: { stato: "completato", avanzamento: 100 },
-                })
-              }
-            />
+            <CantiereSummaryCard key={c.id} cantiere={c} />
           ))}
         </div>
       )}
