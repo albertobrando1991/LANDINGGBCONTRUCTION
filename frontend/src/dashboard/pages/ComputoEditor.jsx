@@ -503,7 +503,9 @@ export default function ComputoEditor() {
           ).data,
     onSuccess: (copy) => {
       toast.success(
-        copy.tipo === "variante" ? "Variante creata" : "Computo duplicato",
+        copy.tipo === "variante"
+          ? "Area di modifica pronta"
+          : "Computo duplicato",
       );
       qc.invalidateQueries({ queryKey: ["computi"] });
       navigate(`/dashboard/computi/${copy.id}`);
@@ -568,8 +570,20 @@ export default function ComputoEditor() {
     (fase) => fase !== "Da classificare",
   );
   const controlli = computo.controlli || [];
-  const vociSenzaFase = vociDaClassificare(voci);
+  const vociSenzaFase = vociDaClassificare(
+    voci,
+    computo.voci_da_classificare_ids,
+  );
   const senzaFase = vociSenzaFase.length;
+  const varianteModificabile = computo.variante_modificabile;
+  const apriClassificazione = () => {
+    if (varianteModificabile?.id) {
+      toast.success("Area di modifica aperta");
+      navigate(`/dashboard/computi/${varianteModificabile.id}`);
+      return;
+    }
+    duplicate.mutate({ tipo: "variante", variante: true });
+  };
   const crono = computo.cronoprogramma || {};
   const superficieNumero = Number(cronoprogrammaDraft.superficie_mq);
   const superficieValida =
@@ -643,7 +657,8 @@ export default function ComputoEditor() {
           )}
           {locked && (
             <p className="mt-2 text-xs text-fog">
-              Il computo è bloccato. Crea una variante per modificarne le voci.
+              Il computo confermato resta protetto. Usa Modifica computo per
+              lavorare sulla sua copia modificabile.
             </p>
           )}
         </div>
@@ -671,11 +686,11 @@ export default function ComputoEditor() {
           {locked && computo.tipo !== "variante" && (
             <button
               type="button"
-              onClick={() => duplicate.mutate({ variante: true })}
+              onClick={apriClassificazione}
               disabled={duplicate.isPending}
               className="rounded-xl border border-brand/40 px-3 py-2 text-xs font-display uppercase text-brand disabled:opacity-40"
             >
-              Crea variante
+              {duplicate.isPending ? "Apertura…" : "Modifica computo"}
             </button>
           )}
           {!locked && (
@@ -854,14 +869,12 @@ export default function ComputoEditor() {
                 <button
                   type="button"
                   disabled={duplicate.isPending}
-                  onClick={() =>
-                    duplicate.mutate({ tipo: "variante", variante: true })
-                  }
+                  onClick={apriClassificazione}
                   className="min-h-11 rounded-xl border border-amber-400/40 px-3 text-xs font-display uppercase text-amber-200 disabled:opacity-40"
                 >
                   {duplicate.isPending
-                    ? "Creazione…"
-                    : "Crea variante per classificarle"}
+                    ? "Apertura…"
+                    : "Classifica le voci"}
                 </button>
               )}
             </div>
@@ -916,8 +929,8 @@ export default function ComputoEditor() {
 
             {locked && (
               <p className="mt-3 text-[11px] leading-5 text-amber-200/70">
-                Il computo confermato è bloccato: crea una variante per
-                assegnare le fasi senza modificare lo storico confermato.
+                Il computo confermato resta invariato: il pulsante apre
+                direttamente la copia modificabile su cui assegnare le fasi.
               </p>
             )}
           </div>

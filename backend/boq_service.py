@@ -858,6 +858,22 @@ async def importa_computo_acca(
 async def crea_variante(
     conn: asyncpg.Connection, tenant_id: str, computo_id: str
 ) -> dict:
+    variante_esistente = await conn.fetchrow(
+        """
+        select *
+        from public.computi
+        where tenant_id = $1::uuid
+          and parent_computo_id = $2::uuid
+          and tipo = 'variante'
+          and stato in ('bozza', 'ai_da_revisionare')
+        order by updated_at desc, created_at desc
+        limit 1
+        """,
+        tenant_id,
+        computo_id,
+    )
+    if variante_esistente:
+        return _d(variante_esistente)
     return await duplica_computo(
         conn, tenant_id, computo_id, tipo="variante"
     )
@@ -1026,7 +1042,10 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
                p.nome as prezzario_nome,
                pb.id as preventivo_bozza_id,
                pb.numero as preventivo_bozza_numero,
-               pb.totale_documento as preventivo_bozza_totale
+               pb.totale_documento as preventivo_bozza_totale,
+               cv.id as variante_modificabile_id,
+               cv.stato as variante_modificabile_stato,
+               cv.note as variante_modificabile_note
         from public.computi c
         left join public.leads l
           on l.id = c.lead_id and l.tenant_id = c.tenant_id
@@ -1046,6 +1065,16 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
           order by pr.created_at desc, pr.id desc
           limit 1
         ) pb on true
+        left join lateral (
+          select variante.id, variante.stato, variante.note
+          from public.computi variante
+          where variante.parent_computo_id = c.id
+            and variante.tenant_id = c.tenant_id
+            and variante.tipo = 'variante'
+            and variante.stato in ('bozza', 'ai_da_revisionare')
+          order by variante.updated_at desc, variante.created_at desc
+          limit 1
+        ) cv on true
         where c.id = $1::uuid and c.tenant_id = $2::uuid
         """,
         computo_id,
@@ -1063,6 +1092,18 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
         tenant_id,
     )
     out = _d(c)
+    variante_id = out.pop("variante_modificabile_id", None)
+    variante_stato = out.pop("variante_modificabile_stato", None)
+    variante_note = out.pop("variante_modificabile_note", None)
+    out["variante_modificabile"] = (
+        {
+            "id": variante_id,
+            "stato": variante_stato,
+            "note": variante_note,
+        }
+        if variante_id
+        else None
+    )
     out["voci"] = [_d(v) for v in voci]
     out["totali"] = _totali_voci(
         out["voci"], computo_id=out["id"], tenant_id=out["tenant_id"]
@@ -1077,13 +1118,15 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
         durate_fasi=out["durate_fasi"],
     )
     out["fasi_disponibili"] = [nome for _, nome in fasi_lavorazione.FASI]
-    out["n_senza_fase"] = sum(
-        1
+    voci_senza_fase = [
+        voce
         for voce in out["voci"]
-        if not voce.get("fase")
-        or int(voce.get("fase_ordine") or 99)
-        == fasi_lavorazione.FASE_NON_CLASSIFICATA
-    )
+        if not str(voce.get("fase") or "").strip()
+        or voce.get("fase_ordine") is None
+        or int(voce["fase_ordine"]) == fasi_lavorazione.FASE_NON_CLASSIFICATA
+    ]
+    out["voci_da_classificare_ids"] = [voce["id"] for voce in voci_senza_fase]
+    out["n_senza_fase"] = len(voci_senza_fase)
     return out
 
 

@@ -117,27 +117,57 @@ def test_totali_voci_calcolati_senza_query_aggregata():
 def test_get_computo_riusa_le_voci_per_i_totali():
     tenant_id = "a0000000-0000-4000-8000-000000000001"
     computo_id = "10000000-0000-4000-8000-000000000001"
+    variante_id = "10000000-0000-4000-8000-000000000002"
+    voce_ok_id = "20000000-0000-4000-8000-000000000001"
+    voce_pending_id = "20000000-0000-4000-8000-000000000002"
     conn = AsyncMock()
     conn.fetchrow.return_value = {
         "id": UUID(computo_id),
         "tenant_id": UUID(tenant_id),
         "stato": "bozza",
         "durate_fasi": '{"15": 4}',
+        "variante_modificabile_id": UUID(variante_id),
+        "variante_modificabile_stato": "bozza",
+        "variante_modificabile_note": "Copia di lavoro",
     }
-    conn.fetch.return_value = []
+    conn.fetch.return_value = [
+        {
+            "id": UUID(voce_ok_id),
+            "totale": 10,
+            "fase": "Demolizioni e rimozioni",
+            "fase_ordine": 15,
+            "generata_da_ai": False,
+            "validata_umano": False,
+        },
+        {
+            "id": UUID(voce_pending_id),
+            "totale": 20,
+            "fase": "Da classificare",
+            "fase_ordine": 99,
+            "generata_da_ai": False,
+            "validata_umano": False,
+        },
+    ]
 
     result = asyncio.run(boq_service.get_computo(conn, tenant_id, computo_id))
 
     assert conn.fetchrow.await_count == 1
     assert conn.fetch.await_count == 1
     assert result["totali"] == {
-        "totale": 0.0,
-        "n_voci": 0,
+        "totale": 30.0,
+        "n_voci": 2,
         "n_da_validare": 0,
         "computo_id": computo_id,
         "tenant_id": tenant_id,
     }
     assert result["durate_fasi"] == {"15": 4}
+    assert result["voci_da_classificare_ids"] == [voce_pending_id]
+    assert result["n_senza_fase"] == 1
+    assert result["variante_modificabile"] == {
+        "id": variante_id,
+        "stato": "bozza",
+        "note": "Copia di lavoro",
+    }
 
 
 def test_aggiorna_cronoprogramma_persiste_superficie_e_durate_e_sincronizza():
@@ -482,11 +512,12 @@ def test_duplica_computo_ordinario_non_crea_legami_contrattuali():
 
 def test_crea_variante_richiede_base_confermata_e_non_variante():
     conn = AsyncMock()
-    conn.fetchrow.return_value = {
+    source = {
         "id": UUID("10000000-0000-4000-8000-000000000001"),
         "tipo": "estimativo",
         "stato": "bozza",
     }
+    conn.fetchrow.side_effect = [None, source]
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
@@ -499,6 +530,28 @@ def test_crea_variante_richiede_base_confermata_e_non_variante():
 
     assert exc.value.status_code == 409
     assert "confermato" in exc.value.detail
+    assert conn.fetchval.await_count == 0
+
+
+def test_crea_variante_riusa_la_copia_modificabile_esistente():
+    variante_id = "10000000-0000-4000-8000-000000000002"
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "id": UUID(variante_id),
+        "tipo": "variante",
+        "stato": "bozza",
+    }
+
+    result = asyncio.run(
+        boq_service.crea_variante(
+            conn,
+            "a0000000-0000-4000-8000-000000000001",
+            "10000000-0000-4000-8000-000000000001",
+        )
+    )
+
+    assert result["id"] == variante_id
+    assert conn.fetchrow.await_count == 1
     assert conn.fetchval.await_count == 0
 
 

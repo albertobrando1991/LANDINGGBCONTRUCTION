@@ -3,16 +3,24 @@ const NOME_NON_CLASSIFICATA = "Da classificare";
 
 export function isVoceDaClassificare(voce) {
   const fase = String(voce?.fase || "").trim();
-  const ordine = Number(voce?.fase_ordine ?? FASE_NON_CLASSIFICATA);
+  const hasOrdine =
+    voce?.fase_ordine !== undefined &&
+    voce?.fase_ordine !== null &&
+    voce?.fase_ordine !== "";
+  const ordine = hasOrdine ? Number(voce.fase_ordine) : null;
   return (
     !fase ||
-    ordine === FASE_NON_CLASSIFICATA ||
+    (hasOrdine && ordine === FASE_NON_CLASSIFICATA) ||
     fase.toLocaleLowerCase("it-IT") ===
       NOME_NON_CLASSIFICATA.toLocaleLowerCase("it-IT")
   );
 }
 
-export function vociDaClassificare(voci = []) {
+export function vociDaClassificare(voci = [], ids = null) {
+  if (Array.isArray(ids)) {
+    const idSet = new Set(ids.map(String));
+    return voci.filter((voce) => idSet.has(String(voce.id)));
+  }
   return voci.filter(isVoceDaClassificare);
 }
 
@@ -30,9 +38,12 @@ export function raggruppaVociPerFase(voci) {
   const gruppi = new Map();
   voci.forEach((voce, index) => {
     const daClassificare = isVoceDaClassificare(voce);
+    const ordineOriginale = Number(voce.fase_ordine);
     const ordine = daClassificare
       ? FASE_NON_CLASSIFICATA
-      : Number(voce.fase_ordine);
+      : Number.isFinite(ordineOriginale)
+        ? ordineOriginale
+        : 0;
     const fase = daClassificare ? NOME_NON_CLASSIFICATA : voce.fase;
     const corrente = gruppi.get(fase) || {
       fase,

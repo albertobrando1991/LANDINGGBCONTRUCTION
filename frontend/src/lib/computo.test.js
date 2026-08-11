@@ -85,3 +85,19 @@ test("separa soltanto le voci che richiedono davvero una fase", () => {
     esplicita,
   ]);
 });
+
+test("una fase valida senza ordine non diventa un falso positivo", () => {
+  const voce = { id: "legacy", fase: "Impianto elettrico e speciali" };
+
+  expect(isVoceDaClassificare(voce)).toBe(false);
+  expect(vociDaClassificare([voce])).toEqual([]);
+});
+
+test("usa gli id canonici del backend quando disponibili", () => {
+  const elenco = [
+    { id: "a", fase: "Da classificare", fase_ordine: 99 },
+    { id: "b", fase: "Da classificare", fase_ordine: 99 },
+  ];
+
+  expect(vociDaClassificare(elenco, ["b"])).toEqual([elenco[1]]);
+});
