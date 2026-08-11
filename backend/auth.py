@@ -6,6 +6,7 @@ import bcrypt
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException, Request
 from document_id import ObjectId
+import db as db_pg
 
 JWT_ALGORITHM = "HS256"
 logger = logging.getLogger("gb.auth")
@@ -158,6 +159,15 @@ def _supabase_memberships(payload: dict) -> list[dict]:
     ]
 
 
+async def _resolved_supabase_memberships(payload: dict, user_id: str) -> list[dict]:
+    """Usa tenant_members come fonte primaria, evitando claim assenti o obsoleti."""
+
+    database_memberships = await db_pg.fetch_user_memberships(user_id)
+    if database_memberships is not None:
+        return database_memberships
+    return _supabase_memberships(payload)
+
+
 async def _fetch_jwks() -> dict:
     global _jwks_cache, _jwks_fetched_at
     import time
@@ -218,7 +228,7 @@ async def _verify_supabase(token: str) -> dict:
 
     user_id = payload.get("sub")
     email = payload.get("email") or (payload.get("user_metadata") or {}).get("email")
-    app_tenants = _supabase_memberships(payload)
+    app_tenants = await _resolved_supabase_memberships(payload, str(user_id or ""))
     if not app_tenants:
         raise HTTPException(status_code=403, detail="Nessun tenant associato all'utente")
     role = app_tenants[0].get("r") or app_tenants[0].get("role") or "client"

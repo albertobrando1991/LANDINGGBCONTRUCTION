@@ -69,6 +69,35 @@ def test_supabase_membership_accepts_access_token_hook_claim():
     assert memberships == [{"t": "tenant-id", "r": "operations"}]
 
 
+def test_database_membership_recovers_missing_access_token_claim(monkeypatch):
+    async def fetch_memberships(_user_id):
+        return [{"t": "tenant-db", "r": "client", "slug": "gbconstruction"}]
+
+    monkeypatch.setattr(authlib.db_pg, "fetch_user_memberships", fetch_memberships)
+
+    memberships = asyncio.run(
+        authlib._resolved_supabase_memberships({}, "user-id")
+    )
+    assert memberships == [
+        {"t": "tenant-db", "r": "client", "slug": "gbconstruction"}
+    ]
+
+
+def test_database_membership_overrides_stale_access_token_claim(monkeypatch):
+    async def fetch_memberships(_user_id):
+        return []
+
+    monkeypatch.setattr(authlib.db_pg, "fetch_user_memberships", fetch_memberships)
+
+    memberships = asyncio.run(
+        authlib._resolved_supabase_memberships(
+            {"app_tenants": [{"t": "tenant-old", "r": "admin"}]},
+            "user-id",
+        )
+    )
+    assert memberships == []
+
+
 class _FakeUsers:
     def __init__(self, existing=None):
         self.existing = existing

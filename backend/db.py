@@ -109,6 +109,28 @@ def pool_ready() -> bool:
     return _pool is not None
 
 
+async def fetch_user_memberships(user_id: str) -> list[dict[str, str]] | None:
+    """Legge i tenant correnti dal DB; None indica pool non disponibile."""
+
+    if _pool is None:
+        return None
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            select tm.tenant_id, tm.role, t.slug
+            from public.tenant_members tm
+            join public.tenants t on t.id = tm.tenant_id
+            where tm.user_id = $1::uuid and t.attivo = true
+            order by tm.created_at, tm.tenant_id
+            """,
+            user_id,
+        )
+    return [
+        {"t": str(row["tenant_id"]), "r": str(row["role"]), "slug": row["slug"]}
+        for row in rows
+    ]
+
+
 def _claims_from_token(access_token: str) -> dict[str, Any]:
     """Decodifica i claim JWT senza verificare la firma (la verifica è in auth).
     Qui serve solo per propagare i claim a Postgres/RLS."""
