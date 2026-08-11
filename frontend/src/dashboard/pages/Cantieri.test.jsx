@@ -247,6 +247,35 @@ describe("integrita e azioni rapide della card cantiere", () => {
       fasi: [{ nome: "Demolizioni", stato: "completata" }],
     });
   });
+
+  test("monta il widget squadra con contatto WhatsApp rapido", async () => {
+    await renderCard({
+      ...props,
+      personale: [{ id: "p1", nome: "Mario Rossi", attivo: true }],
+      assegnazioni: [
+        {
+          id: "a1",
+          cantiere_legacy_id: CANTIERE.id,
+          cantiere_id: "10000000-0000-4000-8000-000000000001",
+          personale_id: "p1",
+          personale_nome: "Mario Rossi",
+          personale_tipo: "interno",
+          personale_ruolo: "Muratore",
+          telefono: "3331234567",
+          data_da: "2026-08-01",
+          data_a: null,
+          stato: "in_corso",
+        },
+      ],
+    });
+
+    expect(container.textContent).toContain("Squadra assegnata");
+    expect(container.textContent).toContain("Mario Rossi");
+    expect(container.textContent).toContain("In cantiere");
+    expect(
+      container.querySelector('a[href^="https://wa.me/393331234567"]'),
+    ).not.toBeNull();
+  });
 });
 
 test("i filtri criticita, capocantiere e personale sono componibili", () => {

@@ -45,6 +45,7 @@ import economics_service
 import lead_bridge
 import libretto_service
 import mapping_engine
+import personale_service
 import prezzario_service
 import rilievo_service
 import sal_service
@@ -503,6 +504,101 @@ class ScadenzaPatchBody(BaseModel):
     note: Optional[str] = Field(default=None, max_length=2000)
 
 
+class PersonaleCreateBody(BaseModel):
+    tipo: Literal["interno", "subappaltatore"]
+    nome: str = Field(min_length=2, max_length=200)
+    ruolo: Optional[str] = Field(default=None, max_length=200)
+    fornitore_id: Optional[UUID] = None
+    telefono: Optional[str] = Field(default=None, max_length=40)
+    email: Optional[EmailStr] = None
+    costo_giornaliero: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=10, decimal_places=2
+    )
+    costo_orario: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=10, decimal_places=2
+    )
+    attivo: bool = True
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class PersonalePatchBody(BaseModel):
+    tipo: Optional[Literal["interno", "subappaltatore"]] = None
+    nome: Optional[str] = Field(default=None, min_length=2, max_length=200)
+    ruolo: Optional[str] = Field(default=None, max_length=200)
+    fornitore_id: Optional[UUID] = None
+    telefono: Optional[str] = Field(default=None, max_length=40)
+    email: Optional[EmailStr] = None
+    costo_giornaliero: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=10, decimal_places=2
+    )
+    costo_orario: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=10, decimal_places=2
+    )
+    attivo: Optional[bool] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AssegnazioneCreateBody(BaseModel):
+    personale_id: UUID
+    ruolo_in_cantiere: Optional[str] = Field(default=None, max_length=200)
+    data_da: date = Field(default_factory=date.today)
+    data_a: Optional[date] = None
+    stato: Literal["assegnato", "in_corso", "concluso"] = "assegnato"
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AssegnazionePatchBody(BaseModel):
+    cantiere_id: Optional[UUID] = None
+    personale_id: Optional[UUID] = None
+    ruolo_in_cantiere: Optional[str] = Field(default=None, max_length=200)
+    data_da: Optional[date] = None
+    data_a: Optional[date] = None
+    stato: Optional[Literal["assegnato", "in_corso", "concluso"]] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class CostoFissoCreateBody(BaseModel):
+    categoria: Literal[
+        "affitto",
+        "assicurazioni",
+        "leasing",
+        "software",
+        "stipendi_amministrativi",
+        "utenze_sede",
+        "consulenze",
+        "altro",
+    ] = "altro"
+    descrizione: str = Field(min_length=2, max_length=300)
+    importo_mensile: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    data_inizio: date = Field(default_factory=date.today)
+    data_fine: Optional[date] = None
+    attivo: bool = True
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class CostoFissoPatchBody(BaseModel):
+    categoria: Optional[
+        Literal[
+            "affitto",
+            "assicurazioni",
+            "leasing",
+            "software",
+            "stipendi_amministrativi",
+            "utenze_sede",
+            "consulenze",
+            "altro",
+        ]
+    ] = None
+    descrizione: Optional[str] = Field(default=None, min_length=2, max_length=300)
+    importo_mensile: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
+    data_inizio: Optional[date] = None
+    data_fine: Optional[date] = None
+    attivo: Optional[bool] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
 class PortaleInvitaBody(BaseModel):
     email: EmailStr
     nome: Optional[str] = Field(default=None, max_length=200)
@@ -617,6 +713,20 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             raise HTTPException(
                 status_code=403,
                 detail="Permessi insufficienti per i dati economici",
+            )
+
+    def require_personale_read_role(tenant: dict) -> None:
+        if tenant.get("role") not in personale_service.PERSONALE_READ_ROLES:
+            raise HTTPException(
+                status_code=403,
+                detail="Permessi insufficienti per visualizzare il personale",
+            )
+
+    def require_personale_write_role(tenant: dict) -> None:
+        if tenant.get("role") not in personale_service.PERSONALE_WRITE_ROLES:
+            raise HTTPException(
+                status_code=403,
+                detail="Permessi insufficienti per gestire il personale",
             )
 
     def require_client_role(tenant: dict) -> None:
@@ -1385,6 +1495,122 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 conn, tenant["id"], sal_uuid, body.stato
             )
 
+    # ---------- Personale e assegnazioni cantiere ----------
+    @api.get("/personale")
+    async def personale_elenco(
+        request: Request,
+        tipo: Optional[Literal["interno", "subappaltatore"]] = None,
+        attivo: Optional[bool] = None,
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_read_role(tenant)
+            return await personale_service.get_personale(
+                conn,
+                tenant["id"],
+                tipo=tipo,
+                attivo=attivo,
+            )
+
+    @api.get("/personale/assegnazioni")
+    async def personale_assegnazioni(
+        request: Request,
+        cantiere_id: Optional[str] = None,
+        personale_id: Optional[str] = None,
+        stato: Optional[Literal["assegnato", "in_corso", "concluso"]] = None,
+    ):
+        user = await _user(request, db)
+        personale_uuid = (
+            str(tenancy.uuid_or_400(personale_id, "Persona"))
+            if personale_id
+            else None
+        )
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_read_role(tenant)
+            cantiere_uuid = (
+                await tenancy.resolve_cantiere_uuid(
+                    conn, tenant["id"], cantiere_id
+                )
+                if cantiere_id
+                else None
+            )
+            return await personale_service.get_assegnazioni(
+                conn,
+                tenant["id"],
+                cantiere_id=cantiere_uuid,
+                personale_id=personale_uuid,
+                stato=stato,
+            )
+
+    @api.post("/personale", status_code=201)
+    async def personale_crea(request: Request, body: PersonaleCreateBody):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_write_role(tenant)
+            return await personale_service.crea_personale(
+                conn, tenant["id"], body.model_dump()
+            )
+
+    @api.patch("/personale/{personale_id}")
+    async def personale_aggiorna(
+        request: Request, personale_id: str, body: PersonalePatchBody
+    ):
+        user = await _user(request, db)
+        item_id = str(tenancy.uuid_or_400(personale_id, "Persona"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_write_role(tenant)
+            return await personale_service.aggiorna_personale(
+                conn,
+                tenant["id"],
+                item_id,
+                body.model_dump(exclude_unset=True),
+            )
+
+    @api.get("/cantieri/{cantiere_id}/personale")
+    async def cantiere_personale_elenco(request: Request, cantiere_id: str):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_read_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
+            return await personale_service.get_assegnazioni(
+                conn, tenant["id"], cantiere_id=cantiere_uuid
+            )
+
+    @api.post("/cantieri/{cantiere_id}/personale", status_code=201)
+    async def cantiere_personale_crea(
+        request: Request, cantiere_id: str, body: AssegnazioneCreateBody
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_write_role(tenant)
+            cantiere_uuid = await tenancy.resolve_cantiere_uuid(
+                conn, tenant["id"], cantiere_id
+            )
+            return await personale_service.crea_assegnazione(
+                conn,
+                tenant["id"],
+                {**body.model_dump(), "cantiere_id": cantiere_uuid},
+            )
+
+    @api.patch("/personale/assegnazioni/{assegnazione_id}")
+    async def personale_assegnazione_aggiorna(
+        request: Request,
+        assegnazione_id: str,
+        body: AssegnazionePatchBody,
+    ):
+        user = await _user(request, db)
+        item_id = str(tenancy.uuid_or_400(assegnazione_id, "Assegnazione"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_personale_write_role(tenant)
+            return await personale_service.aggiorna_assegnazione(
+                conn,
+                tenant["id"],
+                item_id,
+                body.model_dump(exclude_unset=True),
+            )
+
     # ---------- Economics cantiere ----------
     @api.get("/economics")
     async def economics_dashboard(request: Request, cantiere_id: Optional[str] = None):
@@ -1395,6 +1621,63 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
         async with get_tenant_conn(request, user) as (conn, tenant):
             require_economics_role(tenant)
             return await economics_service.get_dashboard(
+                conn, tenant["id"], cantiere_id=cantiere_uuid
+            )
+
+    @api.get("/economics/costi-fissi")
+    async def economics_costi_fissi(
+        request: Request, attivo: Optional[bool] = None
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.get_costi_fissi(
+                conn, tenant["id"], attivo=attivo
+            )
+
+    @api.post("/economics/costi-fissi", status_code=201)
+    async def economics_crea_costo_fisso(
+        request: Request, body: CostoFissoCreateBody
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.crea_costo_fisso(
+                conn, tenant["id"], body.model_dump()
+            )
+
+    @api.patch("/economics/costi-fissi/{costo_fisso_id}")
+    async def economics_aggiorna_costo_fisso(
+        request: Request,
+        costo_fisso_id: str,
+        body: CostoFissoPatchBody,
+    ):
+        user = await _user(request, db)
+        item_id = str(tenancy.uuid_or_400(costo_fisso_id, "Costo fisso"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            return await economics_service.aggiorna_costo_fisso(
+                conn,
+                tenant["id"],
+                item_id,
+                body.model_dump(exclude_unset=True),
+            )
+
+    @api.get("/economics/subappalti")
+    async def economics_subappalti(
+        request: Request, cantiere_id: Optional[str] = None
+    ):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_economics_role(tenant)
+            cantiere_uuid = (
+                await tenancy.resolve_cantiere_uuid(
+                    conn, tenant["id"], cantiere_id
+                )
+                if cantiere_id
+                else None
+            )
+            return await economics_service.get_subappalti_dashboard(
                 conn, tenant["id"], cantiere_id=cantiere_uuid
             )
 

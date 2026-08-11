@@ -154,3 +154,114 @@ def test_export_csv_usa_formato_italiano_excel_compatibile():
 
     assert content.startswith("\ufefftipo;data;cantiere")
     assert "spesa;2026-08-06;Rossi;Edil Forniture;Materiali;100.00;22.00;122.00" in content
+
+
+def test_costi_fissi_totale_esclude_voci_scadute():
+    conn = AsyncMock()
+    conn.fetch.return_value = [
+        {
+            "id": UUID("50000000-0000-4000-8000-000000000001"),
+            "descrizione": "Affitto sede",
+            "importo_mensile": Decimal("1200.00"),
+            "attivo": True,
+            "corrente": True,
+        },
+        {
+            "id": UUID("50000000-0000-4000-8000-000000000002"),
+            "descrizione": "Leasing concluso",
+            "importo_mensile": Decimal("450.00"),
+            "attivo": True,
+            "data_fine": date(2026, 7, 31),
+            "corrente": False,
+        },
+    ]
+
+    result = asyncio.run(economics_service.get_costi_fissi(conn, TENANT_ID))
+
+    assert result["totale_mensile"] == 1200.0
+    assert len(result["righe"]) == 2
+    query = conn.fetch.await_args
+    assert "data_fine >= current_date" in query.args[0]
+    assert query.args[1:] == (TENANT_ID, None)
+
+
+def test_crud_costo_fisso_filtra_sempre_il_tenant():
+    conn = AsyncMock()
+    costo_id = "50000000-0000-4000-8000-000000000001"
+    conn.fetchrow.side_effect = [
+        {
+            "id": UUID(costo_id),
+            "tenant_id": UUID(TENANT_ID),
+            "descrizione": "Assicurazione aziendale",
+            "importo_mensile": Decimal("300.00"),
+        },
+        {"data_inizio": date(2026, 8, 1), "data_fine": None},
+        {
+            "id": UUID(costo_id),
+            "tenant_id": UUID(TENANT_ID),
+            "descrizione": "Assicurazione aziendale",
+            "importo_mensile": Decimal("320.00"),
+        },
+    ]
+
+    created = asyncio.run(
+        economics_service.crea_costo_fisso(
+            conn,
+            TENANT_ID,
+            {
+                "categoria": "assicurazioni",
+                "descrizione": " Assicurazione aziendale ",
+                "importo_mensile": Decimal("300"),
+                "data_inizio": date(2026, 8, 1),
+            },
+        )
+    )
+    updated = asyncio.run(
+        economics_service.aggiorna_costo_fisso(
+            conn,
+            TENANT_ID,
+            costo_id,
+            {"importo_mensile": Decimal("320")},
+        )
+    )
+
+    assert created["importo_mensile"] == 300.0
+    assert updated["importo_mensile"] == 320.0
+    assert conn.fetchrow.await_args_list[0].args[1] == TENANT_ID
+    update = conn.fetchrow.await_args_list[2]
+    assert "update public.costi_fissi" in update.args[0]
+    assert update.args[-2:] == (TENANT_ID, costo_id)
+
+
+def test_subappalti_aggregati_per_fornitore_e_cantiere():
+    conn = AsyncMock()
+    conn.fetch.return_value = [
+        {
+            "fornitore_id": UUID("60000000-0000-4000-8000-000000000001"),
+            "ragione_sociale": "Impianti Alfa",
+            "cantiere_id": UUID(CANTIERE_ID),
+            "numero_spese": 2,
+            "totale_speso": Decimal("1500.00"),
+            "totale_pagato": Decimal("1000.00"),
+        },
+        {
+            "fornitore_id": UUID("60000000-0000-4000-8000-000000000002"),
+            "ragione_sociale": "Edil Beta",
+            "cantiere_id": UUID(CANTIERE_ID),
+            "numero_spese": 1,
+            "totale_speso": Decimal("800.00"),
+            "totale_pagato": Decimal("0.00"),
+        },
+    ]
+
+    result = asyncio.run(
+        economics_service.get_subappalti_dashboard(conn, TENANT_ID)
+    )
+
+    assert result["totale_speso"] == 2300.0
+    assert result["totale_pagato"] == 1000.0
+    assert len(result["righe"]) == 2
+    query = conn.fetch.await_args
+    assert "s.categoria = 'subappalto'" in query.args[0]
+    assert "s.stato <> 'annullata'" in query.args[0]
+    assert query.args[1:] == (TENANT_ID, None)

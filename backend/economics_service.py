@@ -53,7 +53,7 @@ async def _require_optional_reference(
 ) -> None:
     if not value:
         return
-    if table not in {"fornitori", "sal", "spese", "incassi"}:
+    if table not in {"fornitori", "sal", "spese", "incassi", "personale"}:
         raise RuntimeError("Riferimento Economics non consentito")
     exists = await conn.fetchval(
         f"select exists(select 1 from public.{table} where tenant_id = $1::uuid and id = $2::uuid)",
@@ -346,6 +346,159 @@ async def aggiorna_scadenza(
         {"stato", "completata_at", "note"},
         "Scadenza",
     )
+
+
+async def get_costi_fissi(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    *,
+    attivo: bool | None = None,
+) -> dict:
+    rows = await conn.fetch(
+        """
+        select *,
+          (
+            attivo
+            and data_inizio <= current_date
+            and (data_fine is null or data_fine >= current_date)
+          ) as corrente
+        from public.costi_fissi
+        where tenant_id = $1::uuid
+          and ($2::boolean is null or attivo = $2::boolean)
+        order by attivo desc, categoria, descrizione
+        """,
+        tenant_id,
+        attivo,
+    )
+    items = [_dict(row) for row in rows]
+    return {
+        "righe": items,
+        "totale_mensile": round(
+            sum(
+                float(item.get("importo_mensile") or 0)
+                for item in items
+                if item.get("corrente")
+            ),
+            2,
+        ),
+    }
+
+
+def _validate_period(data_inizio: date, data_fine: date | None) -> None:
+    if data_fine is not None and data_fine < data_inizio:
+        raise HTTPException(
+            status_code=400,
+            detail="La data finale non puo precedere la data iniziale",
+        )
+
+
+async def crea_costo_fisso(
+    conn: asyncpg.Connection, tenant_id: str, data: dict[str, Any]
+) -> dict:
+    _validate_period(data["data_inizio"], data.get("data_fine"))
+    row = await conn.fetchrow(
+        """
+        insert into public.costi_fissi (
+          tenant_id, categoria, descrizione, importo_mensile,
+          data_inizio, data_fine, attivo, note
+        ) values ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
+        returning *
+        """,
+        tenant_id,
+        data.get("categoria", "altro"),
+        data["descrizione"].strip(),
+        data["importo_mensile"],
+        data["data_inizio"],
+        data.get("data_fine"),
+        data.get("attivo", True),
+        data.get("note"),
+    )
+    return _dict(row)
+
+
+async def aggiorna_costo_fisso(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    costo_fisso_id: str,
+    data: dict[str, Any],
+) -> dict:
+    current = await conn.fetchrow(
+        """
+        select data_inizio, data_fine
+        from public.costi_fissi
+        where tenant_id = $1::uuid and id = $2::uuid
+        """,
+        tenant_id,
+        costo_fisso_id,
+    )
+    if not current:
+        raise HTTPException(status_code=404, detail="Costo fisso non trovato")
+    _validate_period(
+        data.get("data_inizio", current["data_inizio"]),
+        data.get("data_fine", current["data_fine"]),
+    )
+    return await _patch_row(
+        conn,
+        tenant_id,
+        "costi_fissi",
+        costo_fisso_id,
+        data,
+        {
+            "categoria",
+            "descrizione",
+            "importo_mensile",
+            "data_inizio",
+            "data_fine",
+            "attivo",
+            "note",
+        },
+        "Costo fisso",
+    )
+
+
+async def get_subappalti_dashboard(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    *,
+    cantiere_id: str | None = None,
+) -> dict:
+    if cantiere_id:
+        await _require_cantiere(conn, tenant_id, cantiere_id)
+    rows = await conn.fetch(
+        """
+        select
+          f.id as fornitore_id,
+          f.ragione_sociale,
+          s.cantiere_id,
+          count(*) as numero_spese,
+          coalesce(sum(s.totale), 0)::numeric(14,2) as totale_speso,
+          coalesce(
+            sum(s.totale) filter (where s.stato = 'pagata'), 0
+          )::numeric(14,2) as totale_pagato,
+          max(s.data_documento) as ultima_spesa
+        from public.spese s
+        join public.fornitori f
+          on f.tenant_id = s.tenant_id and f.id = s.fornitore_id
+        where s.tenant_id = $1::uuid
+          and s.categoria = 'subappalto'
+          and s.stato <> 'annullata'
+          and ($2::uuid is null or s.cantiere_id = $2::uuid)
+        group by f.id, f.ragione_sociale, s.cantiere_id
+        order by totale_speso desc, f.ragione_sociale
+        """,
+        tenant_id,
+        cantiere_id,
+    )
+    items = [_dict(row) for row in rows]
+    return {
+        "righe": items,
+        "totale_speso": round(
+            sum(float(item.get("totale_speso") or 0) for item in items), 2
+        ),
+        "totale_pagato": round(
+            sum(float(item.get("totale_pagato") or 0) for item in items), 2
+        ),
+    }
 
 
 async def _patch_row(

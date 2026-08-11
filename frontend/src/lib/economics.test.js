@@ -1,4 +1,9 @@
-import { filterEconomics, isOverdue, summarizeMargins } from "./economics";
+import {
+  filterEconomics,
+  isOverdue,
+  summarizeFixedMonthlyCosts,
+  summarizeMargins,
+} from "./economics";
 
 test("filtra tutti i movimenti per cantiere", () => {
   const data = {
@@ -31,4 +36,32 @@ test("riconosce solo scadenze aperte oltre la data", () => {
   expect(
     isOverdue({ stato: "completata", data_scadenza: "2026-08-05" }, today),
   ).toBe(false);
+});
+
+test("somma solo i costi fissi correnti", () => {
+  const today = new Date("2026-08-11T12:00:00");
+  expect(
+    summarizeFixedMonthlyCosts(
+      [
+        {
+          attivo: true,
+          importo_mensile: 1200,
+          data_inizio: "2026-01-01",
+          data_fine: null,
+        },
+        {
+          attivo: true,
+          importo_mensile: 450,
+          data_inizio: "2026-01-01",
+          data_fine: "2026-07-31",
+        },
+        {
+          attivo: false,
+          importo_mensile: 300,
+          data_inizio: "2026-01-01",
+        },
+      ],
+      today,
+    ),
+  ).toBe(1200);
 });

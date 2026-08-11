@@ -21,6 +21,7 @@ import {
   FileCheck2,
   Smartphone,
   Landmark,
+  UsersRound,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/dashboard/Avatar";
@@ -46,6 +47,12 @@ const NAV = [
   { to: "/dashboard/prezzario", label: "Prezzario", Icon: Calculator },
   { to: "/dashboard/computi", label: "Computi", Icon: ListTree },
   { to: "/dashboard/cantieri", label: "Cantieri attivi", Icon: HardHat },
+  {
+    to: "/dashboard/personale",
+    label: "Personale",
+    Icon: UsersRound,
+    roles: ["owner", "admin", "staff", "operations"],
+  },
   {
     to: "/dashboard/sal",
     label: "SAL",

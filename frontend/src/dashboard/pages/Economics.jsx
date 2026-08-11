@@ -9,18 +9,22 @@ import {
   Landmark,
   Loader2,
   Paperclip,
+  Pencil,
   Plus,
   ReceiptText,
   TrendingDown,
   TrendingUp,
+  WalletCards,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import client, { extractErrorDetail } from "@/lib/api";
 import {
   ECONOMICS_CATEGORIES,
+  FIXED_COST_CATEGORIES,
   filterEconomics,
   isOverdue,
+  summarizeFixedMonthlyCosts,
   summarizeMargins,
 } from "@/lib/economics";
 import {
@@ -40,6 +44,8 @@ const TABS = [
   "incassi",
   "scadenze",
   "fornitori",
+  "costi fissi",
+  "subappalti",
 ];
 
 function currency(value) {
@@ -368,12 +374,123 @@ function EntryForm({
   );
 }
 
+function FixedCostForm({ item, pending, onClose, onSubmit }) {
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <section className="rounded-2xl border border-brand/40 bg-surface p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-display uppercase tracking-[0.2em] text-brand">
+            Overhead aziendale
+          </p>
+          <h2 className="mt-1 text-xl font-display uppercase text-ink">
+            {item ? "Modifica costo fisso" : "Nuovo costo fisso"}
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Chiudi modulo costo fisso"
+          className="min-h-11 min-w-11 rounded-full border border-stroke text-fog"
+        >
+          <X className="mx-auto h-5 w-5" />
+        </button>
+      </div>
+      <form
+        key={item?.id || "new-fixed-cost"}
+        onSubmit={(event) => onSubmit(event, item)}
+        className="mt-5 grid gap-4 md:grid-cols-2"
+      >
+        <Field label="Categoria">
+          <select
+            name="categoria"
+            defaultValue={item?.categoria || "altro"}
+            className={inputClass}
+          >
+            {FIXED_COST_CATEGORIES.map((category) => (
+              <option key={category} value={category}>
+                {category.replaceAll("_", " ")}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Descrizione">
+          <input
+            name="descrizione"
+            required
+            minLength={2}
+            defaultValue={item?.descrizione || ""}
+            className={inputClass}
+          />
+        </Field>
+        <Field label="Importo mensile">
+          <input
+            name="importo_mensile"
+            type="number"
+            min="0"
+            step="0.01"
+            required
+            defaultValue={item?.importo_mensile ?? ""}
+            className={inputClass}
+          />
+        </Field>
+        <Field label="Data inizio">
+          <input
+            name="data_inizio"
+            type="date"
+            required
+            defaultValue={item?.data_inizio || today}
+            className={inputClass}
+          />
+        </Field>
+        <Field label="Data fine">
+          <input
+            name="data_fine"
+            type="date"
+            defaultValue={item?.data_fine || ""}
+            className={inputClass}
+          />
+        </Field>
+        <label className="flex items-end gap-2 pb-2 text-sm text-ink">
+          <input
+            name="attivo"
+            type="checkbox"
+            value="true"
+            defaultChecked={item?.attivo ?? true}
+            className="h-4 w-4 accent-brand"
+          />
+          Costo attivo
+        </label>
+        <Field label="Note" wide>
+          <textarea
+            name="note"
+            rows={2}
+            defaultValue={item?.note || ""}
+            className={inputClass}
+          />
+        </Field>
+        <div className="md:col-span-2 flex justify-end">
+          <button
+            type="submit"
+            disabled={pending}
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-brand px-5 text-xs font-display uppercase text-white disabled:opacity-40"
+          >
+            {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Salva costo fisso
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
 export default function Economics() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [cantiereId, setCantiereId] = useState("");
   const [tab, setTab] = useState("quadro");
   const [formKind, setFormKind] = useState(null);
+  const [fixedCostEditing, setFixedCostEditing] = useState(undefined);
   const storageEnabled = canUseTenantStorage(user);
   const authorized = ["owner", "admin"].includes(user?.role);
   const tenantId = tenantIdFromUser(user);
@@ -382,12 +499,35 @@ export default function Economics() {
     queryFn: async () => (await client.get("/economics")).data,
     enabled: authorized,
   });
+  const fixedCostsQuery = useQuery({
+    queryKey: ["economics", "costi-fissi"],
+    queryFn: async () => (await client.get("/economics/costi-fissi")).data,
+    enabled: authorized,
+  });
+  const subcontractQuery = useQuery({
+    queryKey: ["economics", "subappalti", cantiereId],
+    queryFn: async () =>
+      (
+        await client.get("/economics/subappalti", {
+          params: cantiereId ? { cantiere_id: cantiereId } : {},
+        })
+      ).data,
+    enabled: authorized,
+  });
   const allData = query.data;
   const data = useMemo(
     () => filterEconomics(allData, cantiereId),
     [allData, cantiereId],
   );
   const summary = useMemo(() => summarizeMargins(data?.cantieri || []), [data]);
+  const fixedCosts = useMemo(
+    () => fixedCostsQuery.data?.righe || [],
+    [fixedCostsQuery.data],
+  );
+  const fixedMonthlyTotal = useMemo(
+    () => summarizeFixedMonthlyCosts(fixedCosts),
+    [fixedCosts],
+  );
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["economics"] });
   const create = useMutation({
@@ -433,6 +573,18 @@ export default function Economics() {
         error?.response?.data?.detail || "Aggiornamento non riuscito",
       ),
   });
+  const saveFixedCost = useMutation({
+    mutationFn: async ({ id, body }) =>
+      id
+        ? (await client.patch(`/economics/costi-fissi/${id}`, body)).data
+        : (await client.post("/economics/costi-fissi", body)).data,
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["economics", "costi-fissi"] });
+      setFixedCostEditing(undefined);
+      toast.success("Costo fisso salvato");
+    },
+    onError: async (error) => toast.error(await extractErrorDetail(error)),
+  });
 
   const submit = (event, kind) => {
     event.preventDefault();
@@ -454,6 +606,22 @@ export default function Economics() {
       values.importo = Number(values.importo);
     delete values.allegato;
     create.mutate({ kind, values, file });
+  };
+
+  const submitFixedCost = (event, item) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const raw = Object.fromEntries(new FormData(form));
+    const body = {
+      categoria: raw.categoria,
+      descrizione: raw.descrizione,
+      importo_mensile: Number(raw.importo_mensile),
+      data_inizio: raw.data_inizio,
+      data_fine: raw.data_fine || null,
+      attivo: form.elements.attivo.checked,
+      note: raw.note || null,
+    };
+    saveFixedCost.mutate({ id: item?.id, body });
   };
 
   const downloadCsv = async () => {
@@ -617,6 +785,24 @@ export default function Economics() {
         </div>
       </section>
 
+      <section
+        className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5"
+        data-testid="fixed-cost-summary"
+      >
+        <div>
+          <p className="flex items-center gap-2 font-display text-[10px] uppercase tracking-[0.18em] text-amber-300">
+            <WalletCards className="h-4 w-4" /> Costi fissi aziendali
+          </p>
+          <p className="mt-2 font-display text-2xl text-ink">
+            {currency(fixedMonthlyTotal)} / mese
+          </p>
+        </div>
+        <p className="max-w-md text-xs text-fog">
+          Indicatore aziendale separato: non modifica il margine dei singoli
+          cantieri.
+        </p>
+      </section>
+
       <div className="flex flex-wrap gap-2">
         {[
           { kind: "spesa", label: "Spesa", Icon: ReceiptText },
@@ -635,6 +821,15 @@ export default function Economics() {
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => setFixedCostEditing(null)}
+          className="inline-flex items-center gap-2 rounded-xl border border-stroke bg-surface px-3 py-2 text-xs font-display uppercase text-ink hover:border-brand/50"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          <WalletCards className="h-4 w-4" />
+          Costo fisso
+        </button>
       </div>
 
       {formKind && (
@@ -647,6 +842,15 @@ export default function Economics() {
           pending={create.isPending}
           onClose={() => setFormKind(null)}
           onSubmit={submit}
+        />
+      )}
+
+      {fixedCostEditing !== undefined && (
+        <FixedCostForm
+          item={fixedCostEditing}
+          pending={saveFixedCost.isPending}
+          onClose={() => setFixedCostEditing(undefined)}
+          onSubmit={submitFixedCost}
         />
       )}
 
@@ -906,6 +1110,151 @@ export default function Economics() {
           })}
           {!data.scadenze.length && (
             <p className="py-10 text-center text-fog">Nessuna scadenza.</p>
+          )}
+        </div>
+      )}
+
+      {tab === "costi fissi" && (
+        <div className="space-y-3">
+          {fixedCostsQuery.isLoading && (
+            <p className="py-10 text-center text-fog">
+              Caricamento costi fissi...
+            </p>
+          )}
+          {fixedCostsQuery.isError && (
+            <p className="rounded-xl border border-red-500/30 p-4 text-red-300">
+              Costi fissi non disponibili.
+            </p>
+          )}
+          {fixedCosts.map((item) => (
+            <article
+              key={item.id}
+              className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-stroke bg-surface p-4"
+            >
+              <div>
+                <p className="text-[10px] font-display uppercase tracking-wider text-fog">
+                  {String(item.categoria || "altro").replaceAll("_", " ")}
+                </p>
+                <h2 className="mt-1 font-display uppercase text-ink">
+                  {item.descrizione}
+                </h2>
+                <p className="mt-1 text-xs text-fog">
+                  Dal {dateLabel(item.data_inizio)}
+                  {item.data_fine
+                    ? ` al ${dateLabel(item.data_fine)}`
+                    : " · ricorrente"}
+                </p>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <p className="font-display text-lg text-brand">
+                    {currency(item.importo_mensile)}
+                  </p>
+                  <Status good={item.corrente} danger={!item.attivo}>
+                    {item.corrente
+                      ? "corrente"
+                      : item.attivo
+                        ? "fuori periodo"
+                        : "inattivo"}
+                  </Status>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFixedCostEditing(item)}
+                  aria-label={`Modifica costo fisso ${item.descrizione}`}
+                  className="min-h-11 min-w-11 rounded-xl border border-stroke text-fog hover:border-brand hover:text-brand"
+                >
+                  <Pencil className="mx-auto h-4 w-4" />
+                </button>
+              </div>
+            </article>
+          ))}
+          {!fixedCostsQuery.isLoading && !fixedCosts.length && (
+            <p className="py-10 text-center text-fog">
+              Nessun costo fisso registrato.
+            </p>
+          )}
+        </div>
+      )}
+
+      {tab === "subappalti" && (
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Metric
+              label="Subappalti registrati"
+              value={currency(subcontractQuery.data?.totale_speso)}
+            />
+            <Metric
+              label="Subappalti pagati"
+              value={currency(subcontractQuery.data?.totale_pagato)}
+              tone="good"
+            />
+          </div>
+          {subcontractQuery.isLoading ? (
+            <p className="py-10 text-center text-fog">
+              Caricamento subappalti...
+            </p>
+          ) : subcontractQuery.isError ? (
+            <p className="rounded-xl border border-red-500/30 p-4 text-red-300">
+              Aggregazione subappalti non disponibile.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-stroke">
+              <table className="min-w-[760px] w-full text-sm">
+                <thead className="bg-surface-2 text-[10px] font-display uppercase tracking-wider text-fog">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Fornitore</th>
+                    <th className="px-4 py-3 text-left">Cantiere</th>
+                    <th className="px-4 py-3 text-right">Spese</th>
+                    <th className="px-4 py-3 text-right">Totale</th>
+                    <th className="px-4 py-3 text-right">Pagato</th>
+                    <th className="px-4 py-3 text-right">Ultima spesa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(subcontractQuery.data?.righe || []).map((item) => {
+                    const cantiere = allData.cantieri.find(
+                      (row) => row.cantiere_id === item.cantiere_id,
+                    );
+                    return (
+                      <tr
+                        key={`${item.fornitore_id}-${item.cantiere_id}`}
+                        className="border-t border-stroke/60"
+                      >
+                        <td className="px-4 py-3 text-ink">
+                          {item.ragione_sociale}
+                        </td>
+                        <td className="px-4 py-3 text-fog">
+                          {cantiere?.cliente || item.cantiere_id}
+                        </td>
+                        <td className="px-4 py-3 text-right text-fog">
+                          {item.numero_spese}
+                        </td>
+                        <td className="px-4 py-3 text-right text-ink">
+                          {currency(item.totale_speso)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-emerald-300">
+                          {currency(item.totale_pagato)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-fog">
+                          {dateLabel(item.ultima_spesa)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!(subcontractQuery.data?.righe || []).length && (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-4 py-10 text-center text-fog"
+                      >
+                        Nessuna spesa di subappalto nel perimetro selezionato.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

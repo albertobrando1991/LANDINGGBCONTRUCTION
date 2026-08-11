@@ -22,6 +22,7 @@ import { formatEuro } from "@/lib/format";
 import { buildCantiereWhatsappUrl } from "@/lib/whatsapp";
 import { canUseTenantStorage } from "@/lib/storage";
 import CantiereDocuments from "@/dashboard/CantiereDocuments";
+import CantierePersonale from "@/dashboard/CantierePersonale";
 import CantierePortalAccess from "@/dashboard/CantierePortalAccess";
 import CantiereQuickPhotoModal from "@/dashboard/CantiereQuickPhotoModal";
 import DictationHint from "@/campo/DictationHint";
@@ -201,6 +202,8 @@ export function CantiereCard({
   deleting,
   canDelete,
   quickPhotoEnabled,
+  personale = [],
+  assegnazioni = [],
 }) {
   const [draft, setDraft] = useState(() => cantiereDraft(cantiere));
   const [saveStatus, setSaveStatus] = useState("salvato");
@@ -708,6 +711,11 @@ export function CantiereCard({
         refreshKey={documentsRefreshKey}
       />
       <CantierePortalAccess cantiereId={cantiere.id} />
+      <CantierePersonale
+        cantiere={cantiere}
+        personale={personale}
+        assegnazioni={assegnazioni}
+      />
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="font-body text-xs text-fog flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -835,6 +843,16 @@ export default function Cantieri() {
     queryKey: ["leads", "chiuso_vinto"],
     queryFn: async () =>
       (await client.get("/leads", { params: { status: "chiuso_vinto" } })).data,
+  });
+
+  const { data: personale = [] } = useQuery({
+    queryKey: ["personale"],
+    queryFn: async () => (await client.get("/personale")).data,
+  });
+
+  const { data: assegnazioni = [] } = useQuery({
+    queryKey: ["personale-assegnazioni"],
+    queryFn: async () => (await client.get("/personale/assegnazioni")).data,
   });
 
   const staffNames = useMemo(
@@ -1209,6 +1227,8 @@ export default function Cantieri() {
               deleting={deleteCantiere.isPending && deletingId === c.id}
               canDelete={user?.role === "admin"}
               quickPhotoEnabled={canUseTenantStorage(user)}
+              personale={personale}
+              assegnazioni={assegnazioni}
               onSave={(id, body) => updateCantiere.mutateAsync({ id, body })}
               onAtomicSave={saveAtomicCantiere}
               onDelete={(id) => deleteCantiere.mutate(id)}

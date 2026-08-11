@@ -9,6 +9,17 @@ export const ECONOMICS_CATEGORIES = [
   "altro",
 ];
 
+export const FIXED_COST_CATEGORIES = [
+  "affitto",
+  "assicurazioni",
+  "leasing",
+  "software",
+  "stipendi_amministrativi",
+  "utenze_sede",
+  "consulenze",
+  "altro",
+];
+
 export function filterEconomics(data, cantiereId) {
   if (!data || !cantiereId) return data;
   const belongs = (row) => row.cantiere_id === cantiereId;
@@ -54,4 +65,19 @@ export function isOverdue(item, today = new Date()) {
   const day = new Date(today);
   day.setHours(0, 0, 0, 0);
   return new Date(`${item.data_scadenza}T00:00:00`) < day;
+}
+
+export function summarizeFixedMonthlyCosts(rows = [], today = new Date()) {
+  const reference = new Date(today);
+  reference.setHours(0, 0, 0, 0);
+  return rows.reduce((total, item) => {
+    if (!item?.attivo) return total;
+    const starts = item.data_inizio
+      ? new Date(`${item.data_inizio}T00:00:00`)
+      : null;
+    const ends = item.data_fine ? new Date(`${item.data_fine}T00:00:00`) : null;
+    if (starts && starts > reference) return total;
+    if (ends && ends < reference) return total;
+    return total + Number(item.importo_mensile || 0);
+  }, 0);
 }
