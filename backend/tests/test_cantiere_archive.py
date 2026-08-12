@@ -55,3 +55,35 @@ def test_upload_archivio_usa_uuid_cantiere(monkeypatch):
     assert captured["path"].startswith(f"{TENANT}/cantiere-{CANTIERE}/")
     assert captured["path"].endswith("-Verbale-cantiere.pdf")
     assert result["contentType"] == "application/pdf"
+
+
+def test_upload_archivio_con_client_id_e_idempotente(monkeypatch):
+    client_id = "70000000-0000-4000-8000-000000000001"
+    conn = AsyncMock()
+    conn.fetchval.return_value = True
+
+    def unexpected_upload(*_args):
+        raise AssertionError("un retry idempotente non deve ricaricare il file")
+
+    monkeypatch.setattr(
+        cantiere_archive_service, "upload_document", unexpected_upload
+    )
+    file = UploadFile(
+        file=io.BytesIO(b"foto"),
+        filename="Foto avanzamento.jpg",
+        headers={"content-type": "image/jpeg"},
+    )
+
+    result = asyncio.run(
+        cantiere_archive_service.upload(
+            conn,
+            TENANT,
+            CANTIERE,
+            file,
+            client_id=client_id,
+        )
+    )
+
+    assert result["path"].endswith(f"/{client_id}-Foto-avanzamento.jpg")
+    assert result["displayName"] == "Foto avanzamento.jpg"
+    assert conn.fetchval.await_count == 1

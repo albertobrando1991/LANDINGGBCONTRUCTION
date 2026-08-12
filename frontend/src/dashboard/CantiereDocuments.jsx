@@ -7,11 +7,14 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { useTenant } from "@/context/TenantContext";
 import {
   downloadCantiereArchive,
   listCantiereArchive,
-  uploadCantiereArchive,
+  uploadOrQueueCantiereArchive,
 } from "@/lib/cantiereArchive";
+import { loadWithOfflineCache, putOfflineCache } from "@/lib/offlineStore";
 
 const ACCEPTED_DOCUMENTS = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx";
 
@@ -34,6 +37,9 @@ function formatDate(value) {
 }
 
 export default function CantiereDocuments({ cantiereId, refreshKey = 0 }) {
+  const { user } = useAuth();
+  const { slug } = useTenant();
+  const userId = user?.id || user?.email;
   const inputRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [documents, setDocuments] = useState([]);
@@ -44,14 +50,19 @@ export default function CantiereDocuments({ cantiereId, refreshKey = 0 }) {
   const loadDocuments = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await listCantiereArchive(cantiereId);
+      const rows = await loadWithOfflineCache({
+        tenantSlug: slug,
+        userId,
+        cacheKey: `archivio:${cantiereId}`,
+        load: () => listCantiereArchive(cantiereId),
+      });
       setDocuments(rows);
     } catch (error) {
       toast.error(error.message || "Documenti non disponibili");
     } finally {
       setLoading(false);
     }
-  }, [cantiereId]);
+  }, [cantiereId, slug, userId]);
 
   useEffect(() => {
     if (open) loadDocuments();
@@ -63,9 +74,33 @@ export default function CantiereDocuments({ cantiereId, refreshKey = 0 }) {
     if (!file) return;
     setUploading(true);
     try {
-      await uploadCantiereArchive(cantiereId, file);
-      await loadDocuments();
-      toast.success("Documento salvato nell'archivio privato");
+      const result = await uploadOrQueueCantiereArchive({
+        cantiereId,
+        file,
+        tenantSlug: slug,
+        userId,
+        label: `Documento cantiere - ${file.name}`,
+      });
+      if (result.queued) {
+        const pending = {
+          id: `offline:${result.operation.id}`,
+          displayName: file.name,
+          size: file.size,
+          contentType: file.type,
+          createdAt: new Date().toISOString(),
+          _offline_pending: true,
+        };
+        const next = [pending, ...documents];
+        setDocuments(next);
+        await putOfflineCache(slug, userId, `archivio:${cantiereId}`, next);
+      } else {
+        await loadDocuments();
+      }
+      toast.success(
+        result.queued
+          ? "Documento salvato offline"
+          : "Documento salvato nell'archivio privato",
+      );
     } catch (error) {
       toast.error(error.message || "Upload non riuscito");
     } finally {
@@ -177,7 +212,10 @@ export default function CantiereDocuments({ cantiereId, refreshKey = 0 }) {
                     <button
                       type="button"
                       onClick={() => download(document)}
-                      disabled={downloadingId === document.id}
+                      disabled={
+                        document._offline_pending ||
+                        downloadingId === document.id
+                      }
                       aria-label={`Scarica ${document.displayName}`}
                       className="shrink-0 rounded-lg border border-stroke p-2 text-fog hover:border-brand hover:text-brand disabled:opacity-60"
                     >
@@ -187,6 +225,11 @@ export default function CantiereDocuments({ cantiereId, refreshKey = 0 }) {
                         <Download className="w-4 h-4" />
                       )}
                     </button>
+                    {document._offline_pending && (
+                      <span className="shrink-0 rounded-full border border-warning/30 bg-warning/10 px-2 py-1 text-[9px] uppercase text-warning">
+                        Offline
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -6,7 +6,12 @@ import CantierePresenze from "./CantierePresenze";
 
 jest.mock("@/lib/api", () => ({
   __esModule: true,
-  default: { get: jest.fn(), post: jest.fn(), delete: jest.fn() },
+  default: {
+    get: jest.fn(),
+    post: jest.fn(),
+    delete: jest.fn(),
+    request: jest.fn(),
+  },
   extractErrorDetail: jest.fn(async () => "Errore"),
 }));
 jest.mock("sonner", () => ({
@@ -63,7 +68,7 @@ test("nella sezione dedicata carica subito e registra una presenza", async () =>
       righe: [],
     },
   });
-  client.post.mockResolvedValue({ data: { id: "presenza-1" } });
+  client.request.mockResolvedValue({ data: { id: "presenza-1" } });
   const container = document.createElement("div");
   const root = createRoot(container);
   const queryClient = new QueryClient({
@@ -117,13 +122,17 @@ test("nella sezione dedicata carica subito e registra una presenza", async () =>
     await new Promise((resolve) => setTimeout(resolve, 25));
   });
 
-  expect(client.post).toHaveBeenCalledWith(
-    "/cantieri/c1/presenze",
+  expect(client.request).toHaveBeenCalledWith(
     expect.objectContaining({
-      personale_id: "persona-1",
-      unita_presenti: 1,
-      tipo_giornata: "intera",
-      ore_lavorate: 8,
+      method: "post",
+      url: "/cantieri/c1/presenze",
+      data: expect.objectContaining({
+        personale_id: "persona-1",
+        unita_presenti: 1,
+        tipo_giornata: "intera",
+        ore_lavorate: 8,
+        client_id: expect.any(String),
+      }),
     }),
   );
   await act(async () => root.unmount());

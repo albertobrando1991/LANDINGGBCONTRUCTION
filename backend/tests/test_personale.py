@@ -103,7 +103,11 @@ def test_crea_assegnazione_valida_cantiere_e_persona_del_tenant():
     assert conn.fetchval.await_count == 2
     assert "public.cantieri" in conn.fetchval.await_args_list[0].args[0]
     assert "public.personale" in conn.fetchval.await_args_list[1].args[0]
-    assert "insert into public.cantiere_personale" in conn.fetchrow.await_args.args[0]
+    insert = conn.fetchrow.await_args
+    assert "insert into public.cantiere_personale" in insert.args[0]
+    assert "on conflict (id) do update" in insert.args[0]
+    assert "cantiere_personale.tenant_id = excluded.tenant_id" in insert.args[0]
+    assert insert.args[1] is None
 
 
 def test_crea_assegnazione_blocca_persona_di_altro_tenant():
@@ -238,7 +242,10 @@ def test_crea_presenza_valida_tenant_e_imposta_otto_ore():
     assert conn.fetchval.await_count == 2
     insert = conn.fetchrow.await_args
     assert "insert into public.presenze_cantiere" in insert.args[0]
-    assert insert.args[7] == 8
+    assert "on conflict (id) do update" in insert.args[0]
+    assert "presenze_cantiere.tenant_id = excluded.tenant_id" in insert.args[0]
+    assert insert.args[1] is None
+    assert insert.args[8] == 8
 
 
 def test_presenza_a_ore_richiede_quantita_ore():

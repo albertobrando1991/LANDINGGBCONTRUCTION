@@ -12,7 +12,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import { useTenant } from "@/context/TenantContext";
 import client, { formatApiErrorDetail } from "@/lib/api";
+import {
+  loadWithOfflineCache,
+  putOfflineCache,
+  runOrQueueJson,
+} from "@/lib/offlineStore";
 import CantiereDocuments from "@/dashboard/CantiereDocuments";
 import CantierePersonale from "@/dashboard/CantierePersonale";
 import CantierePortalAccess from "@/dashboard/CantierePortalAccess";
@@ -36,29 +42,53 @@ function sectionPath(cantiereId, section) {
 export default function CantiereDetail() {
   const { id, section } = useParams();
   const { user } = useAuth();
+  const { slug } = useTenant();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const activeSection = SECTION_IDS.has(section) ? section : "overview";
   const needsTeam = activeSection === "presenze" || activeSection === "squadra";
+  const userId = user?.id || user?.email;
 
   const cantiereQuery = useQuery({
     queryKey: ["cantieri", "detail", id],
-    queryFn: async () => (await client.get(`/cantieri/${id}`)).data,
+    queryFn: () =>
+      loadWithOfflineCache({
+        tenantSlug: slug,
+        userId,
+        cacheKey: `cantiere:${id}`,
+        load: async () => (await client.get(`/cantieri/${id}`)).data,
+      }),
   });
   const staffQuery = useQuery({
     queryKey: ["staff"],
-    queryFn: async () => (await client.get("/staff")).data,
+    queryFn: () =>
+      loadWithOfflineCache({
+        tenantSlug: slug,
+        userId,
+        cacheKey: "staff",
+        load: async () => (await client.get("/staff")).data,
+      }),
     enabled: activeSection === "overview",
   });
   const personaleQuery = useQuery({
     queryKey: ["personale"],
-    queryFn: async () => (await client.get("/personale")).data,
-    enabled: needsTeam,
+    queryFn: () =>
+      loadWithOfflineCache({
+        tenantSlug: slug,
+        userId,
+        cacheKey: "personale",
+        load: async () => (await client.get("/personale")).data,
+      }),
   });
   const assegnazioniQuery = useQuery({
     queryKey: ["personale-assegnazioni"],
-    queryFn: async () => (await client.get("/personale/assegnazioni")).data,
-    enabled: needsTeam,
+    queryFn: () =>
+      loadWithOfflineCache({
+        tenantSlug: slug,
+        userId,
+        cacheKey: "personale-assegnazioni",
+        load: async () => (await client.get("/personale/assegnazioni")).data,
+      }),
   });
 
   const staffNames = useMemo(
@@ -68,9 +98,40 @@ export default function CantiereDetail() {
 
   const persistCantiere = async (cantiereId, body) => {
     try {
-      const { data } = await client.patch(`/cantieri/${cantiereId}`, body);
+      const result = await runOrQueueJson({
+        tenantSlug: slug,
+        userId,
+        method: "patch",
+        url: `/cantieri/${cantiereId}`,
+        data: body,
+        label: "Aggiornamento cantiere",
+        coalesceKey: `cantiere:${cantiereId}`,
+      });
+      const data = result.queued
+        ? {
+            ...(qc.getQueryData(["cantieri", "detail", cantiereId]) || {}),
+            ...body,
+            _offline_pending: true,
+          }
+        : result.data;
       qc.setQueryData(["cantieri", "detail", cantiereId], data);
-      await qc.invalidateQueries({ queryKey: ["cantieri"] });
+      qc.setQueriesData({ queryKey: ["cantieri"] }, (current) =>
+        Array.isArray(current)
+          ? current.map((item) =>
+              String(item.id) === String(cantiereId)
+                ? { ...item, ...body, _offline_pending: result.queued }
+                : item,
+            )
+          : current,
+      );
+      await putOfflineCache(slug, userId, `cantiere:${cantiereId}`, data);
+      if (result.queued) {
+        toast.info(
+          "Salvato sul dispositivo: sara sincronizzato appena torna la connessione",
+        );
+      } else {
+        await qc.invalidateQueries({ queryKey: ["cantieri"] });
+      }
       return data;
     } catch (error) {
       toast.error(

@@ -3,14 +3,14 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import CantiereQuickPhotoModal from "./CantiereQuickPhotoModal";
 import { compressCampoPhoto } from "@/lib/campoPhotos";
-import { uploadCantiereArchive } from "@/lib/cantiereArchive";
+import { uploadOrQueueCantiereArchive } from "@/lib/cantiereArchive";
 
 jest.mock("@/lib/campoPhotos", () => ({
   compressCampoPhoto: jest.fn(),
 }));
 
 jest.mock("@/lib/cantiereArchive", () => ({
-  uploadCantiereArchive: jest.fn(),
+  uploadOrQueueCantiereArchive: jest.fn(),
 }));
 
 jest.mock("sonner", () => ({
@@ -28,7 +28,10 @@ test("comprime e salva la foto privata associandola alla fase in corso", async (
     type: "image/jpeg",
   });
   compressCampoPhoto.mockResolvedValue({ blob: compressed });
-  uploadCantiereArchive.mockResolvedValue({ path: "privato/foto.jpg" });
+  uploadOrQueueCantiereArchive.mockResolvedValue({
+    queued: false,
+    data: { path: "privato/foto.jpg" },
+  });
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -68,11 +71,14 @@ test("comprime e salva la foto privata associandola alla fase in corso", async (
   });
 
   expect(compressCampoPhoto).toHaveBeenCalledWith(source);
-  expect(uploadCantiereArchive).toHaveBeenCalledWith(
-    "64b64c8f2f9b2d7a1c000001",
-    expect.objectContaining({ type: "image/jpeg" }),
+  expect(uploadOrQueueCantiereArchive).toHaveBeenCalledWith(
+    expect.objectContaining({
+      cantiereId: "64b64c8f2f9b2d7a1c000001",
+      file: expect.objectContaining({ type: "image/jpeg" }),
+      label: "Foto cantiere - Impianti",
+    }),
   );
-  expect(uploadCantiereArchive.mock.calls[0][1].name).toContain(
+  expect(uploadOrQueueCantiereArchive.mock.calls[0][0].file.name).toContain(
     "foto-impianti-",
   );
   expect(onUploaded).toHaveBeenCalledWith({ path: "privato/foto.jpg" });

@@ -26,6 +26,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/dashboard/Avatar";
 import EmailComposeModal from "@/dashboard/EmailComposeModal";
+import OfflineSyncStatus from "@/dashboard/OfflineSyncStatus";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -422,6 +423,8 @@ export default function DashboardLayout() {
             </DropdownMenu>
           </div>
         </header>
+
+        <OfflineSyncStatus />
 
         <main className="mx-auto max-w-7xl p-3 pb-24 sm:p-4 sm:pb-24 md:p-8 lg:pb-8">
           <Outlet />

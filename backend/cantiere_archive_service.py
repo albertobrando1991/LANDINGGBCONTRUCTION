@@ -37,7 +37,7 @@ def _safe_filename(value: str | None) -> str:
 
 
 def _display_name(name: str) -> str:
-    return re.sub(r"^\d{13}-[0-9a-f-]{36}-", "", name, flags=re.I)
+    return re.sub(r"^(?:\d{13}-)?[0-9a-f-]{36}-", "", name, flags=re.I)
 
 
 async def list_documents(conn, tenant_id: str, cantiere_id: str) -> list[dict]:
@@ -78,7 +78,14 @@ async def list_documents(conn, tenant_id: str, cantiere_id: str) -> list[dict]:
     return result
 
 
-async def upload(conn, tenant_id: str, cantiere_id: str, file: UploadFile) -> dict:
+async def upload(
+    conn,
+    tenant_id: str,
+    cantiere_id: str,
+    file: UploadFile,
+    *,
+    client_id: str | None = None,
+) -> dict:
     content = await file.read(MAX_BYTES + 1)
     if not content or len(content) > MAX_BYTES:
         raise HTTPException(
@@ -92,8 +99,28 @@ async def upload(conn, tenant_id: str, cantiere_id: str, file: UploadFile) -> di
             detail="Formato non supportato: usa PDF, immagini, Word o Excel",
         )
     filename = _safe_filename(file.filename)
-    path = f"{_prefix(tenant_id, cantiere_id)}{int(time.time() * 1000)}-{uuid4()}-{filename}"
-    await asyncio.to_thread(upload_document, path, content, mime)
+    token = client_id or f"{int(time.time() * 1000)}-{uuid4()}"
+    path = f"{_prefix(tenant_id, cantiere_id)}{token}-{filename}"
+    if client_id:
+        exists = await conn.fetchval(
+            "select exists(select 1 from storage.objects where bucket_id = 'documenti' and name = $1)",
+            path,
+        )
+        if exists:
+            return {
+                "path": path,
+                "displayName": file.filename or filename,
+                "size": len(content),
+                "contentType": mime,
+            }
+    try:
+        await asyncio.to_thread(upload_document, path, content, mime)
+    except Exception:
+        if not client_id or not await conn.fetchval(
+            "select exists(select 1 from storage.objects where bucket_id = 'documenti' and name = $1)",
+            path,
+        ):
+            raise
     return {
         "path": path,
         "displayName": file.filename or filename,

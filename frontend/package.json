@@ -73,6 +73,7 @@
     "audit:runtime": "node ../scripts/check-npm-audit.cjs",
     "check:release": "node ../scripts/check-frontend-release.cjs",
     "test": "craco test",
+    "test:offline-mobile": "node scripts/verify-offline-mobile.cjs",
     "db:types": "supabase gen types typescript --local --workdir .. --schema public > src/lib/database.types.ts"
   },
   "browserslist": {

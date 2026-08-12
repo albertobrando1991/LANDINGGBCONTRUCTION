@@ -19,7 +19,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import { useTenant } from "@/context/TenantContext";
 import client, { formatApiErrorDetail } from "@/lib/api";
+import {
+  loadWithOfflineCache,
+  putOfflineCache,
+  runOrQueueJson,
+} from "@/lib/offlineStore";
 import { formatEuro } from "@/lib/format";
 import { buildCantiereWhatsappUrl } from "@/lib/whatsapp";
 import CantiereQuickPhotoModal from "@/dashboard/CantiereQuickPhotoModal";
@@ -350,8 +356,14 @@ export function CantiereCard({
     updateDraft((current) => ({ ...current, [field]: value }));
   };
 
-  const statusAfterAtomicSave = () => {
-    setSaveStatus(dirtyRef.current ? "modificato" : "salvato");
+  const statusAfterAtomicSave = (result) => {
+    setSaveStatus(
+      result?._offline_pending
+        ? "in_coda"
+        : dirtyRef.current
+          ? "modificato"
+          : "salvato",
+    );
   };
 
   const save = async () => {
@@ -374,7 +386,7 @@ export function CantiereCard({
         dirtyRef.current = false;
         draftRef.current = next;
         setDraft(next);
-        setSaveStatus("salvato");
+        setSaveStatus(saved?._offline_pending ? "in_coda" : "salvato");
       } else {
         setSaveStatus("modificato");
       }
@@ -404,8 +416,8 @@ export function CantiereCard({
     setAtomicSaving(true);
     setSaveStatus("salvataggio");
     try {
-      await onAtomicSave(cantiere.id, { fasi: nextFasi });
-      statusAfterAtomicSave();
+      const result = await onAtomicSave(cantiere.id, { fasi: nextFasi });
+      statusAfterAtomicSave(result);
       toast.success(`${phaseName}: ${FASE_META[nextStatus].label}`, {
         duration: 5000,
         ...(offerUndo
@@ -483,8 +495,8 @@ export function CantiereCard({
     setAtomicSaving(true);
     setSaveStatus("salvataggio");
     try {
-      await onAtomicSave(cantiere.id, { avanzamento: next });
-      statusAfterAtomicSave();
+      const result = await onAtomicSave(cantiere.id, { avanzamento: next });
+      statusAfterAtomicSave(result);
       toast.success(`Avanzamento aggiornato al ${next}%`);
     } catch (error) {
       const latest = draftRef.current;
@@ -869,7 +881,9 @@ export function CantiereCard({
               ? "Salvato"
               : saveStatus === "salvataggio"
                 ? "Salvataggio…"
-                : "Modifiche non salvate"}
+                : saveStatus === "in_coda"
+                  ? "Salvato offline"
+                  : "Modifiche non salvate"}
           </span>
         </div>
       </div>
@@ -888,6 +902,8 @@ export function CantiereCard({
 export default function Cantieri() {
   const qc = useQueryClient();
   const { user } = useAuth();
+  const { slug } = useTenant();
+  const userId = user?.id || user?.email;
   const [filter, setFilter] = useState("attivo");
   const [criticalOnly, setCriticalOnly] = useState(false);
   const [foremanFilter, setForemanFilter] = useState("");
@@ -900,8 +916,21 @@ export default function Cantieri() {
     isError,
   } = useQuery({
     queryKey: ["cantieri", filter],
-    queryFn: async () =>
-      (await client.get("/cantieri", { params: { stato: filter } })).data,
+    queryFn: async () => {
+      const rows = await loadWithOfflineCache({
+        tenantSlug: slug,
+        userId,
+        cacheKey: `cantieri:${filter}`,
+        load: async () =>
+          (await client.get("/cantieri", { params: { stato: filter } })).data,
+      });
+      await Promise.all(
+        rows.map((item) =>
+          putOfflineCache(slug, userId, `cantiere:${item.id}`, item),
+        ),
+      );
+      return rows;
+    },
     refetchInterval: 30000,
   });
 
@@ -942,13 +971,28 @@ export default function Cantieri() {
   }, [form.capocantiere, staffNames]);
 
   const createCantiere = useMutation({
-    mutationFn: (body) => client.post("/cantieri", body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cantieri"] });
-      qc.invalidateQueries({ queryKey: ["leads"] });
+    mutationFn: (body) =>
+      runOrQueueJson({
+        tenantSlug: slug,
+        userId,
+        method: "post",
+        url: "/cantieri",
+        data: body,
+        label: "Nuovo cantiere",
+        clientId: true,
+      }),
+    onSuccess: (result) => {
+      if (!result.queued) {
+        qc.invalidateQueries({ queryKey: ["cantieri"] });
+        qc.invalidateQueries({ queryKey: ["leads"] });
+      }
       setFilter("attivo");
       setForm(initialForm(staffNames[0] || ""));
-      toast.success("Cantiere creato");
+      toast.success(
+        result.queued
+          ? "Cantiere salvato offline e in attesa di sincronizzazione"
+          : "Cantiere creato",
+      );
     },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });

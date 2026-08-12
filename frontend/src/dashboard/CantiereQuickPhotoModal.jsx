@@ -2,8 +2,10 @@ import { useMemo, useRef, useState } from "react";
 import { Camera, Loader2, UploadCloud, X } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/context/AuthContext";
+import { useTenant } from "@/context/TenantContext";
 import { compressCampoPhoto } from "@/lib/campoPhotos";
-import { uploadCantiereArchive } from "@/lib/cantiereArchive";
+import { uploadOrQueueCantiereArchive } from "@/lib/cantiereArchive";
 
 function phaseFilename(phase) {
   const slug =
@@ -23,6 +25,8 @@ export default function CantiereQuickPhotoModal({
   onUploaded,
 }) {
   const qc = useQueryClient();
+  const { user } = useAuth() || {};
+  const { slug } = useTenant();
   const inputRef = useRef(null);
   const defaultPhase = useMemo(
     () =>
@@ -44,12 +48,28 @@ export default function CantiereQuickPhotoModal({
         type: "image/jpeg",
         lastModified: Date.now(),
       });
-      const saved = await uploadCantiereArchive(cantiereId, photo);
-      qc.invalidateQueries({
-        queryKey: ["cantiere-portale-documenti", cantiereId],
+      const result = await uploadOrQueueCantiereArchive({
+        cantiereId,
+        file: photo,
+        tenantSlug: slug,
+        userId: user?.id || user?.email,
+        label: `Foto cantiere - ${phase}`,
       });
-      toast.success("Foto salvata nell'archivio privato del cantiere");
-      onUploaded?.(saved);
+      if (!result.queued) {
+        qc.invalidateQueries({
+          queryKey: ["cantiere-portale-documenti", cantiereId],
+        });
+      }
+      toast.success(
+        result.queued
+          ? "Foto salvata offline e in attesa di sincronizzazione"
+          : "Foto salvata nell'archivio privato del cantiere",
+      );
+      onUploaded?.(
+        result.queued
+          ? { _offline_pending: true, displayName: photo.name }
+          : result.data,
+      );
       onClose();
     } catch (error) {
       toast.error(error?.message || "Foto non caricata");

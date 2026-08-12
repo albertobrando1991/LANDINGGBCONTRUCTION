@@ -193,14 +193,23 @@ async def crea_assegnazione(
         "Persona",
     )
     _validate_period(data["data_da"], data.get("data_a"))
+    client_id = data.get("client_id")
     row = await conn.fetchrow(
         """
         insert into public.cantiere_personale (
-          tenant_id, cantiere_id, personale_id, ruolo_in_cantiere,
+          id, tenant_id, cantiere_id, personale_id, ruolo_in_cantiere,
           data_da, data_a, stato, note
-        ) values ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8)
+        ) values (coalesce($1::uuid, gen_random_uuid()), $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9)
+        on conflict (id) do update set
+          ruolo_in_cantiere = excluded.ruolo_in_cantiere,
+          data_da = excluded.data_da,
+          data_a = excluded.data_a,
+          stato = excluded.stato,
+          note = excluded.note
+        where cantiere_personale.tenant_id = excluded.tenant_id
         returning *
         """,
+        client_id,
         tenant_id,
         data["cantiere_id"],
         data["personale_id"],
@@ -210,6 +219,10 @@ async def crea_assegnazione(
         data.get("stato", "assegnato"),
         _clean(data.get("note")),
     )
+    if not row:
+        raise HTTPException(
+            status_code=409, detail="Identificativo assegnazione gia in uso"
+        )
     return economics_service._dict(row)
 
 
@@ -354,15 +367,25 @@ async def crea_presenza(
         conn, tenant_id, "personale", data["personale_id"], "Persona"
     )
     normalized = _normalize_presenza(data)
+    client_id = data.get("client_id")
     try:
         row = await conn.fetchrow(
             """
             insert into public.presenze_cantiere (
-              tenant_id, cantiere_id, personale_id, data, unita_presenti,
+              id, tenant_id, cantiere_id, personale_id, data, unita_presenti,
               tipo_giornata, ore_lavorate, ora_ingresso, ora_uscita, note
-            ) values ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10)
+            ) values (coalesce($1::uuid, gen_random_uuid()), $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9, $10, $11)
+            on conflict (id) do update set
+              unita_presenti = excluded.unita_presenti,
+              tipo_giornata = excluded.tipo_giornata,
+              ore_lavorate = excluded.ore_lavorate,
+              ora_ingresso = excluded.ora_ingresso,
+              ora_uscita = excluded.ora_uscita,
+              note = excluded.note
+            where presenze_cantiere.tenant_id = excluded.tenant_id
             returning *
             """,
+            client_id,
             tenant_id,
             normalized["cantiere_id"],
             normalized["personale_id"],
@@ -379,6 +402,10 @@ async def crea_presenza(
             status_code=409,
             detail="Presenza gia registrata per questa persona e giornata",
         ) from exc
+    if not row:
+        raise HTTPException(
+            status_code=409, detail="Identificativo presenza gia in uso"
+        )
     return economics_service._dict(row)
 
 

@@ -9,7 +9,15 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { useTenant } from "@/context/TenantContext";
 import client, { extractErrorDetail } from "@/lib/api";
+import {
+  loadWithOfflineCache,
+  putOfflineCache,
+  removeOfflineOperation,
+  runOrQueueJson,
+} from "@/lib/offlineStore";
 import {
   assegnazioneMatchesCantiere,
   isAssegnazioneAttiva,
@@ -24,6 +32,24 @@ function today() {
   return new Date(now.getTime() - offset).toISOString().slice(0, 10);
 }
 
+function summarizePresenze(current, righe, data) {
+  return {
+    ...(current || {}),
+    data,
+    righe,
+    totale_unita: righe.reduce(
+      (sum, item) => sum + Number(item.unita_presenti || 0),
+      0,
+    ),
+    totale_interni: righe
+      .filter((item) => item.personale_tipo === "interno")
+      .reduce((sum, item) => sum + Number(item.unita_presenti || 0), 0),
+    totale_subappaltatori: righe
+      .filter((item) => item.personale_tipo === "subappaltatore")
+      .reduce((sum, item) => sum + Number(item.unita_presenti || 0), 0),
+  };
+}
+
 export default function CantierePresenze({
   cantiere,
   personale = [],
@@ -31,6 +57,9 @@ export default function CantierePresenze({
   standalone = false,
 }) {
   const qc = useQueryClient();
+  const { user } = useAuth() || {};
+  const { slug } = useTenant();
+  const userId = user?.id || user?.email;
   const [open, setOpen] = useState(standalone);
   const [data, setData] = useState(today);
   const [form, setForm] = useState({
@@ -43,12 +72,18 @@ export default function CantierePresenze({
   const queryKey = ["presenze-cantiere", cantiere.id, data];
   const presenze = useQuery({
     queryKey,
-    queryFn: async () =>
-      (
-        await client.get(`/cantieri/${cantiere.id}/presenze`, {
-          params: { data },
-        })
-      ).data,
+    queryFn: () =>
+      loadWithOfflineCache({
+        tenantSlug: slug,
+        userId,
+        cacheKey: `presenze:${cantiere.id}:${data}`,
+        load: async () =>
+          (
+            await client.get(`/cantieri/${cantiere.id}/presenze`, {
+              params: { data },
+            })
+          ).data,
+      }),
     enabled: standalone || open,
   });
   const candidates = useMemo(() => {
@@ -71,32 +106,110 @@ export default function CantierePresenze({
   }, [assegnazioni, cantiere.id, data, personale]);
 
   const create = useMutation({
-    mutationFn: async () =>
-      (
-        await client.post(`/cantieri/${cantiere.id}/presenze`, {
-          ...form,
-          data,
-          unita_presenti: Number(form.unita_presenti),
-          ore_lavorate: Number(form.ore_lavorate),
-          note: form.note || null,
-        })
-      ).data,
-    onSuccess: async () => {
-      await Promise.all([
-        qc.invalidateQueries({ queryKey }),
-        qc.invalidateQueries({ queryKey: ["presenze-personale"] }),
-      ]);
+    mutationFn: async () => {
+      const body = {
+        ...form,
+        data,
+        unita_presenti: Number(form.unita_presenti),
+        ore_lavorate: Number(form.ore_lavorate),
+        note: form.note || null,
+      };
+      const result = await runOrQueueJson({
+        tenantSlug: slug,
+        userId,
+        method: "post",
+        url: `/cantieri/${cantiere.id}/presenze`,
+        data: body,
+        label: "Presenza cantiere",
+        coalesceKey: `presenza:${cantiere.id}:${body.personale_id}:${data}`,
+        clientId: true,
+      });
+      if (!result.queued) return result.data;
+      const person = candidates.find((item) => item.id === body.personale_id);
+      return {
+        id: `offline:${result.operation.id}`,
+        ...body,
+        personale_nome: person?.nome || "Presenza in attesa",
+        personale_tipo: person?.tipo,
+        _offline_pending: true,
+        _offline_operation: result.operation,
+        _offline_presence_key: `${cantiere.id}:${body.personale_id}:${data}`,
+      };
+    },
+    onSuccess: async (saved) => {
+      if (saved?._offline_pending) {
+        const current = qc.getQueryData(queryKey) || { data, righe: [] };
+        const righe = [
+          ...(current.righe || []).filter(
+            (item) =>
+              item._offline_presence_key !== saved._offline_presence_key,
+          ),
+          saved,
+        ];
+        const next = summarizePresenze(current, righe, data);
+        qc.setQueryData(queryKey, next);
+        await putOfflineCache(
+          slug,
+          userId,
+          `presenze:${cantiere.id}:${data}`,
+          next,
+        );
+      } else {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey }),
+          qc.invalidateQueries({ queryKey: ["presenze-personale"] }),
+        ]);
+      }
       setForm((current) => ({ ...current, personale_id: "", note: "" }));
-      toast.success("Presenza registrata");
+      toast.success(
+        saved?._offline_pending
+          ? "Presenza salvata offline"
+          : "Presenza registrata",
+      );
     },
     onError: async (error) => toast.error(await extractErrorDetail(error)),
   });
   const remove = useMutation({
-    mutationFn: (id) => client.delete(`/personale/presenze/${id}`),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey });
-      await qc.invalidateQueries({ queryKey: ["presenze-personale"] });
-      toast.success("Presenza rimossa");
+    mutationFn: async (item) => {
+      if (item?._offline_operation) {
+        await removeOfflineOperation(item._offline_operation);
+        return { removedId: item.id, queued: true };
+      }
+      const result = await runOrQueueJson({
+        tenantSlug: slug,
+        userId,
+        method: "delete",
+        url: `/personale/presenze/${item.id}`,
+        label: "Rimozione presenza",
+        coalesceKey: `presenza-delete:${item.id}`,
+        ignoreStatuses: [404],
+      });
+      return { removedId: item.id, queued: result.queued };
+    },
+    onSuccess: async ({ removedId, queued }) => {
+      if (queued) {
+        const current = qc.getQueryData(queryKey);
+        if (current) {
+          const next = summarizePresenze(
+            current,
+            (current.righe || []).filter(
+              (item) => String(item.id) !== String(removedId),
+            ),
+            data,
+          );
+          qc.setQueryData(queryKey, next);
+          await putOfflineCache(
+            slug,
+            userId,
+            `presenze:${cantiere.id}:${data}`,
+            next,
+          );
+        }
+      } else {
+        await qc.invalidateQueries({ queryKey });
+        await qc.invalidateQueries({ queryKey: ["presenze-personale"] });
+      }
+      toast.success(queued ? "Rimozione salvata offline" : "Presenza rimossa");
     },
     onError: async (error) => toast.error(await extractErrorDetail(error)),
   });
@@ -300,13 +413,18 @@ export default function CantierePresenze({
                   </div>
                   <button
                     type="button"
-                    onClick={() => remove.mutate(item.id)}
+                    onClick={() => remove.mutate(item)}
                     disabled={remove.isPending}
                     aria-label={`Rimuovi presenza ${item.personale_nome}`}
                     className="rounded-lg border border-stroke p-2 text-fog hover:border-red-400 hover:text-red-400"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
+                  {item._offline_pending && (
+                    <span className="shrink-0 rounded-full border border-warning/30 bg-warning/10 px-2 py-1 text-[9px] uppercase text-warning">
+                      Offline
+                    </span>
+                  )}
                 </div>
               ))}
               {!presenze.data?.righe?.length && (

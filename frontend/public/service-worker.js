@@ -1,8 +1,29 @@
-const CACHE_NAME = "gb-campo-v1";
-const SHELL = ["/", "/campo.webmanifest", "/favicon.svg"];
+const CACHE_NAME = "gb-app-v2";
+const SHELL = ["/", "/manifest.json", "/campo.webmanifest", "/favicon.svg"];
+
+async function precacheApplication() {
+  const cache = await caches.open(CACHE_NAME);
+  await Promise.all(SHELL.map((url) => cache.add(url).catch(() => undefined)));
+  try {
+    const response = await fetch("/asset-manifest.json", { cache: "no-store" });
+    if (!response.ok) return;
+    const manifest = await response.json();
+    const assets = new Set([
+      ...(manifest.entrypoints || []),
+      ...Object.values(manifest.files || {}),
+    ]);
+    await Promise.all(
+      [...assets]
+        .filter((url) => typeof url === "string" && !url.endsWith(".map"))
+        .map((url) => cache.add(url).catch(() => undefined)),
+    );
+  } catch {
+    // La cache runtime continua a funzionare anche senza asset manifest.
+  }
+}
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)));
+  event.waitUntil(precacheApplication());
   self.skipWaiting();
 });
 
@@ -14,7 +35,9 @@ self.addEventListener("activate", (event) => {
         Promise.all(
           names
             .filter(
-              (name) => name.startsWith("gb-campo-") && name !== CACHE_NAME,
+              (name) =>
+                (name.startsWith("gb-campo-") || name.startsWith("gb-app-")) &&
+                name !== CACHE_NAME,
             )
             .map((name) => caches.delete(name)),
         ),

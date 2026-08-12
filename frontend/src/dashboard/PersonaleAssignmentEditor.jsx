@@ -2,7 +2,10 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, X } from "lucide-react";
 import { toast } from "sonner";
-import client, { extractErrorDetail } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { useTenant } from "@/context/TenantContext";
+import { extractErrorDetail } from "@/lib/api";
+import { putOfflineCache, runOrQueueJson } from "@/lib/offlineStore";
 
 const inputClass =
   "mt-1 w-full rounded-xl border border-stroke bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-brand";
@@ -21,6 +24,9 @@ export default function PersonaleAssignmentEditor({
   onSaved,
 }) {
   const qc = useQueryClient();
+  const { user } = useAuth() || {};
+  const { slug } = useTenant();
+  const userId = user?.id || user?.email;
   const editing = Boolean(assignment?.id);
   const [form, setForm] = useState(() => ({
     cantiere_id:
@@ -48,17 +54,75 @@ export default function PersonaleAssignmentEditor({
       };
       if (editing) {
         delete body.personale_id;
-        return (
-          await client.patch(`/personale/assegnazioni/${assignment.id}`, body)
-        ).data;
+        const result = await runOrQueueJson({
+          tenantSlug: slug,
+          userId,
+          method: "patch",
+          url: `/personale/assegnazioni/${assignment.id}`,
+          data: body,
+          label: "Aggiornamento squadra cantiere",
+          coalesceKey: `assegnazione:${assignment.id}`,
+        });
+        return result.queued
+          ? { ...assignment, ...body, _offline_pending: true }
+          : result.data;
       }
-      return (
-        await client.post(`/cantieri/${form.cantiere_id}/personale`, body)
-      ).data;
+      const result = await runOrQueueJson({
+        tenantSlug: slug,
+        userId,
+        method: "post",
+        url: `/cantieri/${form.cantiere_id}/personale`,
+        data: body,
+        label: "Assegnazione squadra cantiere",
+        coalesceKey: `assegnazione-nuova:${form.cantiere_id}:${form.personale_id}:${form.data_da}`,
+        clientId: true,
+      });
+      if (!result.queued) return result.data;
+      const person = personale.find((item) => item.id === form.personale_id);
+      const site = cantieri.find(
+        (item) =>
+          String(item.id || item.cantiere_id) === String(form.cantiere_id),
+      );
+      return {
+        id: `offline:${result.operation.id}`,
+        ...body,
+        cantiere_legacy_id: form.cantiere_id,
+        cantiere_id: form.cantiere_id,
+        cantiere_cliente: site?.cliente || site?.nome,
+        personale_id: form.personale_id,
+        personale_nome: person?.nome,
+        personale_tipo: person?.tipo,
+        _offline_pending: true,
+        _offline_assignment_key: `${form.cantiere_id}:${form.personale_id}:${form.data_da}`,
+      };
     },
     onSuccess: async (saved) => {
-      await qc.invalidateQueries({ queryKey: ["personale-assegnazioni"] });
-      toast.success(editing ? "Assegnazione aggiornata" : "Persona assegnata");
+      if (saved?._offline_pending) {
+        const current = qc.getQueryData(["personale-assegnazioni"]) || [];
+        const next = editing
+          ? current.map((item) =>
+              item.id === saved.id ? { ...item, ...saved } : item,
+            )
+          : [
+              ...current.filter(
+                (item) =>
+                  item._offline_assignment_key !==
+                  saved._offline_assignment_key,
+              ),
+              saved,
+            ];
+        qc.setQueryData(["personale-assegnazioni"], next);
+        await putOfflineCache(slug, userId, "personale-assegnazioni", next);
+      } else {
+        await qc.invalidateQueries({ queryKey: ["personale-assegnazioni"] });
+      }
+      toast.success(
+        saved?._offline_pending
+          ? "Assegnazione salvata offline"
+          : editing
+            ? "Assegnazione aggiornata"
+            : "Persona assegnata",
+      );
       onSaved?.(saved);
       onClose?.();
     },

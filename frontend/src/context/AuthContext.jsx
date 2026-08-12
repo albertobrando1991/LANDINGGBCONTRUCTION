@@ -7,6 +7,11 @@ import {
 } from "react";
 import client, { setApiAccessToken } from "@/lib/api";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
+import {
+  cacheOfflineUser,
+  clearOfflineUser,
+  readOfflineUser,
+} from "@/lib/offlineAuth";
 
 const AuthContext = createContext(null);
 
@@ -18,8 +23,15 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await client.get("/auth/me");
       setUser(data);
-    } catch {
-      setUser(false);
+      await cacheOfflineUser(data);
+    } catch (error) {
+      const isTemporaryFailure =
+        !error?.response ||
+        error.response.status === 408 ||
+        error.response.status === 429 ||
+        Number(error.response.status) >= 500;
+      const cachedUser = isTemporaryFailure ? await readOfflineUser() : null;
+      setUser(cachedUser || false);
     } finally {
       setLoading(false);
     }
@@ -35,18 +47,16 @@ export function AuthProvider({ children }) {
           // La sottoscrizione deve esistere prima di leggere la sessione: i
           // callback invite/recovery vengono risolti in modo asincrono dal
           // client Supabase durante l'inizializzazione.
-          const listener = supabase.auth.onAuthStateChange(
-            (event, session) => {
-              setApiAccessToken(session?.access_token);
-              if (event === "SIGNED_OUT") {
-                setUser(false);
-                setLoading(false);
-              } else if (session?.access_token) {
-                // Fuori dal callback Auth per evitare lock interni di GoTrue.
-                window.setTimeout(() => check(), 0);
-              }
-            },
-          );
+          const listener = supabase.auth.onAuthStateChange((event, session) => {
+            setApiAccessToken(session?.access_token);
+            if (event === "SIGNED_OUT") {
+              setUser(false);
+              setLoading(false);
+            } else if (session?.access_token) {
+              // Fuori dal callback Auth per evitare lock interni di GoTrue.
+              window.setTimeout(() => check(), 0);
+            }
+          });
           subscription = listener.data.subscription;
 
           const { data } = await supabase.auth.getSession();
@@ -90,6 +100,7 @@ export function AuthProvider({ children }) {
           try {
             const { data } = await client.get("/auth/me");
             setUser(data);
+            await cacheOfflineUser(data);
             return data;
           } catch (error) {
             supabaseVerificationError = error;
@@ -104,6 +115,7 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await client.post("/auth/login", { email, password });
       setUser(data);
+      await cacheOfflineUser(data);
       return data;
     } catch (error) {
       throw supabaseVerificationError || error;
@@ -118,6 +130,7 @@ export function AuthProvider({ children }) {
       /* ignore */
     }
     await clearSupabaseSession();
+    await clearOfflineUser();
     setUser(false);
   };
 

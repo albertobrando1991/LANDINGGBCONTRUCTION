@@ -540,6 +540,7 @@ class PersonalePatchBody(BaseModel):
 
 
 class AssegnazioneCreateBody(BaseModel):
+    client_id: Optional[UUID] = None
     personale_id: UUID
     ruolo_in_cantiere: Optional[str] = Field(default=None, max_length=200)
     data_da: date = Field(default_factory=date.today)
@@ -559,6 +560,7 @@ class AssegnazionePatchBody(BaseModel):
 
 
 class PresenzaCreateBody(BaseModel):
+    client_id: Optional[UUID] = None
     personale_id: UUID
     data: date = Field(default_factory=date.today)
     unita_presenti: int = Field(default=1, ge=1, le=999)
@@ -1914,7 +1916,10 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
 
     @api.post("/cantieri/{cantiere_id}/archivio", status_code=201)
     async def cantiere_archivio_carica(
-        request: Request, cantiere_id: str, file: UploadFile = File(...)
+        request: Request,
+        cantiere_id: str,
+        file: UploadFile = File(...),
+        client_id: Optional[UUID] = Form(default=None),
     ):
         user = await _user(request, db)
         async with get_tenant_conn(request, user) as (conn, tenant):
@@ -1923,7 +1928,11 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 conn, tenant["id"], cantiere_id
             )
             return await cantiere_archive_service.upload(
-                conn, tenant["id"], cantiere_uuid, file
+                conn,
+                tenant["id"],
+                cantiere_uuid,
+                file,
+                client_id=str(client_id) if client_id else None,
             )
 
     @api.get("/cantieri/{cantiere_id}/archivio/download")
