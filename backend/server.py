@@ -30,6 +30,7 @@ import ai_service
 import ai_architect_service
 import ai_credit_service
 import email_service
+import google_calendar_service
 import meta_leads_service
 import api_security
 import boq_service
@@ -299,6 +300,7 @@ class CantiereFase(BaseModel):
 
 
 class CantiereCreate(BaseModel):
+    client_id: Optional[str] = Field(default=None, min_length=36, max_length=36)
     cliente: Optional[str] = ""
     telefono: Optional[str] = Field(default=None, max_length=40)
     indirizzo: Optional[str] = ""
@@ -1385,6 +1387,7 @@ async def delete_lead(lead_id: str, user: dict = Depends(require_admin)):
     existing = await db.leads.find_one({"_id": oid})
     if not existing:
         raise HTTPException(status_code=404, detail="Lead non trovato")
+    linked_slots = await db.sopralluogo_slots.find({"lead_id": lead_id}).to_list(100)
     await db.leads.delete_one({"_id": oid})
     # Libera eventuali slot sopralluogo collegati e scollega i job AI.
     await db.sopralluogo_slots.update_many(
@@ -1392,6 +1395,12 @@ async def delete_lead(lead_id: str, user: dict = Depends(require_admin)):
         {"$set": {"status": "free", "lead_id": None, "booked_name": None,
                   "booked_email": None, "booked_phone": None, "updated_at": now_iso()}},
     )
+    for linked_slot in linked_slots:
+        linked_slot.update({
+            "status": "free", "lead_id": None, "booked_name": None,
+            "booked_email": None, "booked_phone": None, "completed": False,
+        })
+        await _sync_google_calendar_slot(linked_slot)
     await db.ai_architect_jobs.update_many({"lead_id": lead_id}, {"$set": {"lead_id": None}})
     return {"ok": True, "deleted": str(oid)}
 
@@ -1411,6 +1420,9 @@ async def cleanup_test_leads(body: LeadsCleanupBody, user: dict = Depends(requir
     keep = {e for e in keep if e}
     kept_docs = await db.leads.find({"email_norm": {"$in": list(keep)}}).to_list(500)
     kept_ids = {str(d["_id"]) for d in kept_docs}
+    released_slots = await db.sopralluogo_slots.find(
+        {"lead_id": {"$nin": list(kept_ids)}, "status": "booked"}
+    ).to_list(1000)
     res = await db.leads.delete_many({"email_norm": {"$nin": list(keep)}})
     # Libera slot e scollega job dei lead eliminati.
     await db.sopralluogo_slots.update_many(
@@ -1418,6 +1430,12 @@ async def cleanup_test_leads(body: LeadsCleanupBody, user: dict = Depends(requir
         {"$set": {"status": "free", "lead_id": None, "booked_name": None,
                   "booked_email": None, "booked_phone": None, "updated_at": now_iso()}},
     )
+    for released_slot in released_slots:
+        released_slot.update({
+            "status": "free", "lead_id": None, "booked_name": None,
+            "booked_email": None, "booked_phone": None, "completed": False,
+        })
+        await _sync_google_calendar_slot(released_slot)
     return {"ok": True, "deleted": res.deleted_count, "kept": len(kept_ids), "kept_emails": list(keep)}
 
 
@@ -1613,6 +1631,74 @@ def _slot_appointment_payload(slot: dict) -> dict:
     }
 
 
+def _slot_document_id(slot: dict) -> ObjectId | str | None:
+    value = slot.get("_id") or slot.get("id")
+    if value is None:
+        return None
+    return ObjectId(str(value)) if ObjectId.is_valid(str(value)) else str(value)
+
+
+async def _require_google_calendar_available(slot: dict) -> None:
+    try:
+        await google_calendar_service.require_available(slot)
+    except google_calendar_service.GoogleCalendarConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except google_calendar_service.GoogleCalendarError as exc:
+        logger.warning("Controllo disponibilita Google Calendar fallito: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Calendario aziendale temporaneamente non disponibile. "
+                "Riprova tra qualche minuto."
+            ),
+        ) from exc
+
+
+async def _sync_google_calendar_slot(
+    slot: dict, lead: Optional[dict] = None
+) -> dict:
+    """Sincronizza best-effort e conserva uno stato operativo sullo slot."""
+    if not google_calendar_service.config().enabled:
+        return slot
+    slot_id = _slot_document_id(slot)
+    try:
+        result = await google_calendar_service.upsert_event(slot, lead)
+        fields = {
+            "google_event_id": (result or {}).get("event_id"),
+            "google_calendar_link": (result or {}).get("html_link"),
+            "google_sync_status": "synced",
+            "google_sync_error": None,
+            "google_synced_at": now_iso(),
+        }
+    except google_calendar_service.GoogleCalendarError as exc:
+        logger.warning("Slot %s non sincronizzato con Google Calendar: %s", slot_id, exc)
+        fields = {
+            "google_sync_status": "error",
+            "google_sync_error": str(exc)[:300],
+            "google_synced_at": now_iso(),
+        }
+    if slot_id is not None:
+        await db.sopralluogo_slots.update_one({"_id": slot_id}, {"$set": fields})
+    slot.update(fields)
+    return slot
+
+
+async def _delete_google_calendar_slot(slot: dict) -> None:
+    if not google_calendar_service.config().enabled:
+        return
+    try:
+        await google_calendar_service.delete_event(slot)
+    except google_calendar_service.GoogleCalendarError as exc:
+        logger.warning("Evento Google dello slot %s non eliminato: %s", _slot_document_id(slot), exc)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Evento non eliminato dal calendario aziendale. "
+                "Riprova tra qualche minuto."
+            ),
+        ) from exc
+
+
 async def _booked_appointments_by_lead() -> Dict[str, dict]:
     """Mappa lead_id → appuntamento più imminente (o più recente se tutti passati)."""
     slots = await db.sopralluogo_slots.find(
@@ -1762,6 +1848,8 @@ async def sopralluoghi(user: dict = Depends(current_user)):
             "completato": lead.get("status") == "sopralluogo_fatto",
             "pipeline_status": lead.get("status"),
             "estimate": lead.get("estimate"),
+            "google_calendar_link": slot.get("google_calendar_link"),
+            "google_sync_status": slot.get("google_sync_status"),
         })
     return out
 
@@ -1771,6 +1859,62 @@ async def sopralluoghi(user: dict = Depends(current_user)):
 async def list_sopralluogo_slots(user: dict = Depends(current_user)):
     docs = await db.sopralluogo_slots.find({}).sort([("date", 1), ("start", 1)]).to_list(1000)
     return [serialize(d) for d in docs]
+
+
+@api.get("/integrations/google-calendar/status")
+async def google_calendar_status(user: dict = Depends(current_user)):
+    return await google_calendar_service.connection_status()
+
+
+@api.post("/integrations/google-calendar/sync-sopralluoghi")
+async def sync_google_calendar_sopralluoghi(user: dict = Depends(current_user)):
+    cfg = google_calendar_service.config()
+    if not cfg.enabled or not cfg.configured:
+        raise HTTPException(
+            status_code=503,
+            detail="Google Calendar non e ancora configurato",
+        )
+    docs = await db.sopralluogo_slots.find(
+        {"date": {"$gte": _today_iso()}}
+    ).sort([("date", 1), ("start", 1)]).to_list(1000)
+    synced = 0
+    failed = 0
+    for slot in docs:
+        lead = None
+        if slot.get("lead_id") and ObjectId.is_valid(str(slot["lead_id"])):
+            lead = await db.leads.find_one({"_id": ObjectId(str(slot["lead_id"]))})
+        await _sync_google_calendar_slot(slot, lead)
+        if slot.get("google_sync_status") == "synced":
+            synced += 1
+        else:
+            failed += 1
+    return {"ok": failed == 0, "synced": synced, "failed": failed, "total": len(docs)}
+
+
+@api.post("/sopralluoghi/{slot_id}/google-calendar/sync")
+async def sync_google_calendar_sopralluogo(
+    slot_id: str, user: dict = Depends(current_user)
+):
+    oid = object_id_or_400(slot_id, "Slot")
+    slot = await db.sopralluogo_slots.find_one({"_id": oid})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot non trovato")
+    if not google_calendar_service.config().configured:
+        raise HTTPException(status_code=503, detail="Google Calendar non e configurato")
+    lead = None
+    if slot.get("lead_id") and ObjectId.is_valid(str(slot["lead_id"])):
+        lead = await db.leads.find_one({"_id": ObjectId(str(slot["lead_id"]))})
+    await _sync_google_calendar_slot(slot, lead)
+    if slot.get("google_sync_status") != "synced":
+        raise HTTPException(
+            status_code=503,
+            detail="Sincronizzazione Google Calendar non riuscita",
+        )
+    return {
+        "ok": True,
+        "slot_id": str(oid),
+        "google_calendar_link": slot.get("google_calendar_link"),
+    }
 
 
 @api.post("/sopralluoghi/slots")
@@ -1788,9 +1932,16 @@ async def create_sopralluogo_slot(body: SopralluogoSlotCreate, user: dict = Depe
         raise HTTPException(status_code=400, detail="Non puoi creare uno slot nel passato")
     if end_time <= start_time:
         raise HTTPException(status_code=400, detail="L'orario di fine deve essere successivo all'inizio")
-    duplicate = await db.sopralluogo_slots.find_one({"date": body.date, "start": body.start})
-    if duplicate:
-        raise HTTPException(status_code=409, detail="Esiste gia uno slot in questa data e orario")
+    same_day_slots = await db.sopralluogo_slots.find({"date": body.date}).to_list(500)
+    if any(
+        body.start < str(item.get("end") or "")
+        and body.end > str(item.get("start") or "")
+        for item in same_day_slots
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Esiste gia uno slot sovrapposto in questa fascia",
+        )
     doc = {
         "date": body.date, "start": body.start, "end": body.end,
         "tecnico": (body.tecnico or "").strip() or None,
@@ -1798,8 +1949,10 @@ async def create_sopralluogo_slot(body: SopralluogoSlotCreate, user: dict = Depe
         "booked_name": None, "booked_email": None, "booked_phone": None,
         "created_by": user.get("name"), "created_at": now_iso(), "updated_at": now_iso(),
     }
+    await _require_google_calendar_available(doc)
     res = await db.sopralluogo_slots.insert_one(doc)
     doc["id"] = str(res.inserted_id)
+    await _sync_google_calendar_slot(doc)
     return serialize(doc)
 
 
@@ -1811,6 +1964,7 @@ async def delete_sopralluogo_slot(slot_id: str, user: dict = Depends(current_use
         raise HTTPException(status_code=404, detail="Slot non trovato")
     if slot.get("status") == "booked":
         raise HTTPException(status_code=400, detail="Slot gia prenotato: gestiscilo dalla scheda del lead.")
+    await _delete_google_calendar_slot(slot)
     await db.sopralluogo_slots.delete_one({"_id": oid})
     return {"ok": True}
 
@@ -1820,6 +1974,17 @@ async def public_sopralluogo_slots():
     docs = await db.sopralluogo_slots.find(
         {"status": "free", "date": {"$gte": _today_iso()}}
     ).sort([("date", 1), ("start", 1)]).to_list(500)
+    try:
+        docs = await google_calendar_service.filter_available_slots(docs)
+    except google_calendar_service.GoogleCalendarError as exc:
+        logger.warning("Disponibilita pubbliche Google Calendar non leggibili: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Calendario delle disponibilita temporaneamente non accessibile. "
+                "Riprova tra qualche minuto."
+            ),
+        ) from exc
     return [
         {"id": str(d["_id"]), "date": d["date"], "start": d["start"], "end": d["end"]}
         for d in docs
@@ -1841,6 +2006,10 @@ async def public_book_sopralluogo(
         detail="Troppe prenotazioni inviate. Riprova più tardi o contattaci telefonicamente.",
     )
     oid = object_id_or_400(body.slot_id, "Slot")
+    candidate_slot = await db.sopralluogo_slots.find_one({"_id": oid, "status": "free"})
+    if not candidate_slot:
+        raise HTTPException(status_code=409, detail="Slot non piu disponibile. Scegli un altro orario.")
+    await _require_google_calendar_available(candidate_slot)
     # Claim atomico: solo se lo slot e ancora libero.
     claim = await db.sopralluogo_slots.update_one(
         {"_id": oid, "status": "free"},
@@ -1918,6 +2087,8 @@ async def public_book_sopralluogo(
         doc["id"] = lead_id
         email_lead = doc
     await db.sopralluogo_slots.update_one({"_id": oid}, {"$set": {"lead_id": lead_id}})
+    slot["lead_id"] = lead_id
+    await _sync_google_calendar_slot(slot, email_lead)
     # Conferma sopralluogo al cliente + notifica staff, sia per lead nuovo che esistente.
     email_service.enqueue_lead_emails(background_tasks, email_lead, "sopralluogo")
     return {
@@ -1989,7 +2160,10 @@ async def complete_sopralluogo(slot_id: str, user: dict = Depends(current_user))
         {"_id": oid},
         {"$set": {"completed": True, "completed_at": now_iso(), "updated_at": now_iso()}},
     )
+    slot["completed"] = True
+    slot["completed_at"] = now_iso()
     updated = await db.leads.find_one({"_id": lead["_id"]})
+    await _sync_google_calendar_slot(slot, updated or lead)
     return {
         "ok": True,
         "lead_id": str(lead["_id"]),
@@ -2159,6 +2333,7 @@ def _build_cantiere_doc(body: CantiereCreate, lead: Optional[Dict[str, Any]], us
     if not capocantiere and lead:
         capocantiere = _clean_text(lead.get("owner"))
     doc = {
+        "client_id": _clean_text(data.get("client_id")) or None,
         "cliente": cliente,
         "telefono": _clean_text(data.get("telefono"))
         or _clean_text(lead.get("telefono") if lead else "")
@@ -2238,6 +2413,16 @@ async def get_cantiere(cantiere_id: str, user: dict = Depends(current_user)):
 
 @api.post("/cantieri")
 async def create_cantiere(body: CantiereCreate, user: dict = Depends(current_user)):
+    client_id = _clean_text(body.client_id)
+    if client_id:
+        try:
+            client_id = str(uuid.UUID(client_id))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise HTTPException(status_code=422, detail="client_id non valido") from exc
+        existing = await db.cantieri.find_one({"client_id": client_id})
+        if existing:
+            await _hydrate_cantiere_telefoni([existing])
+            return serialize(existing)
     lead = await _load_cantiere_lead(body.lead_id)
     lead_id = _clean_text(body.lead_id)
     if lead_id:

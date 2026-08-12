@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   MapPin, Phone, Clock, CheckCircle2, User, CalendarPlus, Trash2, Loader2, Plus,
+  ExternalLink, CloudOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import client, { formatApiErrorDetail } from "@/lib/api";
@@ -38,6 +39,11 @@ export default function Sopralluoghi() {
     refetchInterval: LEAD_AUTO_REFRESH_MS,
     refetchOnWindowFocus: true,
   });
+  const { data: calendarStatus } = useQuery({
+    queryKey: ["google-calendar-status"],
+    queryFn: async () => (await client.get("/integrations/google-calendar/status")).data,
+    staleTime: 60000,
+  });
 
   const invalidateSopralluoghiAndPipeline = () => {
     qc.invalidateQueries({ queryKey: ["sopralluogo-slots"] });
@@ -46,9 +52,13 @@ export default function Sopralluoghi() {
 
   const createSlot = useMutation({
     mutationFn: (body) => client.post("/sopralluoghi/slots", body),
-    onSuccess: () => {
+    onSuccess: ({ data }) => {
       invalidateSopralluoghiAndPipeline();
-      toast.success("Slot aggiunto");
+      if (data?.google_sync_status === "error") {
+        toast.warning("Slot aggiunto; sincronizzazione Google da riprovare");
+      } else {
+        toast.success("Slot aggiunto");
+      }
     },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
@@ -70,13 +80,47 @@ export default function Sopralluoghi() {
     },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
+  const syncCalendar = useMutation({
+    mutationFn: () => client.post("/integrations/google-calendar/sync-sopralluoghi"),
+    onSuccess: ({ data }) => {
+      invalidateSopralluoghiAndPipeline();
+      toast.success(`${data.synced} appuntamenti sincronizzati con Google`);
+    },
+    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
+  });
 
   const freeSlots = slots.filter((s) => s.status === "free");
 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="font-display font-bold uppercase text-3xl text-ink">Sopralluoghi</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="font-display font-bold uppercase text-3xl text-ink">Sopralluoghi</h1>
+          {calendarStatus?.connected ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 font-display text-[10px] uppercase text-emerald-400">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Google Calendar collegato
+              </span>
+              <button
+                type="button"
+                onClick={() => syncCalendar.mutate()}
+                disabled={syncCalendar.isPending}
+                className="inline-flex items-center gap-1.5 rounded-full border border-stroke bg-surface px-3 py-1 font-display text-[10px] uppercase text-fog hover:border-brand hover:text-ink disabled:opacity-60"
+              >
+                {syncCalendar.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CalendarPlus className="h-3.5 w-3.5" />
+                )}
+                Sincronizza agenda
+              </button>
+            </>
+          ) : calendarStatus?.enabled ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 font-display text-[10px] uppercase text-amber-400">
+              <CloudOff className="h-3.5 w-3.5" /> Google Calendar da autorizzare
+            </span>
+          ) : null}
+        </div>
         <p className="font-body text-sm text-fog mt-1">
           Inserisci gli slot liberi: i clienti prenotano dal calendario in landing.
           Ogni prenotazione aggiorna automaticamente la pipeline (colonna «Sopralluogo fissato»).
@@ -196,6 +240,16 @@ export default function Sopralluoghi() {
                     >
                       Apri lead
                     </button>
+                  )}
+                  {s.google_calendar_link && (
+                    <a
+                      href={s.google_calendar_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex-1 min-w-[7rem] bg-bg border border-stroke rounded-xl py-2 text-center font-display uppercase text-xs text-fog hover:text-ink hover:border-brand transition-colors inline-flex items-center justify-center gap-1"
+                    >
+                      <ExternalLink className="w-3 h-3" /> Google Calendar
+                    </a>
                   )}
                   {s.lead_id && !s.completato && (
                     <button

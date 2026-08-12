@@ -50,3 +50,9 @@ Soluzione consigliata:
 Per il servizio Railway usare come root directory `backend/`. Il comando di avvio e' definito in `backend/Procfile`.
 
 Gli asset pubblici sono gia' dentro `frontend/public/cantieri`, quindi vengono copiati nel build React.
+
+## Google Calendar sopralluoghi
+
+Il calendario unico aziendale puo essere collegato al modulo Sopralluoghi tramite
+OAuth, controllo free/busy e sincronizzazione idempotente degli eventi. La guida
+operativa e in `GUIDA_GOOGLE_CALENDAR_SOPRALLUOGHI.md`.
