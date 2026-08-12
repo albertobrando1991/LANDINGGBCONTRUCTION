@@ -139,3 +139,31 @@ def test_build_meta_lead_doc_maps_standard_and_italian_fields():
     assert doc["external_ids"]["meta_leadgen_id"] == "lead-123"
     assert doc["meta"]["campaign_name"] == "Ristrutturazione Napoli"
     assert doc["sla_due_at"].startswith("2026-06-01T08:15:00")
+
+
+def test_fetch_meta_lead_formats_detailed_graph_api_error():
+    class DummyResponse:
+        status_code = 400
+
+        def json(self):
+            return {
+                "error": {
+                    "message": "Invalid OAuth access token",
+                    "type": "OAuthException",
+                    "code": 190,
+                    "error_subcode": 463,
+                }
+            }
+
+    def dummy_get(*args, **kwargs):
+        return DummyResponse()
+
+    with pytest.raises(meta.MetaLeadError) as exc_info:
+        meta.fetch_meta_lead("lead-123", page_token="bad_token", get=dummy_get)
+
+    err_msg = str(exc_info.value)
+    assert "[HTTP 400]" in err_msg
+    assert "code 190" in err_msg
+    assert "subcode 463" in err_msg
+    assert "Invalid OAuth access token" in err_msg
+

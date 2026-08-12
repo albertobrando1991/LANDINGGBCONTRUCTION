@@ -32,6 +32,14 @@ class MetaLeadConfigError(MetaLeadError):
     pass
 
 
+def get_meta_page_token() -> Optional[str]:
+    for key in ("META_TOKEN2", "META_PAGE_ACCESS_TOKEN", "META_TOKEN", "META_ACCESS_TOKEN"):
+        val = (os.environ.get(key) or "").strip()
+        if val:
+            return val
+    return None
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -137,13 +145,27 @@ def fetch_meta_lead(
     version = (graph_version or "v23.0").strip().lstrip("/")
     url = f"https://graph.facebook.com/{version}/{leadgen_id}"
     response = get(url, params={"access_token": page_token, "fields": GRAPH_FIELDS}, timeout=timeout)
+    try:
+        data = response.json()
+    except Exception:
+        data = {}
+
+    if isinstance(data, dict) and data.get("error"):
+        err = data["error"]
+        msg = err.get("message") if isinstance(err, dict) else str(err)
+        code = err.get("code") if isinstance(err, dict) else None
+        subcode = err.get("error_subcode") if isinstance(err, dict) else None
+        code_str = f"code {code}" if code is not None else ""
+        if subcode is not None:
+            code_str += f", subcode {subcode}"
+        code_part = f" ({code_str})" if code_str else ""
+        raise MetaLeadError(f"Graph API lead fetch failed [HTTP {response.status_code}]{code_part}: {msg}")
+
     if response.status_code >= 400:
         raise MetaLeadError(f"Graph API lead fetch failed: HTTP {response.status_code}")
-    data = response.json()
+
     if not isinstance(data, dict):
         raise MetaLeadError("Graph API ha restituito una risposta non valida")
-    if data.get("error"):
-        raise MetaLeadError("Graph API lead fetch failed")
     return data
 
 
@@ -452,7 +474,7 @@ async def process_meta_webhook_event(
     page_token: Optional[str] = None,
     graph_version: Optional[str] = None,
 ) -> None:
-    page_token = page_token or os.environ.get("META_PAGE_ACCESS_TOKEN")
+    page_token = page_token or get_meta_page_token()
     graph_version = graph_version or os.environ.get("META_GRAPH_API_VERSION", "v23.0")
     event = await db.meta_webhook_events.find_one({"_id": event_id})
     if not event:

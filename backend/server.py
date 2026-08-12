@@ -451,7 +451,7 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
             meta_leads_service.process_meta_webhook_event,
             db,
             event_id,
-            os.environ.get("META_PAGE_ACCESS_TOKEN"),
+            meta_leads_service.get_meta_page_token(),
             os.environ.get("META_GRAPH_API_VERSION", "v23.0"),
         )
     return {"ok": True, "received": len(events)}
@@ -461,12 +461,12 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
 async def meta_integration_status(user: dict = Depends(current_user)):
     last_event = await db.meta_webhook_events.find({}).sort("last_received_at", -1).to_list(1)
     failed_count = await db.meta_webhook_events.count_documents({"status": "failed"})
-    meta_leads = await db.leads.count_documents({"origine": "meta_ads"})
+    meta_leads = await db.leads.count_documents({"$or": [{"origine": "meta_ads"}, {"fonti": "meta_ads"}]})
     return {
         "configured": {
             "verify_token": bool(os.environ.get("META_VERIFY_TOKEN")),
             "app_secret": bool(os.environ.get("META_APP_SECRET")),
-            "page_access_token": bool(os.environ.get("META_PAGE_ACCESS_TOKEN")),
+            "page_access_token": bool(meta_leads_service.get_meta_page_token()),
         },
         "graph_version": os.environ.get("META_GRAPH_API_VERSION", "v23.0"),
         "meta_leads": meta_leads,
@@ -483,7 +483,7 @@ async def retry_failed_meta_events(background_tasks: BackgroundTasks, user: dict
             meta_leads_service.process_meta_webhook_event,
             db,
             event["_id"],
-            os.environ.get("META_PAGE_ACCESS_TOKEN"),
+            meta_leads_service.get_meta_page_token(),
             os.environ.get("META_GRAPH_API_VERSION", "v23.0"),
         )
     return {"queued": len(events)}
@@ -1259,6 +1259,8 @@ async def list_leads(request: Request, status: Optional[str] = None,
                      origine: Optional[str] = None,
                      user: dict = Depends(current_user)):
     query: Dict[str, Any] = {}
+    and_conditions: List[Dict[str, Any]] = []
+
     if status and status != "tutti":
         if status == "preventivi":
             query["status"] = {"$in": ["preventivo_preparazione", "preventivo_inviato"]}
@@ -1273,11 +1275,20 @@ async def list_leads(request: Request, status: Optional[str] = None,
     if owner:
         query["owner"] = owner
     if origine and origine != "tutte":
-        query["origine"] = origine
+        and_conditions.append({"$or": [{"origine": origine}, {"fonti": origine}]})
     if q:
-        query["$or"] = [{"nome": {"$regex": q, "$options": "i"}},
-                        {"citta": {"$regex": q, "$options": "i"}},
-                        {"email": {"$regex": q, "$options": "i"}}]
+        and_conditions.append({"$or": [
+            {"nome": {"$regex": q, "$options": "i"}},
+            {"citta": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": q, "$options": "i"}},
+        ]})
+
+    if and_conditions:
+        if len(and_conditions) == 1:
+            query["$or"] = and_conditions[0]["$or"]
+        else:
+            query["$and"] = and_conditions
+
     docs = await db.leads.find(query).sort("created_at", -1).to_list(500)
     return [serialize(d) for d in docs]
 

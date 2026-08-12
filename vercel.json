@@ -48,6 +48,10 @@
       "destination": "https://api.gbconstruction.it/api/:path*"
     },
     {
+      "source": "/webhooks/:path*",
+      "destination": "https://api.gbconstruction.it/api/webhooks/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
