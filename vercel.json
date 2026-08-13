@@ -44,6 +44,14 @@
   ],
   "rewrites": [
     {
+      "source": "/manuale",
+      "destination": "/manuale/index.html"
+    },
+    {
+      "source": "/manuale/",
+      "destination": "/manuale/index.html"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://api.gbconstruction.it/api/:path*"
     },

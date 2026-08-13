@@ -2,5 +2,6 @@ User-agent: *
 Allow: /
 Disallow: /dashboard
 Disallow: /login
+Disallow: /manuale
 
 Sitemap: https://gbconstruction.it/sitemap.xml

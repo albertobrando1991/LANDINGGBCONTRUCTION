@@ -7,6 +7,8 @@ import {
   browserSessionStorage,
   pendingPasswordCallback,
 } from "@/lib/authCallback";
+import BrandMark from "@/brand/BrandMark";
+import { brand } from "@/brand/identity";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -72,16 +74,14 @@ export default function Login() {
       <div className="absolute inset-0 blueprint-grid opacity-[0.03]" />
       <div className="relative w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-full p-[2px] accent-metallic animate-gradient-shift mx-auto mb-4">
-            <div className="w-full h-full rounded-full bg-bg flex items-center justify-center font-display font-bold text-ink">
-              GB
-            </div>
+          <div className="mx-auto mb-4 w-fit">
+            <BrandMark size="lg" />
           </div>
           <h1 className="font-display font-bold uppercase text-2xl text-ink">
             Area riservata
           </h1>
           <p className="font-display uppercase tracking-[0.2em] text-xs text-brand mt-1">
-            GB Construction · Lead Engine
+            {brand.name} · Lead Engine
           </p>
         </div>
 
@@ -151,6 +151,12 @@ export default function Login() {
           <p className="font-body text-xs text-fog text-center pt-2">
             Accesso riservato al personale e ai clienti invitati.
           </p>
+          <a
+            href="/manuale"
+            className="block pt-1 text-center font-display text-[11px] uppercase tracking-wider text-brand hover:text-ink"
+          >
+            Manuale operativo
+          </a>
         </form>
       </div>
     </div>

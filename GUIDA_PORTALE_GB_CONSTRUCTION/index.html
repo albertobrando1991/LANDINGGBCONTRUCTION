@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manuale operativo — Portale GB Construction</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="canonical" href="https://gbconstruction.it/manuale" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0c0e;
+      --surface: #161618;
+      --surface-2: #232326;
+      --ink: #f5f5f5;
+      --fog: #8a8a8a;
+      --stroke: #2c2c2f;
+      --brand: #c52b2b;
+      --brand-dark: #751919;
+      --gold: #c9a04a;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --display: "Oswald", sans-serif;
+      --body: "Montserrat", sans-serif;
+      --nav-w: 280px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; scroll-padding-top: 1.5rem; }
+    body {
+      font-family: var(--body);
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.65;
+      font-size: 16.5px;
+    }
+
+    a { color: inherit; }
+    img { max-width: 100%; display: block; }
+    button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
+
+    .skip {
+      position: absolute;
+      left: 1rem;
+      top: -4rem;
+      background: var(--brand);
+      color: #fff;
+      padding: 0.6rem 1rem;
+      z-index: 80;
+    }
+    .skip:focus { top: 1rem; }
+
+    .nav-toggle {
+      display: none;
+      position: fixed;
+      right: 1rem;
+      bottom: 1rem;
+      z-index: 60;
+      min-height: 52px;
+      padding: 0 1.1rem;
+      border-radius: 999px;
+      background: var(--brand);
+      color: #fff;
+      font-family: var(--display);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-size: 12px;
+      box-shadow: 0 12px 30px rgba(197, 43, 43, 0.35);
+    }
+
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      width: var(--nav-w);
+      background: #101012;
+      border-right: 1px solid var(--stroke);
+      padding: 1.4rem 1rem 2rem;
+      overflow: auto;
+      z-index: 40;
+    }
+
+    .brand-mark {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.25rem 0.5rem 1.2rem;
+      border-bottom: 1px solid var(--stroke);
+      margin-bottom: 1rem;
+    }
+    .brand-mark .seal {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: conic-gradient(from 180deg, #8a1c1c, #e04a4a, #8a1c1c);
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .brand-mark strong {
+      display: block;
+      font-family: var(--display);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 14px;
+    }
+    .brand-mark span {
+      color: var(--fog);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .sidebar nav a {
+      display: block;
+      text-decoration: none;
+      color: var(--fog);
+      padding: 0.42rem 0.7rem;
+      border-radius: 10px;
+      font-size: 13px;
+    }
+    .sidebar nav a:hover,
+    .sidebar nav a:focus-visible,
+    .sidebar nav a.active {
+      color: var(--ink);
+      background: var(--surface-2);
+    }
+    .sidebar .group {
+      margin: 1rem 0.4rem 0.35rem;
+      font-family: var(--display);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--brand);
+    }
+
+    .main {
+      margin-left: var(--nav-w);
+      max-width: 1080px;
+      padding: 2.5rem 3rem 6rem;
+    }
+
+    .kicker {
+      font-family: var(--display);
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      font-size: 12px;
+      color: var(--brand);
+    }
+    h1, h2, h3, h4 {
+      font-family: var(--display);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      line-height: 1.05;
+      font-weight: 600;
+    }
+    h1 { font-size: clamp(2.6rem, 6vw, 5.2rem); margin: 0.35rem 0 1rem; }
+    h2 { font-size: clamp(1.7rem, 3vw, 2.4rem); margin-bottom: 0.8rem; }
+    h3 { font-size: 1.25rem; margin-bottom: 0.45rem; }
+    p { color: #d6d6d6; margin-bottom: 1rem; }
+    .lead { font-size: 1.15rem; color: #ececec; max-width: 42rem; }
+
+    .cover {
+      min-height: 86vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid var(--stroke);
+      margin-bottom: 3.5rem;
+      position: relative;
+    }
+    .cover::before {
+      content: "";
+      position: absolute;
+      inset: auto 0 0 0;
+      height: 55%;
+      background:
+        radial-gradient(ellipse at 10% 80%, rgba(197, 43, 43, 0.22), transparent 50%),
+        radial-gradient(ellipse at 90% 20%, rgba(201, 160, 74, 0.08), transparent 46%);
+      pointer-events: none;
+    }
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.7rem;
+      margin-top: 1.6rem;
+    }
+    .chip {
+      border: 1px solid var(--stroke);
+      background: var(--surface);
+      border-radius: 999px;
+      padding: 0.35rem 0.8rem;
+      font-size: 12px;
+      color: var(--fog);
+    }
+    .chip b { color: var(--ink); font-weight: 600; }
+
+    section.block {
+      padding: 2.4rem 0 3rem;
+      border-bottom: 1px solid var(--stroke);
+    }
+
+    .worlds {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin: 1.4rem 0 0.4rem;
+    }
+    .world {
+      background: var(--surface);
+      border: 1px solid var(--stroke);
+      border-radius: 18px;
+      padding: 1.2rem 1.15rem 1.3rem;
+    }
+    .world .n {
+      font-family: var(--display);
+      color: var(--brand);
+      letter-spacing: 0.16em;
+      font-size: 12px;
+    }
+    .world h3 { margin-top: 0.35rem; }
+    .world p { font-size: 0.92rem; margin: 0; color: var(--fog); }
+
+    .shot {
+      margin: 1.2rem 0 1.6rem;
+      border: 1px solid var(--stroke);
+      border-radius: 18px;
+      overflow: hidden;
+      background: #09090b;
+    }
+    .shot img {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+      object-position: top center;
+    }
+    .shot figcaption {
+      padding: 0.75rem 1rem 0.9rem;
+      font-size: 13px;
+      color: var(--fog);
+      border-top: 1px solid var(--stroke);
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1.1rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--stroke);
+      border-radius: 16px;
+      padding: 1.1rem 1.15rem 1.15rem;
+    }
+    .card p:last-child { margin: 0; color: var(--fog); font-size: 0.94rem; }
+    .card .who {
+      display: inline-block;
+      margin-bottom: 0.45rem;
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 0.8rem;
+    }
+    .path {
+      font-family: var(--display);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--gold);
+      white-space: nowrap;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .do, .tip {
+      border-radius: 16px;
+      padding: 1.05rem 1.1rem;
+      border: 1px solid var(--stroke);
+    }
+    .do { background: var(--surface); }
+    .tip {
+      background: linear-gradient(180deg, rgba(197, 43, 43, 0.12), var(--surface));
+      border-color: rgba(197, 43, 43, 0.35);
+    }
+    .do h4, .tip h4 {
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      margin-bottom: 0.55rem;
+      color: var(--fog);
+    }
+    .tip h4 { color: #f0b4b4; }
+    .do ol, .do ul, .tip ul {
+      margin: 0 0 0 1.1rem;
+      color: #d0d0d0;
+    }
+    .do li, .tip li { margin: 0.28rem 0; }
+
+    .pipeline {
+      display: grid;
+      gap: 0.45rem;
+      margin: 1rem 0;
+    }
+    .pipe {
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 0.75rem;
+      align-items: start;
+    }
+    .pipe .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      margin: 6px auto 0;
+    }
+    .pipe strong { display: block; font-family: var(--display); text-transform: uppercase; font-size: 15px; }
+    .pipe span { color: var(--fog); font-size: 0.92rem; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0 0.4rem;
+      font-size: 0.95rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.7rem 0.65rem;
+      border-bottom: 1px solid var(--stroke);
+      vertical-align: top;
+    }
+    th {
+      font-family: var(--display);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--fog);
+      font-weight: 500;
+    }
+    td strong { font-family: var(--display); text-transform: uppercase; font-size: 14px; }
+
+    .ritual {
+      background: var(--surface);
+      border: 1px solid var(--stroke);
+      border-radius: 20px;
+      padding: 1.3rem 1.3rem 0.4rem;
+      margin-top: 1rem;
+    }
+    .ritual li {
+      list-style: none;
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 0.8rem;
+      padding: 0.85rem 0;
+      border-top: 1px solid var(--stroke);
+    }
+    .ritual li:first-child { border-top: 0; }
+    .ritual .hh {
+      font-family: var(--display);
+      color: var(--brand);
+      letter-spacing: 0.06em;
+    }
+
+    .faq details {
+      border-top: 1px solid var(--stroke);
+      padding: 0.85rem 0;
+    }
+    .faq summary {
+      cursor: pointer;
+      font-family: var(--display);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      list-style: none;
+    }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq details p { margin: 0.55rem 0 0; color: var(--fog); }
+
+    .footer-note {
+      margin-top: 2.4rem;
+      color: var(--fog);
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .worlds, .card-grid, .split { grid-template-columns: 1fr; }
+      .sidebar {
+        transform: translateX(-105%);
+        transition: transform 0.28s ease;
+        width: min(86vw, 320px);
+      }
+      body.nav-open .sidebar { transform: none; }
+      .nav-toggle { display: inline-flex; align-items: center; }
+      .main { margin-left: 0; padding: 1.4rem 1.1rem 6rem; }
+      .path { white-space: normal; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      * { transition: none !important; }
+    }
+
+    @media print {
+      @page {
+        size: A4;
+        margin: 14mm 12mm 16mm;
+      }
+      .sidebar, .nav-toggle, .skip { display: none !important; }
+      .main { margin: 0; max-width: none; padding: 0 2mm 8mm; }
+      body { background: #0c0c0e; color: #f5f5f5; font-size: 11pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      p, td, li, figcaption { color: #d6d6d6 !important; }
+      .cover { min-height: auto; padding-top: 12mm; }
+      .shot, .card, .split, .do, .tip, .ritual, .world, table { break-inside: avoid; }
+      .block { break-inside: auto; }
+      a { text-decoration: none; }
+      details { break-inside: avoid; }
+      details > *:not(summary) { display: block !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#contenuto">Vai al contenuto</a>
+  <button class="nav-toggle" type="button" data-nav-toggle>Indice</button>
+
+  <aside class="sidebar" id="indice">
+    <div class="brand-mark">
+      <div class="seal">GB</div>
+      <div>
+        <strong>Construction</strong>
+        <span>Manuale portale</span>
+      </div>
+    </div>
+    <nav aria-label="Indice della guida">
+      <p class="group">Inizio</p>
+      <a href="#copertina">Copertina</a>
+      <a href="#tre-mondi">I tre mondi</a>
+      <a href="#accessi">Accessi e ruoli</a>
+      <a href="#giornata">La giornata tipo</a>
+      <p class="group">Sito pubblico</p>
+      <a href="#landing">Prima impressione</a>
+      <a href="#configuratore">Configuratore</a>
+      <a href="#dettagli">Dettagli e contatto</a>
+      <a href="#stima">Stima e prossimi passi</a>
+      <a href="#render-pubblico">Render personalizzati</a>
+      <p class="group">Dashboard staff</p>
+      <a href="#oggi">Oggi</a>
+      <a href="#inbox">Lead Inbox</a>
+      <a href="#scheda">Scheda lead</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#sopralluoghi">Sopralluoghi</a>
+      <a href="#preventivi">Preventivi</a>
+      <a href="#prezzario">Prezzario</a>
+      <a href="#computi">Computi</a>
+      <a href="#cantieri">Cantieri attivi</a>
+      <a href="#personale">Personale</a>
+      <a href="#sal">SAL</a>
+      <a href="#economics">Economics</a>
+      <a href="#campo">Campo</a>
+      <a href="#ai-staff">AI Architect staff</a>
+      <a href="#report">Report</a>
+      <a href="#impostazioni">Impostazioni</a>
+      <p class="group">Cliente finale</p>
+      <a href="#portale">Area committente</a>
+      <a href="#percorso">Dal lead alla consegna</a>
+      <a href="#faq">Domande frequenti</a>
+    </nav>
+  </aside>
+
+  <main class="main" id="contenuto">
+    <header class="cover" id="copertina">
+      <p class="kicker">Documento interno · Formazione staff · Flussi attuali</p>
+      <h1>Come si usa<br />il portale.</h1>
+      <p class="lead">
+        Questa guida spiega, in italiano semplice, ogni sezione del sito e della dashboard
+        così come funzionano oggi. Serve al titolare, allo staff commerciale e a chi va in cantiere.
+        Non è un manuale tecnico e non è la vecchia presentazione di vendita.
+      </p>
+      <div class="meta-row">
+        <span class="chip"><b>Destinatari</b> titolare e staff</span>
+        <span class="chip"><b>Aggiornata</b> agosto 2026</span>
+        <span class="chip"><b>Uso</b> da tenere aperta accanto al portale</span>
+      </div>
+    </header>
+
+    <section class="block" id="tre-mondi">
+      <p class="kicker">Orientamento</p>
+      <h2>Il portale è fatto di tre mondi</h2>
+      <p>
+        Un visitatore, un commerciale e un committente già in cantiere non devono vedere le stesse cose.
+        Per questo il sistema è diviso in tre ambienti, collegati tra loro.
+      </p>
+      <div class="worlds">
+        <article class="world">
+          <div class="n">01</div>
+          <h3>Sito pubblico</h3>
+          <p>La vetrina. Qui il visitatore configura la casa, lascia i dati, vede tre stime, può chiedere i render da 300€ e prenotare il sopralluogo.</p>
+        </article>
+        <article class="world">
+          <div class="n">02</div>
+          <h3>Dashboard staff</h3>
+          <p>L’ufficio digitale. Qui gestite lead, preventivi, computi, cantieri, squadre, Campo, SAL e numeri.</p>
+        </article>
+        <article class="world">
+          <div class="n">03</div>
+          <h3>Area committente</h3>
+          <p>Lo spazio riservato del cliente. Parte già dal preventivo: sceglie come pagare, poi vede documenti, SAL e varianti.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block" id="accessi">
+      <p class="kicker">Sicurezza</p>
+      <h2>Chi entra, e da dove</h2>
+      <p>
+        Il sito pubblico è aperto a tutti. Dashboard e area committente richiedono login.
+        Ogni persona entra solo nel suo spazio.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Ruolo</th>
+            <th>Entra in</th>
+            <th>Cosa può fare</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Admin</strong></td>
+            <td>/dashboard</td>
+            <td>Vede tutto: vendite, cantieri, economia, Report, staff e Impostazioni.</td>
+          </tr>
+          <tr>
+            <td><strong>Owner / Titolare</strong></td>
+            <td>/dashboard</td>
+            <td>Come lo staff operativo, più Economics. Report e Impostazioni restano all’admin.</td>
+          </tr>
+          <tr>
+            <td><strong>Staff</strong></td>
+            <td>/dashboard</td>
+            <td>Gestisce lead, preventivi, computi, cantieri, personale, SAL e Campo.</td>
+          </tr>
+          <tr>
+            <td><strong>Operations</strong></td>
+            <td>/dashboard e /campo</td>
+            <td>Sopralluoghi, cantiere, primo rilievo, libretto di misura e foto da telefono.</td>
+          </tr>
+          <tr>
+            <td><strong>Committente</strong></td>
+            <td>/portal</td>
+            <td>Sceglie il pagamento, scarica i documenti, firma e approva le varianti.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="split">
+        <div class="do">
+          <h4>Come si entra</h4>
+          <ol>
+            <li>Apri il sito e vai su <b>Area riservata</b>, oppure apri direttamente <b>/login</b>.</li>
+            <li>Inserisci email e password che vi abbiamo creato.</li>
+            <li>Se sei staff atterri su <b>Oggi</b>. Se sei committente atterri sul <b>portale cliente</b>.</li>
+          </ol>
+        </div>
+        <div class="tip">
+          <h4>Regola pratica</h4>
+          <ul>
+            <li>Non condividete le password tra di voi.</li>
+            <li>Il telefono di cantiere usa l’account Operations e la pagina <b>Campo</b>.</li>
+            <li>Il committente entra in due momenti: dopo il preventivo (per scegliere come pagare) e dopo il cantiere (per documenti e SAL).</li>
+            <li>Il primo accesso passa da <b>/set-password</b> con il link ricevuto via email.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="giornata">
+      <p class="kicker">Metodo</p>
+      <h2>La giornata tipo dello staff</h2>
+      <p>Se usate il portale in quest’ordine, non perdete lead e non inseguite i lavori a memoria.</p>
+      <div class="ritual">
+        <ol>
+          <li>
+            <span class="hh">08:30</span>
+            <div>
+              <strong>Apri Oggi</strong>
+              <p>Guarda i nuovi lead, i follow-up, i sopralluoghi della settimana e gli alert oltre 18 ore. Parti da chi aspetta da più tempo.</p>
+            </div>
+          </li>
+          <li>
+            <span class="hh">09:00</span>
+            <div>
+              <strong>Chiama e aggiorna</strong>
+              <p>Da Inbox o dalla scheda lead: una chiamata, una nota, un nuovo stato. Se c’è una richiesta render da 300€, confermala subito.</p>
+            </div>
+          </li>
+          <li>
+            <span class="hh">11:00</span>
+            <div>
+              <strong>Sopralluoghi e offerte</strong>
+              <p>Controlla il calendario, completa il sopralluogo, apri il computo, invia il preventivo e invita il cliente all’area personale per il pagamento.</p>
+            </div>
+          </li>
+          <li>
+            <span class="hh">15:00</span>
+            <div>
+              <strong>Cantieri e Campo</strong>
+              <p>Crea il cantiere dal preventivo confermato. In cantiere: primo rilievo, libretto, presenze e foto. In ufficio: SAL del periodo.</p>
+            </div>
+          </li>
+          <li>
+            <span class="hh">18:00</span>
+            <div>
+              <strong>Chiusura pulita</strong>
+              <p>Ogni pratica aperta deve avere una prossima azione e una data. Poi si può spegnere il telefono.</p>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="block" id="landing">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Sito pubblico</p>
+          <h2>La prima impressione</h2>
+        </div>
+        <span class="path">Home del sito</span>
+      </div>
+      <p>
+        Il visitatore non arriva su un sito vetrina qualsiasi. Vede subito i vostri cantieri,
+        i vostri volti e tre soluzioni chiare. Il messaggio è: siamo un’impresa vera, non un intermediario.
+      </p>
+      <figure class="shot">
+        <img src="../GB_CONSTRUCTION_SCREENSHOTS_PRESENTAZIONE/01_landing_hero_cinematografica.png" alt="Hero cinematografica del sito GB Construction" />
+        <figcaption>Hero a schermo intero: il visitatore entra nei cantieri reali prima ancora di leggere un listino.</figcaption>
+      </figure>
+      <div class="card-grid">
+        <article class="card">
+          <span class="who">Cosa vede il visitatore</span>
+          <h3>Video, lavori, team</h3>
+          <p>Galleria cantieri, testimonianze, presentazione dello staff e i tre pacchetti Essenziale, Premium e Luxury.</p>
+        </article>
+        <article class="card">
+          <span class="who">Cosa deve fare lo staff</span>
+          <h3>Nulla, ogni giorno</h3>
+          <p>Questa parte lavora da sola. Intervenite solo se cambiano foto, video, testi o recensioni: ce lo segnalate e li aggiorniamo.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block" id="configuratore">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Sito pubblico</p>
+          <h2>Il configuratore</h2>
+        </div>
+        <span class="path">Wizard in 6 passaggi</span>
+      </div>
+      <p>
+        È il cuore commerciale del sito. In circa 60 secondi la persona racconta casa, metratura,
+        livello di intervento, stanze, stile e tempi. Non deve compilare un modulo lungo e freddo.
+      </p>
+      <figure class="shot">
+        <img src="../GB_CONSTRUCTION_SCREENSHOTS_PRESENTAZIONE/04_configuratore_step_immobile.png" alt="Primo step del configuratore: tipo di immobile" />
+        <figcaption>Lo step iniziale è volutamente semplice. Le domande tecniche arrivano dopo, e si possono anche saltare.</figcaption>
+      </figure>
+      <div class="split">
+        <div class="do">
+          <h4>I 6 passaggi</h4>
+          <ol>
+            <li>Tipo: appartamento, villa, ufficio, negozio, capannone.</li>
+            <li>Metri quadri.</li>
+            <li>Intervento: Rinnovare, Trasformare, Tutto incluso.</li>
+            <li>Ambienti: cucina, bagni, camere, soggiorno, ingresso, balconi.</li>
+            <li>Stile: Moderno minimal, Classico elegante, Industrial loft, Contemporaneo caldo.</li>
+            <li>Tempi: Subito, Entro 3 mesi, Entro 6 mesi, Sto valutando.</li>
+          </ol>
+        </div>
+        <div class="tip">
+          <h4>Perché conta per voi</h4>
+          <ul>
+            <li>Quando il lead arriva in dashboard, non è un nome vuoto.</li>
+            <li>Avete già metri, stanze, stile e urgenza.</li>
+            <li>Il sistema calcola la stima solo dopo i dati di contatto.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="dettagli">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Sito pubblico</p>
+          <h2>Dettagli e contatto</h2>
+        </div>
+        <span class="path">Quick details + gate</span>
+      </div>
+      <p>
+        Dopo il configuratore arrivano 8 domande semplici, senza tecnicismi.
+        Si possono saltare: il sistema usa stime di fascia. Solo dopo, per vedere i tre pacchetti,
+        il visitatore lascia i dati. Non vede i prezzi prima del contatto.
+      </p>
+      <div class="split">
+        <div class="do">
+          <h4>Le 8 domande (si possono saltare)</h4>
+          <ol>
+            <li>Disposizione: mantieni com’è o sposta pareti.</li>
+            <li>Impianto elettrico: da rifare o lascia com’è.</li>
+            <li>Impianto idrico e bagni.</li>
+            <li>Riscaldamento / caldaia.</li>
+            <li>Climatizzazione: no, predisposizione, completa.</li>
+            <li>Infissi: no, alcuni, tutti.</li>
+            <li>Controsoffitti / cartongesso.</li>
+            <li>Forniture e arredi: escluse o incluse.</li>
+          </ol>
+        </div>
+        <div class="tip">
+          <h4>Poi il modulo contatto</h4>
+          <ul>
+            <li>Nome e cognome, email, telefono.</li>
+            <li>Città in Campania e indirizzo dell’immobile.</li>
+            <li>Privacy obbligatoria, newsletter facoltativa.</li>
+            <li>Il sito mostra una barra di calcolo, poi sblocca le tre proposte.</li>
+            <li>Regola: una stima per email. Se serve rifarla, lo staff sblocca l’email dalla scheda lead.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="stima">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Sito pubblico</p>
+          <h2>Stima e prossimi passi</h2>
+        </div>
+        <span class="path">Output + prenota + WhatsApp</span>
+      </div>
+      <p>
+        Dopo il contatto nascono il lead e le tre proposte: Essenziale, Premium, Luxury.
+        Ogni card ha una forbice di prezzo, il costo a mq e le tempistiche.
+        Da qui il visitatore approfondisce il computo, chiede i render, prenota il sopralluogo o scrive su WhatsApp.
+      </p>
+      <figure class="shot">
+        <img src="../GB_CONSTRUCTION_SCREENSHOTS_PRESENTAZIONE/08_output_stima_tre_pacchetti.png" alt="Output della stima con tre pacchetti economici" />
+        <figcaption>Tre pacchetti con forbice di prezzo. Non un numero inventato: una stima strutturata, da confermare in sopralluogo.</figcaption>
+      </figure>
+      <div class="card-grid">
+        <article class="card">
+          <span class="who">Cosa succede in automatico</span>
+          <h3>Nasce un lead</h3>
+          <p>I dati arrivano in Inbox con origine Landing. Resta traccia della campagna. Lo staff chiama dalla scheda, non a memoria.</p>
+        </article>
+        <article class="card">
+          <span class="who">Se la persona esce</span>
+          <h3>Seconda chance</h3>
+          <p>In fondo restano FAQ, modulo “richiamatemi” (callback entro 2 ore) e WhatsApp già pronto. Non si perde il contatto facile.</p>
+        </article>
+      </div>
+      <div class="split">
+        <div class="do">
+          <h4>Cosa può fare il visitatore</h4>
+          <ol>
+            <li>Aprire il dettaglio di un pacchetto e vedere le voci principali.</li>
+            <li>Chiedere i render personalizzati da 300€ (facoltativo).</li>
+            <li>Prenotare un sopralluogo gratuito sugli slot che avete aperto.</li>
+            <li>Scrivere su WhatsApp con un tap.</li>
+          </ol>
+        </div>
+        <div class="tip">
+          <h4>Cosa deve fare lo staff</h4>
+          <ul>
+            <li>Se prenota: in Pipeline va su “Sopralluogo fissato” da solo.</li>
+            <li>Se lascia solo i dati: chiamate oggi e spostate lo stato.</li>
+            <li>Se chiede i render: confermate i 300€ e lavorate dalla sezione AI Architect.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="render-pubblico">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Sito pubblico</p>
+          <h2>Render personalizzati</h2>
+        </div>
+        <span class="path">Dopo la stima · servizio €300</span>
+      </div>
+      <p>
+        Non è più l’AI che elabora da sola la planimetria e restituisce i render in pagina.
+        Dopo la stima, il visitatore può chiedere un’anteprima visiva a pagamento.
+        La richiesta arriva a voi: niente generazione automatica, niente credito AI consumato dal sito.
+      </p>
+      <div class="card-grid">
+        <article class="card">
+          <span class="who">Cosa vede il visitatore</span>
+          <h3>Un upsell chiaro</h3>
+          <p>Sotto i tre pacchetti trova esempi di stile e il pulsante <b>Richiedi i render · €300</b>. Il preventivo è già pronto: questo passo è facoltativo.</p>
+        </article>
+        <article class="card">
+          <span class="who">Cosa succede dopo il tap</span>
+          <h3>Due passaggi, poi stop</h3>
+          <p>Carica la planimetria e lo stile. Poi sceglie ambienti, direzione del progetto e priorità. Invia e torna alla stima.</p>
+        </article>
+      </div>
+      <div class="split">
+        <div class="do">
+          <h4>Cosa raccoglie la richiesta</h4>
+          <ol>
+            <li>Planimetria (PDF, foto, DWG, DXF, IFC · max 20 MB).</li>
+            <li>Tipo di disegno: stato attuale, progetto già definito, o “lo valuta GB”.</li>
+            <li>Stile, obiettivo, direzione (conservativa, premium, investimento, family, smart working).</li>
+            <li>Ambienti da rendere, priorità, mq, persone, budget e note.</li>
+          </ol>
+        </div>
+        <div class="tip">
+          <h4>Cosa deve fare lo staff</h4>
+          <ul>
+            <li>La pratica arriva in dashboard come <b>Richiesta cliente · €300</b>.</li>
+            <li>Il lead riceve il tag <b>Render personalizzati</b> e la prossima azione: confermare il servizio.</li>
+            <li>Voi chiamate, confermate pagamento e tempi, poi lavorate i render dalla sezione AI Architect.</li>
+            <li>Il cliente non vede output in tempo reale. Li riceve da voi dopo la verifica.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="oggi">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Oggi</h2>
+        </div>
+        <span class="path">/dashboard</span>
+      </div>
+      <p>
+        È la home dello staff. Non è un riassunto estetico: è la lista di ciò che non può aspettare.
+        Se aprite una sola pagina al mattino, aprite questa.
+      </p>
+      <figure class="shot">
+        <img src="../GB_CONSTRUCTION_SCREENSHOTS_PRESENTAZIONE/11_dashboard_oggi_operativa.png" alt="Dashboard Oggi con priorità giornaliere" />
+        <figcaption>Nuovi lead, follow-up, sopralluoghi e preventivi fermi: la giornata parte da qui.</figcaption>
+      </figure>
+      <div class="split">
+        <div class="do">
+          <h4>Cosa fai qui</h4>
+          <ol>
+            <li>Guardi quanti lead nuovi ci sono.</li>
+            <li>Apri i più caldi e li chiami.</li>
+            <li>Chiudi i follow-up del giorno.</li>
+            <li>Controlli se un preventivo è fermo da troppi giorni.</li>
+          </ol>
+        </div>
+        <div class="tip">
+          <h4>Segnale rosso</h4>
+          <ul>
+            <li>Un lead “Nuovo” fermo oltre 18 ore è un allarme.</li>
+            <li>Se Oggi è vuota, o non ci sono richieste o qualcuno non sta aggiornando gli stati.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="inbox">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Lead Inbox</h2>
+        </div>
+        <span class="path">/dashboard/inbox</span>
+      </div>
+      <p>
+        È la cassetta della posta commerciale. Qui arrivano tutte le richieste: dal sito, da Meta Ads,
+        dal callback “richiamatemi”, da una richiesta render.
+      </p>
+      <div class="card-grid">
+        <article class="card">
+          <span class="who">Filtri di stato</span>
+          <h3>Sette linguette</h3>
+          <p>Tutti, Nuovi, Da contattare, In trattativa, Sopralluogo, Preventivi, Persi. Poi cerca per nome, città o email.</p>
+        </article>
+        <article class="card">
+          <span class="who">Filtri di origine</span>
+          <h3>Da dove arriva</h3>
+          <p>Tutte, Meta Ads, Landing, Callback, AI Architect. Azioni rapide: chiama, WhatsApp, email. L’admin può pulire i lead di test.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block" id="scheda">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Scheda lead</h2>
+        </div>
+        <span class="path">/dashboard/lead/…</span>
+      </div>
+      <p>
+        Ogni persona ha un dossier. Qui non si lavora a memoria e non si cercano messaggi sparsi su quattro chat.
+      </p>
+      <figure class="shot">
+        <img src="../GB_CONSTRUCTION_SCREENSHOTS_PRESENTAZIONE/12_crm_scheda_lead_dossier.png" alt="Scheda lead con dati cliente, stima e timeline" />
+        <figcaption>A sinistra i dati, al centro la casa e la stima, a destra la storia di ogni contatto.</figcaption>
+      </figure>
+      <div class="split">
+        <div class="do">
+          <h4>Le tre colonne</h4>
+          <ul>
+            <li><b>Persona:</b> chiama, WhatsApp, email, score, stato, tag.</li>
+            <li><b>Casa:</b> immobile, stima a tre pacchetti, eventuale richiesta render da 300€.</li>
+            <li><b>Storia:</b> note, chiamate, email, suggerimento AI, prossima azione.</li>
+          </ul>
+        </div>
+        <div class="tip">
+          <h4>Regola d’oro</h4>
+          <ul>
+            <li>Dopo ogni telefonata, scrivi due righe.</li>
+            <li>Se non c’è una prossima azione, la pratica è abbandonata.</li>
+            <li>Cambia stato solo quando è vero: il report vive di questo.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card-grid">
+        <article class="card">
+          <span class="who">Novità da usare sempre</span>
+          <h3>Area personale dal lead</h3>
+          <p>Quando esiste un preventivo collegato, inviate l’email di accesso. Il cliente entra in /portal e sceglie come pagare: a SAL, scaglionato o in due tranche. Non aspettate il cantiere.</p>
+        </article>
+        <article class="card">
+          <span class="who">Commerciale</span>
+          <h3>Dal preventivo al cantiere</h3>
+          <p>Se lo stato è “Preventivo prep.” si apre il computo. Quando il preventivo è confermato, da qui create il cantiere attivo. Una stima per email: se serve rifarla, usate “Sblocca email”.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block" id="pipeline">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Pipeline</h2>
+        </div>
+        <span class="path">/dashboard/pipeline</span>
+      </div>
+      <p>
+        È la stessa Inbox vista come un tabellone. Le colonne sono gli stati di vendita.
+        Spostare una card non è un gioco: è il modo più veloce per dire “a che punto siamo”.
+      </p>
+      <figure class="shot">
+        <img src="../GB_CONSTRUCTION_SCREENSHOTS_PRESENTAZIONE/13_dashboard_pipeline_funnel.png" alt="Vista Kanban della pipeline commerciale" />
+        <figcaption>Ogni colonna ha un valore. In un colpo d’occhio sapete quanto lavoro è in trattativa.</figcaption>
+      </figure>
+      <div class="pipeline">
+        <div class="pipe"><span class="dot" style="background:#38bdf8"></span><div><strong>Nuovo</strong><span>Appena arrivato. Da chiamare oggi.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:#22d3ee"></span><div><strong>Qualificato</strong><span>Ha senso. Serve sopralluogo o approfondimento.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:#a78bfa"></span><div><strong>Sopralluogo fissato</strong><span>Lo slot è prenotato. Si aggiorna da solo se il cliente prenota dal sito.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:#818cf8"></span><div><strong>Sopralluogo fatto</strong><span>Segnate “completato” dal calendario: la colonna si sposta da sola.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:#fbbf24"></span><div><strong>Preventivo prep.</strong><span>State costruendo il computo. Dalla scheda parte “Prepara preventivo”.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:#facc15"></span><div><strong>Preventivo inviato</strong><span>Il PDF è partito. Contate i giorni di silenzio.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:#fb923c"></span><div><strong>Follow-up</strong><span>Serve un richiamo preciso, non un “poi si vede”.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:#fb7185"></span><div><strong>In trattativa</strong><span>Si sta decidendo. Tenete la prossima azione in vista.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:#34d399"></span><div><strong>Chiuso vinto</strong><span>Contratto, invito al portale e poi cantiere dal preventivo.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:#f87171"></span><div><strong>Chiuso perso</strong><span>Si archivia, con il motivo. Serve a migliorare.</span></div></div>
+      </div>
+    </section>
+
+    <section class="block" id="sopralluoghi">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Sopralluoghi</h2>
+        </div>
+        <span class="path">/dashboard/sopralluoghi</span>
+      </div>
+      <p>
+        Qui gestite le fasce orarie disponibili e gli appuntamenti già prenotati.
+        Il cliente prenota da solo dal sito, se lo slot è aperto. La prenotazione sposta
+        il lead in “Sopralluogo fissato”.
+      </p>
+      <div class="split">
+        <div class="do">
+          <h4>Cosa fai qui</h4>
+          <ol>
+            <li>Aggiungi gli slot liberi: giorno, ora inizio, ora fine, tecnico.</li>
+            <li>Togli quelli già coperti o non più validi.</li>
+            <li>Apri l’appuntamento: cliente, indirizzo e Maps.</li>
+            <li>A fine visita premi “completato”: la pipeline passa a “Sopralluogo fatto”.</li>
+          </ol>
+        </div>
+        <div class="tip">
+          <h4>Google Calendar</h4>
+          <ul>
+            <li>Se è collegato, vedete il bollino verde e potete sincronizzare l’agenda.</li>
+            <li>Se è da autorizzare, il bollino è giallo: gli slot restano sul sito, ma non in Google.</li>
+            <li>Mantenete sempre 3–5 slot visibili nei prossimi 10 giorni.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="preventivi">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Preventivi</h2>
+        </div>
+        <span class="path">/dashboard/preventivi</span>
+      </div>
+      <p>
+        Elenco di tutte le offerte. Vedete chi ha ricevuto il PDF, da quanti giorni c’è silenzio
+        e se si può passare al contratto. Il pulsante <b>+ Nuovo preventivo</b> serve per chi
+        chiama o passa in ufficio: create lead e stima senza far passare dal sito.
+      </p>
+      <div class="card-grid">
+        <article class="card">
+          <span class="who">Ciclo del documento</span>
+          <h3>Bozza → inviato → esito</h3>
+          <p>Bozza modificabile finché il computo non è confermato. Poi: Inviato (email con PDF), Accettato, Rifiutato o Scaduto. Ogni passaggio resta nello storico.</p>
+        </article>
+        <article class="card">
+          <span class="who">Passo successivo</span>
+          <h3>Contratto</h3>
+          <p>Si apre solo se il computo è confermato e il preventivo non è rifiutato o scaduto. Da lì: sezioni, rate, invito, verifica, pubblica e firma.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block" id="prezzario">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Prezzario</h2>
+        </div>
+        <span class="path">/dashboard/prezzario</span>
+      </div>
+      <p>
+        È il listino interno: listini Campania di sistema e listini personalizzati del tenant.
+        Tutti i computi pescano da qui. Se il prezzo è sbagliato, sarà sbagliato anche il preventivo.
+      </p>
+      <div class="split">
+        <div class="do">
+          <h4>Cosa fai qui</h4>
+          <ul>
+            <li>Cerchi una voce per codice o descrizione.</li>
+            <li>Duplici un listino e lo imposti come predefinito.</li>
+            <li>Su un listino vostro (non di sistema) titolare e admin modificano o aggiungono voci.</li>
+            <li>Potete ripristinare le voci o aprire il wizard per costruire un listino nuovo.</li>
+          </ul>
+        </div>
+        <div class="tip">
+          <h4>Attenzione</h4>
+          <ul>
+            <li>Il listino di sistema non si modifica: si duplica.</li>
+            <li>Per un’offerta speciale, meglio una variante sul singolo computo.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="computi">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Computi</h2>
+        </div>
+        <span class="path">/dashboard/computi</span>
+      </div>
+      <p>
+        Qui si costruisce il documento vero del lavoro: voci, quantità, prezzi, sconto, IVA.
+        Si può partire da zero, dal lead, o importando un file già fatto.
+      </p>
+      <div class="card-grid">
+        <article class="card">
+          <span class="who">Uso quotidiano</span>
+          <h3>Editor del computo</h3>
+          <p>Aprite il computo, sistemate le righe, collegate il prezzario e generate il preventivo automaticamente.</p>
+        </article>
+        <article class="card">
+          <span class="who">Se arriva un file esterno</span>
+          <h3>Import</h3>
+          <p>Caricate il computo, lo agganciate a lead o cantiere, scegliete il listino e il sistema lo porta nel vostro formato.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block" id="cantieri">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Cantieri attivi</h2>
+        </div>
+        <span class="path">/dashboard/cantieri</span>
+      </div>
+      <p>
+        Quando un lavoro è vinto, smette di vivere solo in Pipeline e diventa un cantiere.
+        Il modo pulito è crearlo dalla scheda lead, dal preventivo confermato.
+        Qui vedete avanzamento, fasi, capocantiere, criticità e valore.
+        Filtrate per Attivi, In pausa, Completati. Dalla card potete anche mandare un WhatsApp o una foto veloce.
+      </p>
+      <figure class="shot">
+        <img src="../GB_CONSTRUCTION_SCREENSHOTS_PRESENTAZIONE/14_dashboard_cantieri_attivi.png" alt="Elenco cantieri attivi con avanzamento e fasi" />
+        <figcaption>Ogni card è un lavoro in corso: percentuale, fase, responsabile e segnali di attenzione.</figcaption>
+      </figure>
+      <p>Aprendo un cantiere trovate quattro stanze.</p>
+      <div class="card-grid">
+        <article class="card">
+          <h3>Panoramica</h3>
+          <p>Dati del lavoro, stato (attivo, in pausa, completato), avanzamento e fasi: demolizioni, impianti, massetti, pavimenti, finiture, consegna.</p>
+        </article>
+        <article class="card">
+          <h3>Presenze</h3>
+          <p>Chi è stato in cantiere e in quali giorni. Serve a costi, controllo e SAL.</p>
+        </article>
+        <article class="card">
+          <h3>Squadra</h3>
+          <p>Assegnate persone e ditte a quel lavoro. È il ponte con la sezione Personale.</p>
+        </article>
+        <article class="card">
+          <h3>Documenti e cliente</h3>
+          <p>Archivio file, condivisione con il committente e invito all’area riservata.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block" id="personale">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Personale</h2>
+        </div>
+        <span class="path">/dashboard/personale</span>
+      </div>
+      <p>
+        Anagrafica operativa: interni e subappaltatori. Non è l’ufficio paghe. È il “chi può andare dove”.
+        Creare o modificare le anagrafiche è per titolare e admin. Lo staff le vede e le assegna ai cantieri.
+      </p>
+      <div class="split">
+        <div class="do">
+          <h4>Cosa fai qui</h4>
+          <ul>
+            <li>Inserisci una persona o una squadra: interno o subappaltatore.</li>
+            <li>Segni ruolo, recapito, eventuale fornitore, costo orario o giornaliero.</li>
+            <li>La assegni a uno o più cantieri, con date.</li>
+            <li>Controlli la sintesi delle presenze e scrivi su WhatsApp dal recapito salvato.</li>
+          </ul>
+        </div>
+        <div class="tip">
+          <h4>Perché serve</h4>
+          <ul>
+            <li>Senza anagrafica, le presenze del cantiere non tornano.</li>
+            <li>Senza costo, Economics e margini restano al buio.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="sal">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>SAL</h2>
+        </div>
+        <span class="path">/dashboard/sal</span>
+      </div>
+      <p>
+        Lo Stato Avanzamento Lavori. Traduce misure e computo in un documento da far vedere
+        e, quando è il caso, da far pagare.
+      </p>
+      <div class="card-grid">
+        <article class="card">
+          <span class="who">Flusso</span>
+          <h3>Bozza → emesso → approvato</h3>
+          <p>Si crea il SAL del periodo, si controllano le righe, si emette, si scarica il PDF e si segna approvato. Solo i SAL approvati arrivano al committente.</p>
+        </article>
+        <article class="card">
+          <span class="who">Da dove arrivano le quantità</span>
+          <h3>Campo e computo</h3>
+          <p>Le misure prese in cantiere alimentano le voci. Per questo Campo e SAL vanno usati insieme, non a fine mese a memoria.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block" id="economics">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Economics</h2>
+        </div>
+        <span class="path">/dashboard/economics · solo titolare</span>
+      </div>
+      <p>
+        Il quadro economico dell’impresa. Non è la vendita: è il soldo vero.
+        visibile solo ad admin e owner.
+      </p>
+      <div class="card-grid">
+        <article class="card"><h3>Quadro e pagamenti</h3><p>Margini, salute dei lavori e cosa deve entrare.</p></article>
+        <article class="card"><h3>Spese e incassi</h3><p>Uscite registrate e soldi già entrati.</p></article>
+        <article class="card"><h3>Scadenze</h3><p>Date da non far passare: ritardi in evidenza.</p></article>
+        <article class="card"><h3>Fornitori, costi fissi, subappalti</h3><p>La struttura di costo intorno ai cantieri.</p></article>
+      </div>
+    </section>
+
+    <section class="block" id="campo">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard / telefono</p>
+          <h2>Campo</h2>
+        </div>
+        <span class="path">/campo</span>
+      </div>
+      <p>
+        È l’app di cantiere dentro il portale. Si usa dal telefono, anche offline.
+        Ha due stanze: <b>Primo rilievo</b> e <b>Libretto di misura</b>.
+        Non mandate più i lavori su WhatsApp.
+      </p>
+      <div class="split">
+        <div class="do">
+          <h4>Primo rilievo</h4>
+          <ol>
+            <li>Collegalo al lead o al sopralluogo.</li>
+            <li>Aggiungi gli ambienti: soggiorno, cucina, camera, bagno…</li>
+            <li>Prendi quote, disegna la tavola, scatta e annota le foto.</li>
+            <li>Se manca rete, resta sul telefono e parte da solo al segnale.</li>
+          </ol>
+        </div>
+        <div class="tip">
+          <h4>Libretto di misura</h4>
+          <ul>
+            <li>Scegli il cantiere e la voce di computo.</li>
+            <li>Inserisci quantità, parti, lunghezza, larghezza, altezza.</li>
+            <li>Allega le foto della lavorazione.</li>
+            <li>Queste misure alimentano il SAL. Se il libretto è vuoto, il SAL si fa al buio.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="ai-staff">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>AI Architect, lato staff</h2>
+        </div>
+        <span class="path">/dashboard/ai-architect</span>
+      </div>
+      <p>
+        Qui arriva la coda delle richieste render da €300 e, se serve, partite voi un elaborato interno.
+        L’AI non gira più da sola sul sito pubblico: parte solo quando lo staff la avvia.
+      </p>
+      <figure class="shot">
+        <img src="../GB_CONSTRUCTION_SCREENSHOTS_PRESENTAZIONE/15_dashboard_ai_architect_review.png" alt="Pannello staff di revisione AI Architect" />
+        <figcaption>La home della sezione si apre sulle richieste clienti. Poi si lavora, si approva e si consegna.</figcaption>
+      </figure>
+      <div class="split">
+        <div class="do">
+          <h4>Le linguette che userete</h4>
+          <ul>
+            <li><b>Richieste clienti:</b> materiale inviato dal sito, ancora da confermare e da avviare.</li>
+            <li><b>Nuovo:</b> caricate voi una planimetria per un lavoro interno o un sopralluogo.</li>
+            <li><b>Da approvare / In lavorazione / Da confermare / Completati:</b> il ciclo dopo che avete avviato la lavorazione.</li>
+            <li>Su un render potete chiedere un ritocco a parole, anche selezionando l’area da correggere.</li>
+          </ul>
+        </div>
+        <div class="tip">
+          <h4>Ordine giusto</h4>
+          <ol>
+            <li>Aprite la richiesta e controllate planimetria, ambienti e note.</li>
+            <li>Chiamate il cliente e confermate i 300€.</li>
+            <li>Avviate la lavorazione, revisionate il concept, poi i render.</li>
+            <li>Mandate i file al committente. Non sono un progetto esecutivo: restano un’anteprima.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="report">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Report</h2>
+        </div>
+        <span class="path">/dashboard/report · admin</span>
+      </div>
+      <p>
+        I numeri del motore commerciale, visibili solo all’admin.
+        Scegliete il periodo: 30 giorni, 90 giorni, 6 mesi, 12 mesi o tutto.
+      </p>
+      <div class="card-grid">
+        <article class="card">
+          <span class="who">Cosa vedete</span>
+          <h3>Otto indicatori</h3>
+          <p>Lead ricevuti, qualificati, sopralluoghi, preventivi, contratti chiusi, tasso di conversione, valore pipeline e valore chiuso. Poi grafici di andamento, funnel, città e motivi di perdita.</p>
+        </article>
+        <article class="card">
+          <span class="who">Insight</span>
+          <h3>Lettura assistita</h3>
+          <p>Il pulsante genera un commento sull’andamento. Aiuta a vedere un pattern, non sostituisce il vostro giudizio. Se i lead ci sono ma non si chiudono, il problema è in trattativa, non nel sito.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="block" id="impostazioni">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Dashboard</p>
+          <h2>Impostazioni</h2>
+        </div>
+        <span class="path">/dashboard/impostazioni · admin</span>
+      </div>
+      <p>Il quadro di controllo. Si tocca di rado, e con attenzione.</p>
+      <table>
+        <thead>
+          <tr><th>Scheda</th><th>A cosa serve</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Azienda</strong></td><td>Dati anagrafici, sede, recapiti visibili nei documenti.</td></tr>
+          <tr><td><strong>Staff</strong></td><td>Creare utenti con ruolo Staff, Operations o Admin. Togliere accessi a chi non lavora più con voi.</td></tr>
+          <tr><td><strong>Meta Ads</strong></td><td>Stato del collegamento con Facebook/Instagram e recupero lead non arrivati.</td></tr>
+          <tr><td><strong>Motore predittivo</strong></td><td>Coefficienti con cui il sito stima i tre pacchetti. Cambiateli solo dopo una verifica sui prezzi veri.</td></tr>
+          <tr><td><strong>Voci standard</strong></td><td>Catalogo delle lavorazioni usate dal motore di stima.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="block" id="portale">
+      <div class="section-head">
+        <div>
+          <p class="kicker">Committente</p>
+          <h2>Area riservata del cliente</h2>
+        </div>
+        <span class="path">/portal</span>
+      </div>
+      <p>
+        Il committente non deve inseguirvi su WhatsApp per un PDF.
+        Entra in <b>/portal</b> dopo l’invito. Ci sono due momenti, non uno solo.
+      </p>
+      <div class="card-grid">
+        <article class="card">
+          <span class="who">1. Dopo il preventivo</span>
+          <h3>Scelta del pagamento</h3>
+          <p>Dalla scheda lead mandate l’email di accesso. Il cliente scarica il PDF e sceglie: pagamento a SAL, scaglionato o in due tranche. Quando il contratto esce dalla bozza, la scelta si blocca.</p>
+        </article>
+        <article class="card">
+          <span class="who">2. Dopo il cantiere</span>
+          <h3>Lavori e documenti</h3>
+          <p>Dalla scheda cantiere, sezione Documenti e cliente, invitate di nuovo se serve. Vede avanzamento, foto, fascicolo, SAL approvati e varianti da firmare.</p>
+        </article>
+      </div>
+      <div class="split">
+        <div class="do">
+          <h4>Cosa può fare il committente</h4>
+          <ul>
+            <li>Scaricare preventivo, contratto, SAL, fatture, ricevute.</li>
+            <li>Se un atto è “da firmare”, scarica l’originale e ricarica la copia sottoscritta.</li>
+            <li>Approvare una variante in modo tracciato.</li>
+            <li>Caricare un bonifico o una distinta.</li>
+          </ul>
+        </div>
+        <div class="tip">
+          <h4>Come si invita</h4>
+          <ul>
+            <li>Prima: scheda lead → Area personale cliente → Invia email di accesso.</li>
+            <li>Poi: cantiere → Documenti e cliente → nome, email, condividi solo i file giusti.</li>
+            <li>Il primo accesso passa dal link e da <b>/set-password</b>.</li>
+            <li>Diteli che da quel momento i documenti ufficiali passano da lì.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="percorso">
+      <p class="kicker">Filo conduttore</p>
+      <h2>Dal primo clic alle chiavi</h2>
+      <p>Se una pratica si perde, di solito si è saltato uno di questi passaggi.</p>
+      <div class="pipeline">
+        <div class="pipe"><span class="dot" style="background:var(--brand)"></span><div><strong>1. Arrivo</strong><span>Configuratore, dettagli (si possono saltare), contatto. Nasce il lead in Inbox con la stima. Origine: Landing, Meta, Callback o AI Architect.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:var(--brand)"></span><div><strong>2. Contatto</strong><span>Lo staff chiama, scrive una nota, qualifica. Se ha chiesto i render da 300€, confermate il servizio. Se prenota, lo stato va da solo su “Sopralluogo fissato”.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:var(--brand)"></span><div><strong>3. Sopralluogo</strong><span>Si va in casa con Campo: primo rilievo, foto, quote. A fine visita: “completato”. Poi si apre il computo.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:var(--gold)"></span><div><strong>4. Offerta</strong><span>Confermate il computo, inviate il preventivo, mandate l’accesso al portale. Il cliente sceglie come pagare e scarica il PDF.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:var(--gold)"></span><div><strong>5. Contratto e cantiere</strong><span>Contratto dal preventivo confermato. Cantiere dalla scheda lead. Squadra, documenti, secondo invito al portale se serve.</span></div></div>
+        <div class="pipe"><span class="dot" style="background:var(--success)"></span><div><strong>6. Esecuzione</strong><span>Libretto di misura, presenze, foto, SAL (bozza → emesso → approvato), pagamenti, varianti. Poi chiusura e archivio.</span></div></div>
+      </div>
+    </section>
+
+    <section class="block faq" id="faq">
+      <p class="kicker">Supporto</p>
+      <h2>Domande che arriveranno</h2>
+
+      <details open>
+        <summary>Un lead è arrivato due volte.</summary>
+        <p>Il sistema tiene una stima per email. Se ne vedete due, aprite entrambi, tenete quello più completo e chiudete l’altro come perso con nota “duplicato”. Per rifare una stima sulla stessa email, usate “Sblocca email” sulla scheda.</p>
+      </details>
+      <details open>
+        <summary>Il cliente dice di aver mandato la richiesta ma non la vedo.</summary>
+        <p>Controllate Inbox senza filtri e la ricerca per telefono o email. Provate anche il filtro origini: Landing, Meta Ads, Callback, AI Architect. Se arriva da Facebook, andate in Impostazioni → Meta Ads e ritentate gli eventi falliti.</p>
+      </details>
+      <details open>
+        <summary>Il cliente ha chiesto i render ma non vede nulla sul sito.</summary>
+        <p>È normale. I render non si generano da soli in pagina. Arrivano in AI Architect come “Richiesta cliente · 300€”. Voi confermate pagamento e tempi, lavorate, poi consegnate i file.</p>
+      </details>
+      <details open>
+        <summary>Campo non invia le foto.</summary>
+        <p>Spesso è la rete. Lasciate l’app aperta un minuto in zona con segnale: la coda parte da sola. Non rifate dieci volte lo stesso invio.</p>
+      </details>
+      <details open>
+        <summary>Il committente non riesce a entrare nel portale.</summary>
+        <p>Prima del cantiere l’invito parte dalla scheda lead. Dopo, anche da Documenti e cliente. Deve usare l’email giusta e impostare la password da /set-password. Se il link è scaduto, si rimanda.</p>
+      </details>
+      <details open>
+        <summary>Non riesco a generare il contratto.</summary>
+        <p>Serve un preventivo EdilOS con computo confermato, non rifiutato e non scaduto. Aprite il computo, confermatelo, poi tornate su Preventivi e usate “Contratto”.</p>
+      </details>
+      <details open>
+        <summary>Posso cancellare un cantiere?</summary>
+        <p>Sì, ma solo se siete sicuri. Un cantiere cancellato porta via il filo con documenti e misure. In dubbio, mettetelo in pausa o completato.</p>
+      </details>
+      <details open>
+        <summary>Chi chiamo se qualcosa non torna?</summary>
+        <p>Prima annotate schermata, orario e cosa stavate facendo. Poi scrivete al supporto che vi abbiamo indicato in consegna. Così si sistema in minuti, non in giorni.</p>
+      </details>
+    </section>
+
+    <p class="footer-note">
+      GB Construction — Manuale operativo del portale. Documento pensato per titolare e staff.
+      Aggiornato ad agosto 2026. Per stamparlo: dal browser scegliete Stampa e poi “Salva come PDF”.
+    </p>
+  </main>
+
+  <script>
+    const toggle = document.querySelector("[data-nav-toggle]");
+    const links = [...document.querySelectorAll(".sidebar nav a")];
+
+    toggle?.addEventListener("click", () => {
+      document.body.classList.toggle("nav-open");
+      toggle.textContent = document.body.classList.contains("nav-open") ? "Chiudi" : "Indice";
+    });
+
+    links.forEach((link) => {
+      link.addEventListener("click", () => {
+        document.body.classList.remove("nav-open");
+        if (toggle) toggle.textContent = "Indice";
+      });
+    });
+
+    const map = links
+      .map((link) => {
+        const id = link.getAttribute("href")?.slice(1);
+        return { link, el: id ? document.getElementById(id) : null };
+      })
+      .filter((item) => item.el);
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!visible) return;
+        links.forEach((link) => link.classList.toggle("active", link.getAttribute("href") === `#${visible.target.id}`));
+      },
+      { rootMargin: "-20% 0px -65% 0px", threshold: [0.1, 0.25] }
+    );
+
+    map.forEach((item) => observer.observe(item.el));
+  </script>
+</body>
+</html>

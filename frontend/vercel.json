@@ -29,6 +29,14 @@
   ],
   "rewrites": [
     {
+      "source": "/manuale",
+      "destination": "/manuale/index.html"
+    },
+    {
+      "source": "/manuale/",
+      "destination": "/manuale/index.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

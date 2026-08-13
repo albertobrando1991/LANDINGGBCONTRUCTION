@@ -38,6 +38,8 @@ import {
 import client from "@/lib/api";
 import { LEAD_AUTO_REFRESH_MS } from "@/lib/leadSync";
 import { prefetchComputi } from "@/lib/computiPrefetch";
+import BrandMark from "@/brand/BrandMark";
+import { brand } from "@/brand/identity";
 
 const NAV = [
   { to: "/dashboard", label: "Oggi", Icon: Home, end: true },
@@ -90,14 +92,12 @@ function SidebarContent({ user, onNav, onComputiIntent }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-16 shrink-0 items-center gap-3 border-b border-stroke px-6 pr-16">
-        <div className="w-9 h-9 rounded-full p-[2px] accent-metallic">
-          <div className="w-full h-full rounded-full bg-bg flex items-center justify-center font-display font-bold text-sm text-ink">
-            GB
-          </div>
-        </div>
-        <span className="font-display font-bold uppercase text-ink">
-          Construction
-        </span>
+        <BrandMark
+          size="sm"
+          showName
+          name={brand.sidebarName}
+          nameClassName="font-display font-bold uppercase text-ink"
+        />
       </div>
       <nav
         className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-4"
@@ -147,6 +147,12 @@ function SidebarContent({ user, onNav, onComputiIntent }) {
             </div>
           </div>
         </div>
+        <a
+          href="/manuale"
+          className="mt-1 flex min-h-11 items-center justify-center rounded-xl px-3 font-display text-[10px] uppercase tracking-wider text-fog transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          Manuale
+        </a>
       </div>
     </div>
   );

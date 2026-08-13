@@ -8,8 +8,10 @@ import {
 } from "lucide-react";
 import HlsVideo from "@/components/HlsVideo";
 import { ASSETS, WHATSAPP } from "@/lib/assets";
+import BrandMark from "@/brand/BrandMark";
+import { brand } from "@/brand/identity";
 
-const MARQUEE = "COSTRUIAMO VALORE · TRASFORMIAMO SPAZI · ";
+const MARQUEE = `${brand.tagline.replace(/\./g, "").toUpperCase()} · `;
 
 export default function Footer() {
   return (
@@ -36,23 +38,17 @@ export default function Footer() {
 
       <div className="relative max-w-7xl mx-auto px-6 grid grid-cols-1 md:grid-cols-4 gap-10">
         <div>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-11 h-11 rounded-full p-[2px] accent-metallic">
-              <div className="w-full h-full rounded-full bg-bg flex items-center justify-center font-display font-bold text-ink">
-                GB
-              </div>
-            </div>
-            <span className="font-display font-bold uppercase text-lg text-ink">
-              GB Construction
-            </span>
-          </div>
+          <BrandMark
+            size="md"
+            showName
+            name={brand.name}
+            className="mb-4"
+            nameClassName="font-display font-bold uppercase text-lg text-ink"
+          />
           <p className="font-display uppercase tracking-[0.2em] text-xs text-brand mb-3">
-            Costruiamo valore. Trasformiamo spazi.
+            {brand.tagline}
           </p>
-          <p className="font-body text-sm text-fog">
-            Impresa di ristrutturazioni chiavi in mano a Napoli e in tutta la
-            Campania. Oltre 200 cantieri completati in 15 anni.
-          </p>
+          <p className="font-body text-sm text-fog">{brand.description}</p>
         </div>
 
         <div>
@@ -174,6 +170,10 @@ export default function Footer() {
           ·{" "}
           <a href="/cookie-policy" className="underline hover:text-ink">
             Cookie
+          </a>{" "}
+          ·{" "}
+          <a href="/manuale" className="underline hover:text-ink">
+            Manuale
           </a>
         </div>
       </div>
