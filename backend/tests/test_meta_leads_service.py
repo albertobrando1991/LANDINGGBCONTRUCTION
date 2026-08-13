@@ -138,7 +138,16 @@ def test_build_meta_lead_doc_maps_standard_and_italian_fields():
     assert doc["owner"] == "Vincenzo Brancale"
     assert doc["external_ids"]["meta_leadgen_id"] == "lead-123"
     assert doc["meta"]["campaign_name"] == "Ristrutturazione Napoli"
+    assert doc["meta"]["created_time"] == "2026-06-01T08:00:00+00:00"
+    assert doc["lead_created_at"] == "2026-06-01T08:00:00+00:00"
     assert doc["sla_due_at"].startswith("2026-06-01T08:15:00")
+
+
+def test_parse_meta_created_at_accetta_offset_senza_due_punti():
+    assert (
+        meta.parse_meta_created_at("2026-07-03T10:07:56+0000")
+        == "2026-07-03T10:07:56+00:00"
+    )
 
 
 def test_build_meta_lead_doc_maps_qualified_meta_instant_form_fields():

@@ -291,6 +291,9 @@ def parse_meta_created_at(value: Any) -> str:
     text = str(value).strip()
     if text.isdigit():
         return datetime.fromtimestamp(int(text), tz=timezone.utc).isoformat()
+    # Meta usa anche offset ISO senza i due punti (es. +0000). Python 3.10
+    # non li accetta sempre con fromisoformat, quindi normalizziamo a +00:00.
+    text = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", text)
     try:
         return datetime.fromisoformat(text.replace("Z", "+00:00")).isoformat()
     except ValueError:
@@ -401,6 +404,7 @@ def build_meta_lead_doc(
 
     meta = {
         "leadgen_id": leadgen_id,
+        "created_time": created_at,
         "form_id": clean_text(graph_lead.get("form_id") or event.get("form_id")),
         "page_id": clean_text(graph_lead.get("page_id") or event.get("page_id")),
         "ad_id": clean_text(graph_lead.get("ad_id") or event.get("ad_id")),
@@ -530,6 +534,7 @@ async def create_or_merge_meta_lead(
     set_fields: Dict[str, Any] = {
         "external_ids.meta_leadgen_id": doc["external_ids"]["meta_leadgen_id"],
         "meta": doc["meta"],
+        "lead_created_at": doc["lead_created_at"],
         "updated_at": now_iso(),
     }
     if not existing.get("owner") and doc.get("owner"):

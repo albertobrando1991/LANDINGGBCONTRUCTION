@@ -16,12 +16,41 @@ def test_data_meta_prevale_sul_fallback_created_at():
     lead = server._serialize_lead(
         {
             "_id": "lead-meta",
+            "origine": "meta_ads",
             "lead_created_at": "2026-08-13T09:30:00+00:00",
             "created_at": "2026-08-13T09:31:00+00:00",
         }
     )
 
     assert lead["data_arrivo"] == "2026-08-13T09:30:00+00:00"
+
+
+def test_data_meta_interna_prevale_sulla_data_di_importazione():
+    lead = server._serialize_lead(
+        {
+            "_id": "lead-meta-importato",
+            "origine": "meta_ads",
+            "meta": {"created_time": "2026-05-15T22:10:58+00:00"},
+            "lead_created_at": "2026-08-13T10:00:00+00:00",
+            "created_at": "2026-08-13T10:00:00+00:00",
+        }
+    )
+
+    assert lead["data_arrivo"] == "2026-05-15T22:10:58+00:00"
+
+
+def test_data_landing_usa_la_ricezione_app_anche_se_esiste_un_timestamp_meta():
+    lead = server._serialize_lead(
+        {
+            "_id": "lead-landing",
+            "origine": "landing",
+            "meta": {"created_time": "2026-05-15T22:10:58+00:00"},
+            "lead_created_at": "2026-05-15T22:10:58+00:00",
+            "created_at": "2026-08-12T09:45:00+00:00",
+        }
+    )
+
+    assert lead["data_arrivo"] == "2026-08-12T09:45:00+00:00"
 
 
 def test_ordinamento_per_arrivo_e_indipendente_dallo_stato():
