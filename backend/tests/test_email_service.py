@@ -198,6 +198,49 @@ def test_invito_preventivo_usa_mittente_e_layout_gb(monkeypatch):
     assert "token=secret&amp;x=1" in html_body
 
 
+def test_invito_contratto_usa_oggetto_testo_e_pulsante_specifici(monkeypatch):
+    _clear_resend(monkeypatch)
+    sent_messages = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None, context=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def login(self, username, password):
+            pass
+
+        def send_message(self, message):
+            sent_messages.append(message)
+
+    monkeypatch.setenv("SMTP_HOST", "mail.gbconstruction.it")
+    monkeypatch.setenv("SMTP_PORT", "465")
+    monkeypatch.setenv("SMTP_USERNAME", "info@gbconstruction.it")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+    monkeypatch.setenv("MAIL_FROM_EMAIL", "info@gbconstruction.it")
+    monkeypatch.setattr(email_service.smtplib, "SMTP_SSL", FakeSMTP)
+
+    email_service.send_client_portal_invite(
+        to_email="cliente@example.com",
+        nome="Mario Rossi",
+        action_url="https://app.gbconstruction.it/portal",
+        context="contratto",
+    )
+
+    message = sent_messages[0]
+    assert message["Subject"] == "Il tuo contratto GB Construction è pronto"
+    text_body = message.get_body(preferencelist=("plain",)).get_content()
+    html_body = message.get_body(preferencelist=("html",)).get_content()
+    assert "contratto è stato validato" in text_body
+    assert "Apri il contratto" in html_body
+    assert "preventivo" not in message["Subject"].lower()
+
+
 def test_recupero_password_usa_mittente_e_layout_gb(monkeypatch):
     _clear_resend(monkeypatch)
     sent_messages = []

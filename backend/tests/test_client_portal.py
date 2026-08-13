@@ -415,6 +415,50 @@ def test_nuovo_cliente_viene_inserito_senza_permesso_update(monkeypatch):
     assert "do update" not in membership_sql
 
 
+def test_contratto_pubblicato_invia_email_con_contesto_contratto(monkeypatch):
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [
+        {
+            "id": "40000000-0000-4000-8000-000000000001",
+            "cliente_nome": "Cliente Test",
+            "cliente_email": "cliente@example.com",
+            "contratto_stato": "pubblicato",
+        },
+        {
+            "tenant_id": TENANT_ID,
+            "preventivo_id": "40000000-0000-4000-8000-000000000001",
+            "user_id": USER_ID,
+            "email": "cliente@example.com",
+            "attivo": True,
+        },
+    ]
+    conn.fetchval.return_value = "client"
+    captured = {}
+
+    def fake_find_or_invite(email, nome=None, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(id=USER_ID, email=email), False
+
+    monkeypatch.setattr(
+        contract_workflow_service,
+        "find_or_invite_user",
+        fake_find_or_invite,
+    )
+
+    result = asyncio.run(
+        contract_workflow_service.invite_preventivo_client(
+            conn,
+            TENANT_ID,
+            "40000000-0000-4000-8000-000000000001",
+            email="cliente@example.com",
+            nome="Cliente Test",
+        )
+    )
+
+    assert captured["context"] == "contratto"
+    assert result["email_context"] == "contratto"
+
+
 def test_policy_staff_consente_soltanto_inserimento_ruolo_client():
     migration = (
         Path(__file__).parents[2]

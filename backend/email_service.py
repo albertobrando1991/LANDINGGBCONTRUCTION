@@ -592,20 +592,27 @@ def send_client_portal_invite(
         raise RuntimeError("Link di accesso mancante")
 
     customer_name = (nome or "").strip() or "Cliente"
-    is_preventivo = context == "preventivo"
-    subject = (
-        "Il tuo preventivo GB Construction è pronto"
-        if is_preventivo
-        else "Accesso alla tua area riservata GB Construction"
-    )
-    intro = (
-        "Il tuo preventivo è disponibile nell'area riservata GB Construction. "
-        "Potrai consultarlo, accettarlo e scegliere la modalità di pagamento."
-        if is_preventivo
-        else "La tua area riservata GB Construction è disponibile. "
-        "Potrai consultare documenti, avanzamento lavori e comunicazioni condivise."
-    )
-    button_label = "Apri il preventivo" if is_preventivo else "Apri l'area riservata"
+    if context == "preventivo":
+        subject = "Il tuo preventivo GB Construction è pronto"
+        intro = (
+            "Il tuo preventivo è disponibile nell'area riservata GB Construction. "
+            "Potrai consultarlo, accettarlo e scegliere la modalità di pagamento."
+        )
+        button_label = "Apri il preventivo"
+    elif context == "contratto":
+        subject = "Il tuo contratto GB Construction è pronto"
+        intro = (
+            "Il tuo contratto è stato validato ed è disponibile nell'area riservata "
+            "GB Construction. Potrai consultarlo, scaricarlo e completare la firma."
+        )
+        button_label = "Apri il contratto"
+    else:
+        subject = "Accesso alla tua area riservata GB Construction"
+        intro = (
+            "La tua area riservata GB Construction è disponibile. "
+            "Potrai consultare documenti, avanzamento lavori e comunicazioni condivise."
+        )
+        button_label = "Apri l'area riservata"
     safe_url = _safe(action_url)
     text_body = "\n".join(
         [

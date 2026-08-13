@@ -582,12 +582,15 @@ async def _preventivo(
                coalesce(l.citta, cl.citta) as cliente_citta,
                cl.cf as cliente_cf, cl.piva as cliente_piva,
                co.stato as computo_stato, ca.id as cantiere_id,
+               ctr.stato as contratto_stato,
                coalesce(ca.indirizzo, l.indirizzo, cl.indirizzo) as cantiere_indirizzo
         from public.preventivi p
         left join public.leads l on l.id = p.lead_id and l.tenant_id = p.tenant_id
         left join public.clienti cl on cl.id = p.cliente_id and cl.tenant_id = p.tenant_id
         left join public.computi co on co.id = p.computo_id and co.tenant_id = p.tenant_id
         left join public.cantieri ca on ca.id = co.cantiere_id and ca.tenant_id = p.tenant_id
+        left join public.contratti ctr
+          on ctr.preventivo_id = p.id and ctr.tenant_id = p.tenant_id
         where p.tenant_id = $1::uuid and p.id = $2::uuid
         """,
         tenant_id,
@@ -603,8 +606,14 @@ async def invite_preventivo_client(
 ) -> dict:
     preventivo = await _preventivo(conn, tenant_id, preventivo_id)
     normalized = email.strip().lower()
+    email_context = (
+        "contratto"
+        if preventivo.get("contratto_stato")
+        in {"validato", "pubblicato", "firmato"}
+        else "preventivo"
+    )
     user, invited = await asyncio.to_thread(
-        find_or_invite_user, normalized, nome, context="preventivo"
+        find_or_invite_user, normalized, nome, context=email_context
     )
     user_id = str(getattr(user, "id", "") or "")
     if not user_id:
@@ -651,6 +660,7 @@ async def invite_preventivo_client(
     )
     result = _row(row)
     result["invited"] = invited
+    result["email_context"] = email_context
     return result
 
 

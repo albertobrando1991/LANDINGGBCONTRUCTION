@@ -139,9 +139,11 @@ export default function ContractEditor() {
     onSuccess: (response) => {
       refresh();
       toast.success(
-        response.data.invited
-          ? "Invito cliente inviato"
-          : "Accesso cliente collegato ed email inviata",
+        response.data.email_context === "contratto"
+          ? "Email del contratto inviata al cliente"
+          : response.data.invited
+            ? "Invito al preventivo inviato"
+            : "Accesso cliente collegato ed email del preventivo inviata",
       );
     },
     onError: async (error) => toast.error(await extractErrorDetail(error)),
@@ -267,6 +269,9 @@ export default function ContractEditor() {
     ) &&
     Math.abs(totals.difference) < 0.005;
   const isSal = choice?.tipo === "sal";
+  const contractPublished = ["validato", "pubblicato", "firmato"].includes(
+    data?.contratto?.stato,
+  );
 
   return (
     <div className="space-y-6 pb-16">
@@ -305,8 +310,9 @@ export default function ContractEditor() {
             <h2 className="font-display text-xs uppercase">Accesso cliente</h2>
           </div>
           <p className="mt-2 text-xs leading-5 text-fog">
-            Invita il cliente: troverà il preventivo nel portale e dovrà
-            scegliere il pagamento prima della validazione.
+            {contractPublished
+              ? "Invia al cliente l'email del contratto validato, già disponibile e scaricabile nella sua area personale."
+              : "Invita il cliente: troverà il preventivo nel portale e dovrà scegliere il pagamento prima della validazione."}
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <input
@@ -334,7 +340,9 @@ export default function ContractEditor() {
             ) : (
               <MailPlus className="h-4 w-4" />
             )}{" "}
-            Invita o collega
+            {contractPublished
+              ? "Invia contratto al cliente"
+              : "Invita per scelta pagamento"}
           </button>
           {(data?.clienti || []).map((clientItem) => (
             <p
