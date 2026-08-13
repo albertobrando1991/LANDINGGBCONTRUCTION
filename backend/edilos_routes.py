@@ -1991,6 +1991,26 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 user_agent=request.headers.get("user-agent"),
             )
 
+    @api.get("/portal/preventivi/{preventivo_id}/pdf")
+    async def portale_scarica_preventivo(request: Request, preventivo_id: str):
+        user = await _user(request, db)
+        preventivo_uuid = str(tenancy.uuid_or_400(preventivo_id, "Preventivo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            require_client_role(tenant)
+            payload = await contract_workflow_service.portal_quote_pdf_payload(
+                conn, tenant["id"], preventivo_uuid
+            )
+            tenant_pdf = {**tenant, "piva": payload.pop("tenant_piva", None)}
+            pdf = genera_pdf_preventivo(payload, tenant_pdf)
+            filename = str(payload.get("numero") or "preventivo").replace('"', "")
+            return Response(
+                content=pdf,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}.pdf"'
+                },
+            )
+
     @api.post("/portal/documenti", status_code=201)
     async def portale_carica_documento(
         request: Request,
@@ -2052,6 +2072,14 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                         conn, tenant["id"], doc_uuid
                     )
                 )
+            elif document["tipo"] == "preventivo":
+                payload = await contract_workflow_service.portal_quote_pdf_payload(
+                    conn, tenant["id"], str(document["preventivo_id"])
+                )
+                tenant_pdf = {**tenant, "piva": payload.pop("tenant_piva", None)}
+                content = genera_pdf_preventivo(payload, tenant_pdf)
+                mime = "application/pdf"
+                filename = f"{payload.get('numero') or 'preventivo'}.pdf"
             else:
                 payload = await contract_workflow_service.validated_contract_payload(
                     conn, tenant["id"], str(document["preventivo_id"])

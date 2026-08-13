@@ -375,6 +375,24 @@ export default function ClientPortal() {
       toast.error(await extractErrorDetail(error));
     }
   };
+  const downloadQuotePdf = async (quote) => {
+    try {
+      const response = await client.get(
+        `/portal/preventivi/${quote.preventivo_id}/pdf`,
+        { responseType: "blob" },
+      );
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${quote.numero_preventivo || "preventivo"}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      toast.error(await extractErrorDetail(error));
+    }
+  };
   const decideDocument = (item, decisione) => {
     const nome = window.prompt(
       "Inserisci nome e cognome del firmatario",
@@ -476,7 +494,12 @@ export default function ClientPortal() {
           <div className="grid grid-cols-2 gap-5 rounded-2xl border border-stroke bg-surface p-5 sm:grid-cols-4 lg:grid-cols-2">
             <Metric label="Cantieri" value={summary.cantieri} />
             <Metric label="SAL" value={summary.salApprovati} />
-            <Metric label="Documenti" value={assets.documenti.length} />
+            <Metric
+              label="Documenti"
+              value={
+                assets.documenti.length + (data.documenti_cliente || []).length
+              }
+            />
             <Metric
               label="Da approvare"
               value={summary.variantiDaApprovare}
@@ -507,11 +530,20 @@ export default function ClientPortal() {
                       {formatEuro(quote.totale_documento)}
                     </h3>
                   </div>
-                  {quote.scelta_pagamento_tipo && (
-                    <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1.5 text-[10px] uppercase text-emerald-400">
-                      <CheckCircle2 className="h-4 w-4" /> scelta confermata
-                    </span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => downloadQuotePdf(quote)}
+                      className="inline-flex items-center gap-2 rounded-xl border border-brand/60 px-3 py-2 font-display text-[10px] uppercase text-brand transition hover:bg-brand hover:text-white"
+                    >
+                      <Download className="h-4 w-4" /> Scarica preventivo PDF
+                    </button>
+                    {quote.scelta_pagamento_tipo && (
+                      <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1.5 text-[10px] uppercase text-emerald-400">
+                        <CheckCircle2 className="h-4 w-4" /> scelta confermata
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-4 grid gap-3 lg:grid-cols-3">
                   {(data.modalita_pagamento || []).map((option) => {
@@ -567,9 +599,9 @@ export default function ClientPortal() {
             </h2>
           </div>
           <p className="font-body text-sm text-fog">
-            Consulta e scarica contratti, SAL, fatture, contabili, ricevute,
-            extra e verbali. Per gli atti da firmare scarica l'originale e
-            ricarica qui la copia sottoscritta.
+            Consulta e scarica preventivi, contratti, SAL, fatture, contabili,
+            ricevute, extra e verbali. Per gli atti da firmare scarica
+            l'originale e ricarica qui la copia sottoscritta.
           </p>
           <div className="grid gap-3">
             {(data.documenti_cliente || []).map((item) => (

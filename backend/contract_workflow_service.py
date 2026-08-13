@@ -882,10 +882,11 @@ async def choose_payment(
     if tipo not in PAYMENT_METHODS:
         raise HTTPException(status_code=400, detail="Modalità di pagamento non valida")
     total = await conn.fetchval(
-        "select totale_documento from public.portale_preventivi_contratti where tenant_id=$1::uuid and preventivo_id=$2::uuid and user_id=$3::uuid",
+        """select totale_documento
+           from public.portale_preventivi_pdf
+           where tenant_id=$1::uuid and preventivo_id=$2::uuid""",
         tenant_id,
         preventivo_id,
-        user_id,
     )
     if total is None:
         raise HTTPException(
@@ -913,7 +914,13 @@ async def choose_payment(
 
 async def portal_contract_data(conn, tenant_id: str) -> dict:
     quotes = await conn.fetch(
-        "select * from public.portale_preventivi_contratti where tenant_id=$1::uuid order by numero_preventivo desc",
+        """select ppc.*
+           from public.portale_preventivi_contratti ppc
+           join public.portale_preventivi_pdf ppdf
+             on ppdf.tenant_id = ppc.tenant_id
+            and ppdf.preventivo_id = ppc.preventivo_id
+           where ppc.tenant_id=$1::uuid
+           order by ppc.numero_preventivo desc""",
         tenant_id,
     )
     documents = await conn.fetch(
@@ -927,6 +934,30 @@ async def portal_contract_data(conn, tenant_id: str) -> dict:
         "modalita_pagamento": payment_options(),
         "condizioni_generali_pagamento": GENERAL_PAYMENT_TERMS,
     }
+
+
+async def portal_quote_pdf_payload(
+    conn: asyncpg.Connection, tenant_id: str, preventivo_id: str
+) -> dict:
+    """Restituisce il preventivo solo se la view portale lo assegna al client corrente."""
+
+    row = await conn.fetchrow(
+        """
+        select *
+        from public.portale_preventivi_pdf
+        where tenant_id = $1::uuid and preventivo_id = $2::uuid
+        """,
+        tenant_id,
+        preventivo_id,
+    )
+    if not row:
+        raise HTTPException(
+            status_code=404, detail="Preventivo non disponibile nel portale"
+        )
+    payload = _row(row)
+    if isinstance(payload.get("snapshot_voci"), str):
+        payload["snapshot_voci"] = json.loads(payload["snapshot_voci"])
+    return payload
 
 
 async def register_upload(

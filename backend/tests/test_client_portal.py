@@ -44,6 +44,7 @@ def test_route_portale_complete_sono_registrate():
     assert callable(
         _endpoint("/api/portal/preventivi/{preventivo_id}/modalita-pagamento", "PUT")
     )
+    assert callable(_endpoint("/api/portal/preventivi/{preventivo_id}/pdf", "GET"))
     assert callable(_endpoint("/api/portal/documenti", "POST"))
     assert callable(_endpoint("/api/portal/documenti/{documento_id}/download", "GET"))
     assert callable(_endpoint("/api/auth/password-reset/request", "POST"))
@@ -77,6 +78,75 @@ def test_dashboard_assembla_righe_variante_senza_perdere_tenant_filter():
     assert result["pagamenti"][0]["residuo"] == 100
     assert result["documenti_economici"][0]["documento_id"] == "documento-1"
     assert all(call.args[-1] == TENANT_ID for call in conn.fetch.await_args_list)
+
+
+def test_pdf_preventivo_portale_usa_la_view_filtrata_sul_cliente_corrente():
+    preventivo_id = "40000000-0000-4000-8000-000000000001"
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "tenant_id": TENANT_ID,
+        "preventivo_id": preventivo_id,
+        "numero": "PREV-2026-0042",
+        "stato": "inviato",
+        "snapshot_voci": '[{"descrizione":"Lavoro"}]',
+    }
+
+    result = asyncio.run(
+        contract_workflow_service.portal_quote_pdf_payload(
+            conn, TENANT_ID, preventivo_id
+        )
+    )
+
+    assert result["numero"] == "PREV-2026-0042"
+    assert result["snapshot_voci"] == [{"descrizione": "Lavoro"}]
+    query = " ".join(conn.fetchrow.await_args.args[0].lower().split())
+    assert "from public.portale_preventivi_pdf" in query
+    assert "tenant_id = $1::uuid" in query
+    assert "preventivo_id = $2::uuid" in query
+
+
+def test_scelta_pagamento_accetta_solo_preventivi_pubblicati_nel_portale():
+    preventivo_id = "40000000-0000-4000-8000-000000000001"
+    conn = AsyncMock()
+    conn.fetchval.return_value = 11000
+    conn.fetchrow.return_value = {
+        "preventivo_id": preventivo_id,
+        "user_id": USER_ID,
+        "tipo": "due_tranche",
+        "stato": "confermata",
+    }
+
+    asyncio.run(
+        contract_workflow_service.choose_payment(
+            conn,
+            TENANT_ID,
+            preventivo_id,
+            USER_ID,
+            "due_tranche",
+            ip="127.0.0.1",
+            user_agent="pytest",
+        )
+    )
+
+    query = " ".join(conn.fetchval.await_args.args[0].lower().split())
+    assert "from public.portale_preventivi_pdf" in query
+    assert len(conn.fetchval.await_args.args) == 3
+
+
+def test_migrazione_pubblica_preventivi_inviati_nel_fascicolo():
+    migration = (
+        Path(__file__).parents[2]
+        / "supabase"
+        / "migrations"
+        / "20260813121000_publish_sent_quotes_to_client_portal.sql"
+    ).read_text(encoding="utf-8")
+    normalized = " ".join(migration.lower().split())
+
+    assert "'preventivo', 'contratto', 'sal'" in normalized
+    assert "create trigger preventivi_pubblica_documento_cliente" in normalized
+    assert "where p.stato <> 'bozza'" in normalized
+    assert "create or replace view public.portale_preventivi_pdf" in normalized
+    assert "pc.user_id = (select auth.uid())" in normalized
 
 
 def test_approvazione_e_idempotente_e_conserva_audit():
