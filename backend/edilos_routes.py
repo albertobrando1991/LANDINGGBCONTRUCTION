@@ -43,6 +43,7 @@ import contract_workflow_service
 import db as db_pg
 import email_service
 import economics_service
+import google_calendar_service
 import lead_bridge
 import libretto_service
 import mapping_engine
@@ -214,6 +215,10 @@ class CronoprogrammaBody(BaseModel):
 class PreventivoBody(BaseModel):
     sconto: float = 0
     iva: float = 10
+
+
+class CantiereDaPreventivoBody(BaseModel):
+    preventivo_id: UUID
 
 
 class PreventivoStatoBody(BaseModel):
@@ -1171,6 +1176,194 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 conn, db, tenant["id"], preventivo.get("lead_id")
             )
             return preventivo
+
+    @api.post("/computi/{computo_id}/riapri")
+    async def riapri_computo(request: Request, computo_id: str):
+        user = await _user(request, db)
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            if tenant.get("role") not in {"owner", "admin", "staff", "operations"}:
+                raise HTTPException(status_code=403, detail="Permessi insufficienti")
+            result = await boq_service.riapri_computo_preventivo(
+                conn,
+                tenant["id"],
+                computo_id,
+                autore=actor_name(user),
+            )
+            await _sync_legacy_lead_safely(
+                conn, db, tenant["id"], result.get("lead_id")
+            )
+            return result
+
+    @api.get("/leads/{lead_id}/commerciale")
+    async def riepilogo_commerciale(request: Request, lead_id: str):
+        user = await _user(request, db)
+        if not ObjectId.is_valid(lead_id):
+            raise HTTPException(status_code=400, detail="ID lead non valido")
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            return await boq_service.riepilogo_commerciale_lead(
+                conn, tenant["id"], lead_id
+            )
+
+    @api.post("/leads/{lead_id}/cantiere-da-preventivo", status_code=201)
+    async def cantiere_da_preventivo(
+        request: Request, lead_id: str, body: CantiereDaPreventivoBody
+    ):
+        user = await _user(request, db)
+        if not ObjectId.is_valid(lead_id):
+            raise HTTPException(status_code=400, detail="ID lead non valido")
+        legacy_lead = await db.leads.find_one({"_id": ObjectId(lead_id)})
+        if not legacy_lead:
+            raise HTTPException(status_code=404, detail="Lead non trovato")
+        existing = await db.cantieri.find_one(
+            {"lead_id": lead_id, "stato": {"$ne": "completato"}}
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail="Esiste gia un cantiere attivo collegato a questo lead",
+            )
+
+        cantiere_oid = ObjectId()
+        inserted_document = False
+        try:
+            async with get_tenant_conn(request, user) as (conn, tenant):
+                if tenant.get("role") not in {"owner", "admin", "staff", "operations"}:
+                    raise HTTPException(status_code=403, detail="Permessi insufficienti")
+                normalized = await boq_service.crea_cantiere_da_preventivo(
+                    conn,
+                    tenant["id"],
+                    lead_id,
+                    str(body.preventivo_id),
+                    str(cantiere_oid),
+                    autore=actor_name(user),
+                )
+                now = datetime.now(timezone.utc).isoformat()
+                document = {
+                    "_id": cantiere_oid,
+                    "cliente": normalized.get("cliente") or legacy_lead.get("nome"),
+                    "telefono": normalized.get("telefono") or legacy_lead.get("telefono"),
+                    "indirizzo": normalized.get("indirizzo") or legacy_lead.get("indirizzo") or legacy_lead.get("citta"),
+                    "avanzamento": 0,
+                    "milestone": "Apertura cantiere",
+                    "milestone_data": None,
+                    "capocantiere": legacy_lead.get("owner") or "Da assegnare",
+                    "importo": normalized["importo"],
+                    "criticita": None,
+                    "fasi": normalized["fasi"],
+                    "stato": "attivo",
+                    "lead_id": lead_id,
+                    "preventivo_id": normalized["preventivo_id"],
+                    "preventivo_numero": normalized["preventivo_numero"],
+                    "computo_id": normalized["computo_id"],
+                    "normalized_cantiere_id": normalized["id"],
+                    "note": f"Creato dal preventivo {normalized['preventivo_numero']}",
+                    "created_by": actor_name(user),
+                    "updated_by": actor_name(user),
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                await db.cantieri.insert_one(document)
+                inserted_document = True
+            # Aggiorna il lead legacy soltanto dopo il commit Postgres: se il
+            # commit fallisce, il cantiere documentale viene compensato sotto.
+            event = {
+                "id": "ev-" + uuid4().hex[:8],
+                "tipo": "cantiere",
+                "testo": (
+                    f"Cantiere attivo creato dal preventivo "
+                    f"{normalized['preventivo_numero']}"
+                ),
+                "ts": now,
+                "autore": actor_name(user),
+            }
+            try:
+                await db.leads.update_one(
+                    {"_id": ObjectId(lead_id)},
+                    {
+                        "$set": {
+                            "cantiere_id": str(cantiere_oid),
+                            "preventivo_confermato": {
+                                "id": normalized["preventivo_id"],
+                                "numero": normalized["preventivo_numero"],
+                                "totale_documento": normalized["importo"],
+                            },
+                            "status": "chiuso_vinto",
+                            "status_changed_at": now,
+                            "last_contact": now,
+                            "updated_at": now,
+                        },
+                        "$addToSet": {"tags": "Cantiere"},
+                        "$push": {"timeline": {"$each": [event], "$position": 0}},
+                    },
+                )
+            except Exception as exc:
+                # Il cantiere e gia consistente e visibile nella sezione
+                # Cantieri; il riepilogo commerciale lo ritrova da Postgres.
+                logger.warning(
+                    "Lead %s non aggiornato dopo la creazione cantiere %s: %s",
+                    lead_id,
+                    cantiere_oid,
+                    exc,
+                )
+            return {
+                "ok": True,
+                "cantiere_id": str(cantiere_oid),
+                "normalized_cantiere_id": normalized["id"],
+            }
+        except Exception:
+            if inserted_document:
+                await db.cantieri.delete_one({"_id": cantiere_oid})
+            raise
+
+    @api.delete("/leads/{lead_id}/with-artifacts")
+    async def delete_lead_with_artifacts(request: Request, lead_id: str):
+        user = await _user(request, db)
+        if not ObjectId.is_valid(lead_id):
+            raise HTTPException(status_code=400, detail="ID lead non valido")
+        existing = await db.leads.find_one({"_id": ObjectId(lead_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Lead non trovato")
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            if tenant.get("role") not in {"owner", "admin"}:
+                raise HTTPException(status_code=403, detail="Permessi insufficienti")
+            deleted = await boq_service.elimina_documenti_lead(
+                conn, tenant["id"], lead_id
+            )
+
+        linked_slots = await db.sopralluogo_slots.find(
+            {"lead_id": lead_id}
+        ).to_list(100)
+        await db.sopralluogo_slots.update_many(
+            {"lead_id": lead_id},
+            {"$set": {
+                "status": "free",
+                "lead_id": None,
+                "booked_name": None,
+                "booked_email": None,
+                "booked_phone": None,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        for slot in linked_slots:
+            slot.update({
+                "status": "free",
+                "lead_id": None,
+                "booked_name": None,
+                "booked_email": None,
+                "booked_phone": None,
+                "completed": False,
+            })
+            try:
+                await google_calendar_service.upsert_event(slot)
+            except google_calendar_service.GoogleCalendarError as exc:
+                logger.warning("Calendario non aggiornato eliminando il lead %s: %s", lead_id, exc)
+        await db.ai_architect_jobs.update_many(
+            {"lead_id": lead_id}, {"$set": {"lead_id": None}}
+        )
+        result = await db.leads.delete_one({"_id": ObjectId(lead_id)})
+        if result.deleted_count != 1:
+            raise HTTPException(status_code=409, detail="Lead modificato durante l'eliminazione")
+        return {"ok": True, "deleted": lead_id, **deleted}
 
     @api.post("/computi/da-ai")
     async def da_ai(request: Request, body: GeneraDaAiBody):
@@ -2585,9 +2778,11 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                     }
                 )
             pdf = genera_pdf_preventivo(pdf_data, tenant)
-            idempotency_seed = f"{tenant['id']}:{preventivo_id}:invio-iniziale".encode(
-                "utf-8"
-            )
+            # Una revisione riaperta conserva lo stesso ID, ma deve poter essere
+            # inviata di nuovo con il PDF aggiornato.
+            idempotency_seed = (
+                f"{tenant['id']}:{preventivo_id}:{preventivo.get('updated_at')}"
+            ).encode("utf-8")
             idempotency_hash = hashlib.sha256(idempotency_seed).hexdigest()
             idempotency_key = f"preventivo-{idempotency_hash}"
             try:

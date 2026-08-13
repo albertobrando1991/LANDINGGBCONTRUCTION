@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -45,6 +45,7 @@ export default function CantiereDetail() {
   const { slug } = useTenant();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [deletingCantiereId, setDeletingCantiereId] = useState(null);
   const activeSection = SECTION_IDS.has(section) ? section : "overview";
   const needsTeam = activeSection === "presenze" || activeSection === "squadra";
   const userId = user?.id || user?.email;
@@ -58,6 +59,7 @@ export default function CantiereDetail() {
         cacheKey: `cantiere:${id}`,
         load: async () => (await client.get(`/cantieri/${id}`)).data,
       }),
+    enabled: deletingCantiereId !== id,
   });
   const staffQuery = useQuery({
     queryKey: ["staff"],
@@ -148,6 +150,7 @@ export default function CantiereDetail() {
   const deleteCantiereMutation = useMutation({
     mutationFn: (cantiereId) => client.delete(`/cantieri/${cantiereId}`),
     onMutate: async (cantiereId) => {
+      setDeletingCantiereId(cantiereId);
       const listQueries = {
         predicate: (query) =>
           query.queryKey[0] === "cantieri" && query.queryKey[1] !== "detail",
@@ -171,6 +174,7 @@ export default function CantiereDetail() {
       void qc.invalidateQueries({ queryKey: ["leads"] });
     },
     onError: (error, _cantiereId, context) => {
+      setDeletingCantiereId(null);
       for (const [queryKey, data] of context?.previousLists || []) {
         qc.setQueryData(queryKey, data);
       }

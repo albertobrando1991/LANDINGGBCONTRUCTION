@@ -433,8 +433,8 @@ export default function ComputoEditor() {
         }),
       );
       toast.success(
-        computo?.preventivo_bozza_id
-          ? "Cronoprogramma salvato e PDF della bozza aggiornato"
+        computo?.preventivo_id || computo?.preventivo_bozza_id
+          ? "Cronoprogramma salvato e preventivo aggiornato"
           : "Cronoprogramma salvato",
       );
       refresh();
@@ -517,6 +517,20 @@ export default function ComputoEditor() {
       ),
   });
 
+  const reopen = useMutation({
+    mutationFn: async () => (await client.post(`/computi/${id}/riapri`)).data,
+    onSuccess: () => {
+      toast.success(
+        "Computo riaperto: le modifiche aggiorneranno lo stesso preventivo",
+      );
+      refresh();
+    },
+    onError: (error) =>
+      toast.error(
+        error?.response?.data?.detail || "Impossibile riaprire il computo",
+      ),
+  });
+
   const toPreventivo = useMutation({
     mutationFn: async () =>
       (
@@ -535,20 +549,24 @@ export default function ComputoEditor() {
   });
 
   const previewPdf = useMutation({
-    mutationFn: async (dettaglio = "analitico") =>
-      (
-        await client.get(`/preventivi/${computo.preventivo_bozza_id}/pdf`, {
+    mutationFn: async (dettaglio = "analitico") => {
+      const currentPreventivoId =
+        computo.preventivo_id || computo.preventivo_bozza_id;
+      return (
+        await client.get(`/preventivi/${currentPreventivoId}/pdf`, {
           params: { dettaglio },
           responseType: "blob",
         })
-      ).data,
-    onSuccess: (blob, dettaglio) => {
+      ).data;
+    },
+    onSuccess: (blob) => {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `${computo.preventivo_bozza_numero || "preventivo-bozza"}-${dettaglio || "analitico"}.pdf`;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
       anchor.click();
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
     },
     onError: async (error) => toast.error(await extractErrorDetail(error)),
   });
@@ -576,14 +594,9 @@ export default function ComputoEditor() {
     computo.voci_da_classificare_ids,
   );
   const senzaFase = vociSenzaFase.length;
-  const varianteModificabile = computo.variante_modificabile;
+  const preventivoId = computo.preventivo_id || computo.preventivo_bozza_id;
   const apriClassificazione = () => {
-    if (varianteModificabile?.id) {
-      toast.success("Area di modifica aperta");
-      navigate(`/dashboard/computi/${varianteModificabile.id}`);
-      return;
-    }
-    duplicate.mutate({ tipo: "variante", variante: true });
+    reopen.mutate();
   };
   const crono = computo.cronoprogramma || {};
   const superficieNumero = Number(cronoprogrammaDraft.superficie_mq);
@@ -659,7 +672,7 @@ export default function ComputoEditor() {
           {locked && (
             <p className="mt-2 text-xs text-fog">
               Il computo confermato resta protetto. Usa Modifica computo per
-              lavorare sulla sua copia modificabile.
+              riaprire questo documento e aggiornare lo stesso preventivo.
             </p>
           )}
         </div>
@@ -688,10 +701,10 @@ export default function ComputoEditor() {
             <button
               type="button"
               onClick={apriClassificazione}
-              disabled={duplicate.isPending}
+              disabled={reopen.isPending}
               className="rounded-xl border border-brand/40 px-3 py-2 text-xs font-display uppercase text-brand disabled:opacity-40"
             >
-              {duplicate.isPending ? "Apertura…" : "Modifica computo"}
+              {reopen.isPending ? "Apertura…" : "Modifica computo"}
             </button>
           )}
           {!locked && (
@@ -716,7 +729,7 @@ export default function ComputoEditor() {
                 : `Classifica ${senzaFase} voci`}
             </button>
           )}
-          {!locked && computo.preventivo_bozza_id && (
+          {preventivoId && (
             <>
               <button
                 type="button"
@@ -745,18 +758,19 @@ export default function ComputoEditor() {
           <button
             type="button"
             onClick={() =>
-              computo.preventivo_bozza_id
-                ? navigate("/dashboard/preventivi")
+              preventivoId
+                ? previewPdf.mutate("analitico")
                 : toPreventivo.mutate()
             }
             disabled={
-              (!computo.preventivo_bozza_id &&
+              (!preventivoId &&
                 (computo.stato !== "confermato" || senzaFase > 0)) ||
-              toPreventivo.isPending
+              toPreventivo.isPending ||
+              previewPdf.isPending
             }
             title={
-              computo.preventivo_bozza_id
-                ? "Apri il preventivo confermato"
+              preventivoId
+                ? "Apri direttamente il PDF del preventivo"
                 : senzaFase > 0
                   ? `Classifica prima le ${senzaFase} voci evidenziate`
                   : computo.stato !== "confermato"
@@ -765,7 +779,7 @@ export default function ComputoEditor() {
             }
             className="rounded-xl border border-brand/40 px-3 py-2 text-xs font-display uppercase text-brand disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {computo.preventivo_bozza_id
+            {preventivoId
               ? "Apri preventivo"
               : "Genera preventivo"}
           </button>
@@ -869,11 +883,11 @@ export default function ComputoEditor() {
               {locked && (
                 <button
                   type="button"
-                  disabled={duplicate.isPending}
+                  disabled={reopen.isPending}
                   onClick={apriClassificazione}
                   className="min-h-11 rounded-xl border border-amber-400/40 px-3 text-xs font-display uppercase text-amber-200 disabled:opacity-40"
                 >
-                  {duplicate.isPending ? "Apertura…" : "Classifica le voci"}
+                  {reopen.isPending ? "Apertura…" : "Classifica le voci"}
                 </button>
               )}
             </div>

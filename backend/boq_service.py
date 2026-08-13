@@ -61,6 +61,19 @@ def _json_object(value: Any) -> dict:
     return {}
 
 
+def _json_array(value: Any) -> list:
+    """Normalizza un array JSONB restituito da asyncpg."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError):
+            return []
+        return decoded if isinstance(decoded, list) else []
+    return []
+
+
 def _totali_voci(
     voci: list[dict], *, computo_id: Any = None, tenant_id: Any = None
 ) -> dict:
@@ -1040,9 +1053,13 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
         """
         select c.*, coalesce(l.nome, cl.nome, ca.cliente) as cliente,
                p.nome as prezzario_nome,
-               pb.id as preventivo_bozza_id,
-               pb.numero as preventivo_bozza_numero,
-               pb.totale_documento as preventivo_bozza_totale,
+               pr.id as preventivo_id,
+               pr.numero as preventivo_numero,
+               pr.totale_documento as preventivo_totale,
+               pr.stato as preventivo_stato,
+               case when pr.stato = 'bozza' then pr.id end as preventivo_bozza_id,
+               case when pr.stato = 'bozza' then pr.numero end as preventivo_bozza_numero,
+               case when pr.stato = 'bozza' then pr.totale_documento end as preventivo_bozza_totale,
                cv.id as variante_modificabile_id,
                cv.stato as variante_modificabile_stato,
                cv.note as variante_modificabile_note
@@ -1057,14 +1074,13 @@ async def get_computo(conn: asyncpg.Connection, tenant_id: str, computo_id: str)
         left join public.prezzari p
           on p.id = c.prezzario_id and p.tenant_id = c.tenant_id
         left join lateral (
-          select pr.id, pr.numero, pr.totale_documento
-          from public.preventivi pr
-          where pr.computo_id = c.id
-            and pr.tenant_id = c.tenant_id
-            and pr.stato = 'bozza'
-          order by pr.created_at desc, pr.id desc
+          select quote.id, quote.numero, quote.totale_documento, quote.stato
+          from public.preventivi quote
+          where quote.computo_id = c.id
+            and quote.tenant_id = c.tenant_id
+          order by quote.updated_at desc, quote.created_at desc, quote.id desc
           limit 1
-        ) pb on true
+        ) pr on true
         left join lateral (
           select variante.id, variante.stato, variante.note
           from public.computi variante
@@ -1434,6 +1450,436 @@ async def get_preventivo(
     return _d(row)
 
 
+async def riapri_computo_preventivo(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    computo_id: str,
+    *,
+    autore: str,
+) -> dict:
+    """Riapre lo stesso computo e la stessa offerta, senza crearne copie."""
+    computo = await conn.fetchrow(
+        """
+        select id, stato
+        from public.computi
+        where id = $1::uuid and tenant_id = $2::uuid
+        for update
+        """,
+        computo_id,
+        tenant_id,
+    )
+    if not computo:
+        raise HTTPException(status_code=404, detail="Computo non trovato")
+
+    preventivo = await conn.fetchrow(
+        """
+        select *
+        from public.preventivi
+        where computo_id = $1::uuid and tenant_id = $2::uuid
+        order by updated_at desc, created_at desc, id desc
+        limit 1
+        for update
+        """,
+        computo_id,
+        tenant_id,
+    )
+    if preventivo and preventivo["stato"] in {"accettato", "rifiutato", "scaduto"}:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Il preventivo e gia finalizzato. Non puo essere riaperto senza "
+                "annullare prima il relativo flusso commerciale."
+            ),
+        )
+    if preventivo:
+        contratto_pubblicato = await conn.fetchval(
+            """
+            select exists(
+              select 1 from public.contratti
+              where tenant_id = $1::uuid and preventivo_id = $2::uuid
+                and stato in ('validato', 'pubblicato', 'firmato')
+            )
+            """,
+            tenant_id,
+            preventivo["id"],
+        )
+        if contratto_pubblicato:
+            raise HTTPException(
+                status_code=409,
+                detail="Il preventivo ha un contratto validato e non puo essere riaperto",
+            )
+        stato_precedente = str(preventivo["stato"])
+        await conn.execute(
+            """
+            update public.preventivi
+            set stato = 'bozza',
+                inviato_at = null,
+                accettato_at = null,
+                rifiutato_at = null,
+                scaduto_at = null,
+                pdf_path = null
+            where id = $1::uuid and tenant_id = $2::uuid
+            """,
+            preventivo["id"],
+            tenant_id,
+        )
+        await conn.execute(
+            """
+            insert into public.preventivo_eventi (
+              tenant_id, preventivo_id, tipo, stato_precedente,
+              stato_successivo, dettaglio, autore
+            ) values ($1::uuid, $2::uuid, 'stato', $3, 'bozza', $4, $5)
+            """,
+            tenant_id,
+            preventivo["id"],
+            stato_precedente,
+            f"Preventivo {preventivo['numero']} riaperto per modifica sullo stesso documento",
+            autore,
+        )
+
+    await conn.execute(
+        """
+        update public.computi
+        set stato = 'bozza'
+        where id = $1::uuid and tenant_id = $2::uuid
+        """,
+        computo_id,
+        tenant_id,
+    )
+    if preventivo:
+        reopened = _d(preventivo)
+        reopened["stato"] = "bozza"
+        await _aggiorna_lead_da_preventivo(
+            conn,
+            tenant_id,
+            reopened,
+            "bozza",
+            autore=autore,
+            dettaglio=f"Preventivo {preventivo['numero']} riaperto per modifica",
+        )
+    return await get_computo(conn, tenant_id, computo_id)
+
+
+async def riepilogo_commerciale_lead(
+    conn: asyncpg.Connection, tenant_id: str, legacy_lead_id: str
+) -> dict:
+    """Restituisce valore effettivo inviato e cantiere del lead legacy."""
+    canonical_lead_id = await conn.fetchval(
+        """
+        select id from public.leads
+        where tenant_id = $1::uuid and legacy_mongo_id = $2
+        """,
+        tenant_id,
+        legacy_lead_id,
+    )
+    if not canonical_lead_id:
+        return {"preventivo": None, "cantiere": None}
+
+    quote = await conn.fetchrow(
+        """
+        select p.id, p.numero, p.computo_id, p.stato,
+               p.totale_documento, p.inviato_at, p.accettato_at,
+               p.updated_at
+        from public.preventivi p
+        join public.computi c
+          on c.id = p.computo_id and c.tenant_id = p.tenant_id
+        where p.tenant_id = $1::uuid
+          and (p.lead_id = $2::uuid or c.lead_id = $2::uuid)
+          and p.stato in ('inviato', 'accettato')
+        order by coalesce(p.accettato_at, p.inviato_at, p.updated_at) desc, p.id desc
+        limit 1
+        """,
+        tenant_id,
+        canonical_lead_id,
+    )
+    cantiere = await conn.fetchrow(
+        """
+        select id, legacy_mongo_id, stato, importo
+        from public.cantieri
+        where tenant_id = $1::uuid and lead_id = $2::uuid
+          and stato <> 'completato'
+        order by created_at desc
+        limit 1
+        """,
+        tenant_id,
+        canonical_lead_id,
+    )
+    return {
+        "preventivo": _d(quote),
+        "cantiere": _d(cantiere),
+    }
+
+
+async def crea_cantiere_da_preventivo(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    legacy_lead_id: str,
+    preventivo_id: str,
+    legacy_cantiere_id: str,
+    *,
+    autore: str,
+) -> dict:
+    """Crea il cantiere normalizzato usando soltanto dati confermati del PDF."""
+    row = await conn.fetchrow(
+        """
+        select p.id as preventivo_id, p.numero, p.computo_id,
+               coalesce(p.lead_id, co.lead_id) as lead_id,
+               p.cliente_id, p.stato as preventivo_stato, p.totale_documento,
+               p.snapshot_voci,
+               coalesce(l.nome, cl.nome) as cliente,
+               coalesce(l.telefono, cl.telefono) as telefono,
+               coalesce(l.indirizzo, cl.indirizzo, l.citta, cl.citta) as indirizzo
+        from public.preventivi p
+        join public.computi co
+          on co.id = p.computo_id and co.tenant_id = p.tenant_id
+        join public.leads l
+          on l.id = coalesce(p.lead_id, co.lead_id)
+         and l.tenant_id = p.tenant_id
+        left join public.clienti cl
+          on cl.id = p.cliente_id and cl.tenant_id = p.tenant_id
+        where p.id = $1::uuid and p.tenant_id = $2::uuid
+          and l.legacy_mongo_id = $3
+        for update of p, co, l
+        """,
+        preventivo_id,
+        tenant_id,
+        legacy_lead_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Preventivo del lead non trovato")
+    if row["preventivo_stato"] not in {"inviato", "accettato"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Il cantiere puo essere creato soltanto da un preventivo inviato o accettato",
+        )
+    existing = await conn.fetchrow(
+        """
+        select id, legacy_mongo_id
+        from public.cantieri
+        where tenant_id = $1::uuid and lead_id = $2::uuid
+          and stato <> 'completato'
+        limit 1
+        """,
+        tenant_id,
+        row["lead_id"],
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="Esiste gia un cantiere attivo collegato a questo lead",
+        )
+
+    phases: list[dict] = []
+    seen: set[str] = set()
+    for item in _json_array(row["snapshot_voci"]):
+        name = str(item.get("fase") or item.get("categoria") or "").strip()
+        if name and name not in seen:
+            seen.add(name)
+            phases.append({"nome": name, "stato": "da_iniziare"})
+    if not phases:
+        phases = [
+            {"nome": name, "stato": "da_iniziare"}
+            for name in ("Demolizioni", "Impianti", "Massetti", "Pavimenti", "Finiture", "Consegna")
+        ]
+
+    cantiere = await conn.fetchrow(
+        """
+        insert into public.cantieri (
+          tenant_id, lead_id, cliente_id, cliente, indirizzo, stato,
+          avanzamento, importo, capocantiere, milestone, fasi, note,
+          legacy_mongo_id
+        ) values (
+          $1::uuid, $2::uuid, $3::uuid, $4, $5, 'attivo',
+          0, $6, 'Da assegnare', 'Apertura cantiere', $7::jsonb, $8, $9
+        ) returning *
+        """,
+        tenant_id,
+        row["lead_id"],
+        row["cliente_id"],
+        row["cliente"] or "Cliente",
+        row["indirizzo"],
+        row["totale_documento"],
+        json.dumps(phases, ensure_ascii=False),
+        f"Creato dal preventivo {row['numero']} da {autore}",
+        legacy_cantiere_id,
+    )
+    await conn.execute(
+        """
+        update public.computi
+        set cantiere_id = $1::uuid
+        where id = $2::uuid and tenant_id = $3::uuid
+        """,
+        cantiere["id"],
+        row["computo_id"],
+        tenant_id,
+    )
+    await conn.execute(
+        """
+        update public.leads
+        set status = 'chiuso_vinto',
+            prossima_azione = 'Pianificare apertura e avvio del cantiere'
+        where id = $1::uuid and tenant_id = $2::uuid
+        """,
+        row["lead_id"],
+        tenant_id,
+    )
+    result = _d(cantiere)
+    result.update(
+        {
+            "preventivo_id": str(row["preventivo_id"]),
+            "preventivo_numero": row["numero"],
+            "computo_id": str(row["computo_id"]),
+            "telefono": row["telefono"],
+            "fasi": phases,
+        }
+    )
+    return result
+
+
+async def elimina_documenti_lead(
+    conn: asyncpg.Connection, tenant_id: str, legacy_lead_id: str
+) -> dict:
+    """Elimina preventivi e computi del lead, bloccando soli atti operativi protetti."""
+    lead_id = await conn.fetchval(
+        """
+        select id from public.leads
+        where tenant_id = $1::uuid and legacy_mongo_id = $2
+        for update
+        """,
+        tenant_id,
+        legacy_lead_id,
+    )
+    if not lead_id:
+        return {"lead": 0, "preventivi": 0, "computi": 0}
+
+    active_site = await conn.fetchval(
+        """
+        select exists(
+          select 1 from public.cantieri
+          where tenant_id = $1::uuid and lead_id = $2::uuid
+            and stato <> 'completato'
+        )
+        """,
+        tenant_id,
+        lead_id,
+    )
+    if active_site:
+        raise HTTPException(
+            status_code=409,
+            detail="Il lead ha un cantiere attivo: archivialo prima di eliminare il cliente",
+        )
+
+    computo_ids = list(await conn.fetch(
+        """
+        with recursive linked as (
+          select id from public.computi
+          where tenant_id = $1::uuid and lead_id = $2::uuid
+          union
+          select child.id from public.computi child
+          join linked parent on child.parent_computo_id = parent.id
+          where child.tenant_id = $1::uuid
+        ) select id from linked
+        """,
+        tenant_id,
+        lead_id,
+    ))
+    computo_ids = [row["id"] for row in computo_ids]
+    quote_rows = await conn.fetch(
+        """
+        select id from public.preventivi
+        where tenant_id = $1::uuid
+          and (lead_id = $2::uuid or computo_id = any($3::uuid[]))
+        """,
+        tenant_id,
+        lead_id,
+        computo_ids,
+    )
+    quote_ids = [row["id"] for row in quote_rows]
+
+    if quote_ids:
+        protected = await conn.fetchval(
+            """
+            select exists(
+              select 1 from public.contratti
+              where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])
+                and stato in ('validato', 'pubblicato', 'firmato')
+              union all
+              select 1 from public.piani_pagamento
+              where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])
+              union all
+              select 1 from public.documenti_cliente
+              where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])
+                and provenienza = 'cliente'
+            )
+            """,
+            tenant_id,
+            quote_ids,
+        )
+        if protected:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Il cliente ha contratti, pagamenti o documenti firmati: "
+                    "questi atti protetti non possono essere cancellati automaticamente"
+                ),
+            )
+        await conn.execute(
+            """
+            update public.documenti_cliente set documento_originale_id = null
+            where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])
+            """,
+            tenant_id,
+            quote_ids,
+        )
+        await conn.execute(
+            "delete from public.documenti_cliente where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])",
+            tenant_id,
+            quote_ids,
+        )
+        await conn.execute(
+            "delete from public.contratti where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])",
+            tenant_id,
+            quote_ids,
+        )
+        await conn.execute(
+            "delete from public.scelte_pagamento_cliente where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])",
+            tenant_id,
+            quote_ids,
+        )
+        await conn.execute(
+            "delete from public.preventivo_clienti where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])",
+            tenant_id,
+            quote_ids,
+        )
+        await conn.execute(
+            "delete from public.preventivi where tenant_id = $1::uuid and id = any($2::uuid[])",
+            tenant_id,
+            quote_ids,
+        )
+
+    if computo_ids:
+        await conn.execute(
+            "update public.computi set stato = 'bozza' where tenant_id = $1::uuid and id = any($2::uuid[])",
+            tenant_id,
+            computo_ids,
+        )
+        await conn.execute(
+            "delete from public.computi where tenant_id = $1::uuid and id = any($2::uuid[])",
+            tenant_id,
+            computo_ids,
+        )
+    await conn.execute(
+        "delete from public.leads where tenant_id = $1::uuid and id = $2::uuid",
+        tenant_id,
+        lead_id,
+    )
+    return {
+        "lead": 1,
+        "preventivi": len(quote_ids),
+        "computi": len(computo_ids),
+    }
+
+
 async def lista_eventi_preventivo(
     conn: asyncpg.Connection, tenant_id: str, preventivo_id: str
 ) -> list[dict]:
@@ -1680,18 +2126,17 @@ async def computo_to_preventivo(
             ),
         )
 
-    # Una sola bozza modificabile per computo nel percorso applicativo, anche
-    # con richieste concorrenti. La numerazione resta separatamente serializzata.
+    # Un solo preventivo per computo nel percorso applicativo, anche con
+    # richieste concorrenti. Le revisioni riaprono lo stesso documento.
     await conn.fetchval(
         "select pg_advisory_xact_lock(hashtextextended($1, 0))",
-        f"edilos:preventivo-bozza:{tenant_id}:{computo_id}",
+        f"edilos:preventivo:{tenant_id}:{computo_id}",
     )
     existing = await conn.fetchrow(
         """
         select * from public.preventivi
         where tenant_id = $1::uuid and computo_id = $2::uuid
-          and stato = 'bozza'
-        order by created_at desc, id desc
+        order by updated_at desc, created_at desc, id desc
         limit 1
         for update
         """,
@@ -1699,6 +2144,14 @@ async def computo_to_preventivo(
         computo_id,
     )
     if existing:
+        if existing["stato"] != "bozza":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Il computo ha gia il preventivo {existing['numero']}. "
+                    "Usa Modifica computo per aggiornarlo senza creare copie."
+                ),
+            )
         updated = await sincronizza_preventivo_bozza(
             conn,
             tenant_id,

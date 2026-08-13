@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Phone, MessageCircle, Mail, ArrowLeft, Sparkles, Loader2, Send,
   AlertTriangle, FileText, MapPin, Home, Brain, Download, ExternalLink, Unlock, Trash2,
+  Building2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -30,6 +31,11 @@ export default function LeadDetail() {
   const { data: lead, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["lead", id],
     queryFn: async () => (await client.get(`/leads/${id}`)).data,
+  });
+
+  const { data: commercial = { preventivo: null, cantiere: null } } = useQuery({
+    queryKey: ["lead-commerciale", id],
+    queryFn: async () => (await client.get(`/leads/${id}/commerciale`)).data,
   });
 
   const patch = useMutation({
@@ -66,11 +72,50 @@ export default function LeadDetail() {
   });
 
   const removeLead = useMutation({
-    mutationFn: () => client.delete(`/leads/${id}`),
-    onSuccess: () => {
+    mutationFn: () => client.delete(`/leads/${id}/with-artifacts`),
+    onSuccess: (response) => {
       qc.invalidateQueries({ queryKey: ["lead-counts"] });
-      toast.success("Lead eliminato");
+      const deleted = response?.data || {};
+      toast.success(
+        `Lead eliminato con ${deleted.preventivi || 0} preventivi e ${deleted.computi || 0} computi`,
+      );
       navigate("/dashboard/inbox");
+    },
+    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
+  });
+
+  const createCantiere = useMutation({
+    mutationFn: async (preventivoId) =>
+      (
+        await client.post(`/leads/${id}/cantiere-da-preventivo`, {
+          preventivo_id: preventivoId,
+        })
+      ).data,
+    onSuccess: (created) => {
+      void qc.invalidateQueries({ queryKey: ["lead", id] });
+      void qc.invalidateQueries({ queryKey: ["lead-commerciale", id] });
+      void qc.invalidateQueries({ queryKey: ["cantieri"] });
+      toast.success("Cantiere attivo creato dal preventivo confermato");
+      navigate(`/dashboard/cantieri/${created.cantiere_id}`);
+    },
+    onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
+  });
+
+  const openPreventivoPdf = useMutation({
+    mutationFn: async (preventivoId) =>
+      (
+        await client.get(`/preventivi/${preventivoId}/pdf`, {
+          responseType: "blob",
+        })
+      ).data,
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
     },
     onError: (e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)),
   });
@@ -111,6 +156,8 @@ export default function LeadDetail() {
   const categorie = normalizeLeadList(pkg.categorie);
   const timeline = normalizeLeadList(lead.timeline);
   const whatsappUrl = buildWhatsappUrl(lead.telefono, lead.nome);
+  const preventivoConfermato = commercial?.preventivo;
+  const cantiereAttivo = commercial?.cantiere;
 
   const aiOutputs = aiJob?.outputs || [];
   const aiLatest = (type) => {
@@ -225,7 +272,12 @@ export default function LeadDetail() {
           {user?.role === "admin" && (
             <button
               onClick={() => {
-                if (window.confirm(`Eliminare definitivamente il lead di ${lead.nome}?`)) removeLead.mutate();
+                if (
+                  window.confirm(
+                    `Eliminare definitivamente il lead di ${lead.nome}, i preventivi e i computi collegati?`,
+                  )
+                )
+                  removeLead.mutate();
               }}
               disabled={removeLead.isPending}
               className="w-full bg-danger/10 border border-danger/40 text-danger rounded-2xl py-3 font-display uppercase text-xs inline-flex items-center justify-center gap-2 hover:bg-danger/20 transition-colors disabled:opacity-60"
@@ -299,6 +351,66 @@ export default function LeadDetail() {
               </div>
             )}
           </div>
+
+          {preventivoConfermato && (
+            <div className="bg-surface border border-brand/40 rounded-2xl p-4 sm:p-6 min-w-0">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-display uppercase text-[10px] tracking-wider text-brand">
+                    Valore confermato ed effettivo
+                  </p>
+                  <p className="mt-2 font-display text-2xl font-bold text-ink">
+                    {formatEuro(preventivoConfermato.totale_documento)}
+                  </p>
+                  <p className="mt-1 font-body text-xs text-fog">
+                    Preventivo {preventivoConfermato.numero} · {preventivoConfermato.stato}
+                    {preventivoConfermato.inviato_at
+                      ? ` · inviato il ${formatDateTime(preventivoConfermato.inviato_at)}`
+                      : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openPreventivoPdf.mutate(preventivoConfermato.id)}
+                  disabled={openPreventivoPdf.isPending}
+                  className="inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 font-display text-[10px] uppercase text-ink disabled:opacity-50"
+                >
+                  {openPreventivoPdf.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  Apri PDF
+                </button>
+              </div>
+
+              {cantiereAttivo?.legacy_mongo_id ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(`/dashboard/cantieri/${cantiereAttivo.legacy_mongo_id}`)
+                  }
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 font-display text-xs uppercase tracking-wider text-white hover:brightness-110"
+                >
+                  <Building2 className="h-4 w-4" /> Apri cantiere attivo
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => createCantiere.mutate(preventivoConfermato.id)}
+                  disabled={createCantiere.isPending}
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 font-display text-xs uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-60"
+                >
+                  {createCantiere.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Building2 className="h-4 w-4" />
+                  )}
+                  Crea cantiere attivo
+                </button>
+              )}
+            </div>
+          )}
 
           {aiJobId && (
             <div className="bg-surface border border-stroke rounded-2xl p-4 sm:p-6 min-w-0">
