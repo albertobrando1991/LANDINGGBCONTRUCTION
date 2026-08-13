@@ -208,12 +208,33 @@ def normalize_level(value: str) -> str:
         return "luxury"
     if "essenziale" in text or "base" in text or "econom" in text:
         return "essenziale"
+    numeric = parse_int(value, 0)
+    if numeric >= 120000:
+        return "luxury"
+    if numeric and numeric < 25000:
+        return "essenziale"
     return "premium"
 
 
 def build_config_from_meta_fields(fields: Dict[str, str]) -> Dict[str, Any]:
-    tipo = first_value(fields, "tipo_immobile", "tipo immobile", "immobile", "casa")
-    livello = first_value(fields, "livello", "pacchetto", "budget", "fascia_budget")
+    tipo = first_value(
+        fields,
+        "tipo_immobile",
+        "tipo immobile",
+        "immobile",
+        "casa",
+        "che_tipo_di_immobile_devi_ristrutturare",
+        "hai_bisogno_di_ristrutturare_un",
+    )
+    livello = first_value(
+        fields,
+        "livello",
+        "pacchetto",
+        "budget",
+        "fascia_budget",
+        "budget_indicativo",
+        "qual_e_il_budget_indicativo",
+    )
     stile = first_value(fields, "stile", "stile_desiderato", "stile_ristrutturazione") or "Da definire"
     tempistiche = (
         first_value(fields, "tempistiche", "quando", "inizio_lavori", "quando_vuoi_iniziare")
@@ -221,7 +242,14 @@ def build_config_from_meta_fields(fields: Dict[str, str]) -> Dict[str, Any]:
     )
     return {
         "tipo_immobile": normalize_property_type(tipo),
-        "mq": max(20, parse_int(first_value(fields, "mq", "metri_quadri", "metratura", "superficie"), 80)),
+        "mq": max(20, parse_int(first_value(
+            fields,
+            "mq",
+            "metri_quadri",
+            "metratura",
+            "superficie",
+            "quanti_metri_quadrati_e_l_immobile",
+        ), 80)),
         "livello": normalize_level(livello),
         "bagni": max(0, parse_int(first_value(fields, "bagni", "numero_bagni"), 1)),
         "camere": max(0, parse_int(first_value(fields, "camere", "numero_camere"), 2)),
@@ -301,7 +329,39 @@ def build_meta_lead_doc(
     )
     email = normalize_email(first_value(fields, "email", "e_mail", "indirizzo_email"))
     telefono = first_value(fields, "phone_number", "telefono", "numero_di_telefono", "cellulare", "whatsapp")
-    citta = first_value(fields, "city", "citta", "comune", "provincia")
+    citta = first_value(
+        fields,
+        "city",
+        "citta",
+        "comune",
+        "provincia",
+        "in_quale_citta_si_trova_l_immobile",
+    )
+    indirizzo = first_value(
+        fields,
+        "indirizzo",
+        "indirizzo_immobile",
+        "qual_e_l_indirizzo_dell_immobile",
+    )
+    tipo_ristrutturazione = first_value(
+        fields,
+        "tipo_ristrutturazione",
+        "tipologia_ristrutturazione",
+        "che_tipo_di_ristrutturazione_ti_serve",
+    )
+    budget_indicativo = first_value(
+        fields,
+        "budget",
+        "fascia_budget",
+        "budget_indicativo",
+        "qual_e_il_budget_indicativo",
+    )
+    stato_immobile = first_value(
+        fields,
+        "stato_immobile",
+        "condizioni_immobile",
+        "in_che_condizioni_si_trova_l_immobile",
+    )
     cfg = build_config_from_meta_fields(fields)
     est = calcola_preventivo(cfg)
     score = max(65, lead_score(cfg, False))
@@ -339,9 +399,13 @@ def build_meta_lead_doc(
         "telefono": telefono,
         "phone_norm": normalize_phone(telefono),
         "citta": citta,
+        "indirizzo": indirizzo,
         "newsletter": False,
         "privacy": True,
         "tipo_immobile": cfg["tipo_immobile"],
+        "tipo_ristrutturazione": tipo_ristrutturazione,
+        "stato_immobile": stato_immobile,
+        "budget_indicativo": budget_indicativo,
         "mq": cfg["mq"],
         "livello": cfg["livello"],
         "bagni": cfg["bagni"],

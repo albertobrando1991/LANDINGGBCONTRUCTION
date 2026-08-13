@@ -243,7 +243,10 @@ export default function LeadDetail() {
             <div className="grid grid-cols-2 gap-3 sm:gap-4 font-body text-sm min-w-0">
               <Info label="Tipo" value={lead.tipo_immobile} />
               <Info label="Superficie" value={`${lead.mq} mq`} />
-              <Info label="Intervento" value={lead.livello} />
+              <Info label="Ristrutturazione" value={lead.tipo_ristrutturazione} />
+              <Info label="Stato immobile" value={lead.stato_immobile} />
+              <Info label="Budget indicativo" value={lead.budget_indicativo} />
+              <Info label="Livello stima" value={lead.livello} />
               <Info label="Bagni" value={lead.bagni} />
               <Info label="Camere" value={lead.camere} />
               <Info label="Stile" value={lead.stile} />

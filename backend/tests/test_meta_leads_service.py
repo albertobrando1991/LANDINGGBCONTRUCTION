@@ -141,6 +141,58 @@ def test_build_meta_lead_doc_maps_standard_and_italian_fields():
     assert doc["sla_due_at"].startswith("2026-06-01T08:15:00")
 
 
+def test_build_meta_lead_doc_maps_qualified_meta_instant_form_fields():
+    event = {"leadgen_id": "lead-qualified", "form_id": "form-qualified", "page_id": "page-1"}
+    graph_lead = {
+        "id": "lead-qualified",
+        "created_time": "2026-08-13T09:00:00+00:00",
+        "field_data": [
+            {"name": "full_name", "values": ["Cliente Qualificato"]},
+            {"name": "email", "values": ["cliente@example.com"]},
+            {"name": "phone_number", "values": ["+39 333 000 0000"]},
+            {
+                "name": "Che tipo di immobile devi ristrutturare?",
+                "values": ["Villa"],
+            },
+            {
+                "name": "In che condizioni si trova l'immobile?",
+                "values": ["Completamente da ristrutturare"],
+            },
+            {
+                "name": "In quale città si trova l'immobile?",
+                "values": ["Napoli"],
+            },
+            {
+                "name": "Qual è l'indirizzo dell'immobile?",
+                "values": ["Via Roma 10"],
+            },
+            {
+                "name": "Quanti metri quadrati è l'immobile?",
+                "values": ["145 mq"],
+            },
+            {
+                "name": "Che tipo di ristrutturazione ti serve?",
+                "values": ["Ristrutturazione completa"],
+            },
+            {
+                "name": "Qual è il budget indicativo?",
+                "values": ["120.000-200.000 €"],
+            },
+        ],
+    }
+
+    doc = meta.build_meta_lead_doc(event, graph_lead)
+
+    assert doc["tipo_immobile"] == "villa"
+    assert doc["stato_immobile"] == "Completamente da ristrutturare"
+    assert doc["citta"] == "Napoli"
+    assert doc["indirizzo"] == "Via Roma 10"
+    assert doc["mq"] == 145
+    assert doc["tipo_ristrutturazione"] == "Ristrutturazione completa"
+    assert doc["budget_indicativo"] == "120.000-200.000 €"
+    assert doc["livello"] == "luxury"
+
+
 def test_fetch_meta_lead_formats_detailed_graph_api_error():
     class DummyResponse:
         status_code = 400
