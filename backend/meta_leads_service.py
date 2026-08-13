@@ -202,16 +202,38 @@ def normalize_property_type(value: str) -> str:
     return "appartamento"
 
 
+META_BUDGET_LABELS = {
+    "meno_di_25_000": "Meno di 25.000 €",
+    "25_000_50_000": "25.000-50.000 €",
+    "50_000_80_000": "50.000-80.000 €",
+    "80_000_120_000": "80.000-120.000 €",
+    "120_000_200_000": "120.000-200.000 €",
+    "oltre_200_000": "Oltre 200.000 €",
+    "da_definire": "Da definire",
+}
+
+
+def display_meta_choice(value: str) -> str:
+    cleaned = clean_text(value)
+    normalized = normalize_field_name(cleaned)
+    if normalized in META_BUDGET_LABELS:
+        return META_BUDGET_LABELS[normalized]
+    if "_" in cleaned and " " not in cleaned:
+        return cleaned.replace("_", " ").strip().capitalize()
+    return cleaned
+
+
 def normalize_level(value: str) -> str:
-    text = normalize_field_name(value)
+    display_value = display_meta_choice(value)
+    text = normalize_field_name(display_value)
     if "luxury" in text or "lusso" in text:
         return "luxury"
     if "essenziale" in text or "base" in text or "econom" in text:
         return "essenziale"
-    numeric = parse_int(value, 0)
+    numeric = parse_int(display_value, 0)
     if numeric >= 120000:
         return "luxury"
-    if numeric and numeric < 25000:
+    if numeric and numeric <= 25000 and "meno" in text:
         return "essenziale"
     return "premium"
 
@@ -343,25 +365,25 @@ def build_meta_lead_doc(
         "indirizzo_immobile",
         "qual_e_l_indirizzo_dell_immobile",
     )
-    tipo_ristrutturazione = first_value(
+    tipo_ristrutturazione = display_meta_choice(first_value(
         fields,
         "tipo_ristrutturazione",
         "tipologia_ristrutturazione",
         "che_tipo_di_ristrutturazione_ti_serve",
-    )
-    budget_indicativo = first_value(
+    ))
+    budget_indicativo = display_meta_choice(first_value(
         fields,
         "budget",
         "fascia_budget",
         "budget_indicativo",
         "qual_e_il_budget_indicativo",
-    )
-    stato_immobile = first_value(
+    ))
+    stato_immobile = display_meta_choice(first_value(
         fields,
         "stato_immobile",
         "condizioni_immobile",
         "in_che_condizioni_si_trova_l_immobile",
-    )
+    ))
     cfg = build_config_from_meta_fields(fields)
     est = calcola_preventivo(cfg)
     score = max(65, lead_score(cfg, False))

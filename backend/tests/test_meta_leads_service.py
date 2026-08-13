@@ -152,11 +152,11 @@ def test_build_meta_lead_doc_maps_qualified_meta_instant_form_fields():
             {"name": "phone_number", "values": ["+39 333 000 0000"]},
             {
                 "name": "Che tipo di immobile devi ristrutturare?",
-                "values": ["Villa"],
+                "values": ["villa"],
             },
             {
                 "name": "In che condizioni si trova l'immobile?",
-                "values": ["Completamente da ristrutturare"],
+                "values": ["completamente_da_ristrutturare"],
             },
             {
                 "name": "In quale città si trova l'immobile?",
@@ -172,11 +172,11 @@ def test_build_meta_lead_doc_maps_qualified_meta_instant_form_fields():
             },
             {
                 "name": "Che tipo di ristrutturazione ti serve?",
-                "values": ["Ristrutturazione completa"],
+                "values": ["ristrutturazione_completa"],
             },
             {
                 "name": "Qual è il budget indicativo?",
-                "values": ["120.000-200.000 €"],
+                "values": ["120_000_200_000"],
             },
         ],
     }
