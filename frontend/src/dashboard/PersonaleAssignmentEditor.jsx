@@ -96,25 +96,24 @@ export default function PersonaleAssignmentEditor({
         _offline_assignment_key: `${form.cantiere_id}:${form.personale_id}:${form.data_da}`,
       };
     },
-    onSuccess: async (saved) => {
-      if (saved?._offline_pending) {
-        const current = qc.getQueryData(["personale-assegnazioni"]) || [];
-        const next = editing
-          ? current.map((item) =>
-              item.id === saved.id ? { ...item, ...saved } : item,
-            )
-          : [
-              ...current.filter(
-                (item) =>
-                  item._offline_assignment_key !==
-                  saved._offline_assignment_key,
-              ),
-              saved,
-            ];
-        qc.setQueryData(["personale-assegnazioni"], next);
-        await putOfflineCache(slug, userId, "personale-assegnazioni", next);
-      } else {
-        await qc.invalidateQueries({ queryKey: ["personale-assegnazioni"] });
+    onSuccess: (saved) => {
+      const current = qc.getQueryData(["personale-assegnazioni"]) || [];
+      const next = editing
+        ? current.map((item) =>
+            item.id === saved.id ? { ...item, ...saved } : item,
+          )
+        : [
+            ...current.filter(
+              (item) =>
+                String(item.id) !== String(saved.id) &&
+                item._offline_assignment_key !== saved._offline_assignment_key,
+            ),
+            saved,
+          ];
+      qc.setQueryData(["personale-assegnazioni"], next);
+      void putOfflineCache(slug, userId, "personale-assegnazioni", next);
+      if (!saved?._offline_pending) {
+        void qc.invalidateQueries({ queryKey: ["personale-assegnazioni"] });
       }
       toast.success(
         saved?._offline_pending

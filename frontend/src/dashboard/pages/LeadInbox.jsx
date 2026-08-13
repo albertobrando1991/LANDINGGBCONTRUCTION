@@ -64,8 +64,8 @@ export default function LeadInbox() {
 
   const cleanupTest = useMutation({
     mutationFn: () => client.post("/leads/cleanup-test", { keep_emails: [] }),
-    onSuccess: async (res) => {
-      await refreshLeadViews(qc);
+    onSuccess: (res) => {
+      refreshLeadViews(qc);
       toast.success(
         `Eliminati ${res.data.deleted} lead di test (mantenuti ${res.data.kept}).`,
       );

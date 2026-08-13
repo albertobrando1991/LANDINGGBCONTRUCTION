@@ -4,6 +4,7 @@ Il modello applicativo resta invariato durante il cutover, ma ogni documento è
 salvato in ``private.runtime_documents``. Le operazioni di modifica sono
 atomiche e usano ``SELECT ... FOR UPDATE`` dentro transazioni brevi.
 """
+
 from __future__ import annotations
 
 import copy
@@ -163,11 +164,18 @@ def _matches(document: dict, query: dict | None) -> bool:
                 return False
             continue
         actual = _get_path(document, key, _MISSING)
-        if isinstance(expected, dict) and any(str(op).startswith("$") for op in expected):
+        if isinstance(expected, dict) and any(
+            str(op).startswith("$") for op in expected
+        ):
             regex = expected.get("$regex")
             if regex is not None:
-                flags = re.IGNORECASE if "i" in str(expected.get("$options") or "") else 0
-                if actual is _MISSING or re.search(str(regex), str(actual or ""), flags) is None:
+                flags = (
+                    re.IGNORECASE if "i" in str(expected.get("$options") or "") else 0
+                )
+                if (
+                    actual is _MISSING
+                    or re.search(str(regex), str(actual or ""), flags) is None
+                ):
                     return False
             for operator, operand in expected.items():
                 if operator in {"$regex", "$options"}:
@@ -219,7 +227,9 @@ def _apply_update(document: dict, update: dict, *, inserting: bool = False) -> d
                         if item not in items:
                             items.append(item)
                 else:
-                    position = value.get("$position") if isinstance(value, dict) else None
+                    position = (
+                        value.get("$position") if isinstance(value, dict) else None
+                    )
                     if position is None:
                         items.extend(incoming)
                     else:
@@ -256,8 +266,31 @@ def _sort_value(document: dict, field: str) -> tuple[bool, Any]:
     return value is None, value
 
 
+def _exact_query_id(query: dict | None) -> str | None:
+    if not isinstance(query, dict) or "_id" not in query:
+        return None
+    value = query.get("_id")
+    if value is None or isinstance(value, (dict, list, tuple, set)):
+        return None
+    return str(_json_value(value))
+
+
+def _document_from_row(row) -> dict | None:
+    if row is None:
+        return None
+    payload = row["data"]
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    document = dict(payload or {})
+    raw_id = str(row["id"])
+    document["_id"] = ObjectId(raw_id) if ObjectId.is_valid(raw_id) else raw_id
+    return document
+
+
 class DocumentCursor:
-    def __init__(self, collection: "DocumentCollection", query: dict, projection: dict | None):
+    def __init__(
+        self, collection: "DocumentCollection", query: dict, projection: dict | None
+    ):
         self.collection = collection
         self.query = query
         self.projection = projection
@@ -272,10 +305,17 @@ class DocumentCursor:
         return self
 
     async def to_list(self, length: int | None = None) -> list[dict]:
-        documents = await self.collection._all_documents()
+        raw_id = _exact_query_id(self.query)
+        if raw_id is not None:
+            document = await self.collection._document_by_id(raw_id)
+            documents = [document] if document is not None else []
+        else:
+            documents = await self.collection._all_documents()
         documents = [doc for doc in documents if _matches(doc, self.query)]
         for field, direction in reversed(self.sort_spec):
-            documents.sort(key=lambda doc: _sort_value(doc, field), reverse=direction < 0)
+            documents.sort(
+                key=lambda doc: _sort_value(doc, field), reverse=direction < 0
+            )
         if length is not None:
             documents = documents[: int(length)]
         return [_projection(doc, self.projection) for doc in documents]
@@ -291,7 +331,9 @@ class DocumentCollection:
     async def create_index(self, *_args, **_kwargs) -> str:
         return "managed_by_supabase_migration"
 
-    async def _all_documents(self, *, conn=None, for_update: bool = False) -> list[dict]:
+    async def _all_documents(
+        self, *, conn=None, for_update: bool = False
+    ) -> list[dict]:
         tenant_id = await self.database.tenant_id()
         sql = """
             select id, data
@@ -313,18 +355,29 @@ class DocumentCollection:
                     f"{tenant_id}:{self.name}",
                 )
             rows = await conn.fetch(sql, tenant_id, self.name)
-        documents = []
-        for row in rows:
-            payload = row["data"]
-            if isinstance(payload, str):
-                payload = json.loads(payload)
-            document = dict(payload or {})
-            raw_id = str(row["id"])
-            document["_id"] = ObjectId(raw_id) if ObjectId.is_valid(raw_id) else raw_id
-            documents.append(document)
-        return documents
+        return [_document_from_row(row) for row in rows]
 
-    def find(self, query: dict | None = None, projection: dict | None = None) -> DocumentCursor:
+    async def _document_by_id(self, raw_id: str, *, conn=None, for_update=False):
+        tenant_id = await self.database.tenant_id()
+        sql = """
+            select id, data
+            from private.runtime_documents
+            where tenant_id = $1::uuid and collection = $2 and id = $3
+        """
+        if for_update:
+            sql += " for update"
+        if conn is not None:
+            return _document_from_row(
+                await conn.fetchrow(sql, tenant_id, self.name, raw_id)
+            )
+        async with self.database.pool.acquire() as acquired:
+            return _document_from_row(
+                await acquired.fetchrow(sql, tenant_id, self.name, raw_id)
+            )
+
+    def find(
+        self, query: dict | None = None, projection: dict | None = None
+    ) -> DocumentCursor:
         return DocumentCursor(self, query or {}, projection)
 
     async def find_one(
@@ -333,6 +386,13 @@ class DocumentCollection:
         projection: dict | None = None,
         sort: Sequence[tuple[str, int]] | None = None,
     ) -> dict | None:
+        query = query or {}
+        raw_id = _exact_query_id(query)
+        if raw_id is not None:
+            document = await self._document_by_id(raw_id)
+            if document is None or not _matches(document, query):
+                return None
+            return _projection(document, projection)
         cursor = self.find(query, projection)
         if sort:
             cursor.sort(list(sort))
@@ -360,12 +420,40 @@ class DocumentCollection:
                 )
         except asyncpg.UniqueViolationError as exc:
             raise DuplicateKeyError(str(exc)) from exc
-        return InsertOneResult(ObjectId(raw_id) if ObjectId.is_valid(raw_id) else raw_id)
+        return InsertOneResult(
+            ObjectId(raw_id) if ObjectId.is_valid(raw_id) else raw_id
+        )
 
     async def insert_many(self, documents: Iterable[dict]) -> InsertManyResult:
+        rows = []
         inserted = []
+        tenant_id = await self.database.tenant_id()
         for document in documents:
-            inserted.append((await self.insert_one(document)).inserted_id)
+            payload = _json_value(copy.deepcopy(document))
+            raw_id = str(payload.pop("_id", ObjectId()))
+            rows.append(
+                (
+                    tenant_id,
+                    self.name,
+                    raw_id,
+                    json.dumps(payload, ensure_ascii=False),
+                )
+            )
+            inserted.append(ObjectId(raw_id) if ObjectId.is_valid(raw_id) else raw_id)
+        if not rows:
+            return InsertManyResult([])
+        try:
+            async with self.database.pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.executemany(
+                        """
+                        insert into private.runtime_documents (tenant_id, collection, id, data)
+                        values ($1::uuid, $2, $3, $4::jsonb)
+                        """,
+                        rows,
+                    )
+        except asyncpg.UniqueViolationError as exc:
+            raise DuplicateKeyError(str(exc)) from exc
         return InsertManyResult(inserted)
 
     def _upsert_seed(self, query: dict) -> dict:
@@ -373,7 +461,9 @@ class DocumentCollection:
         for path, value in query.items():
             if path.startswith("$"):
                 continue
-            if isinstance(value, dict) and any(str(key).startswith("$") for key in value):
+            if isinstance(value, dict) and any(
+                str(key).startswith("$") for key in value
+            ):
                 continue
             _set_path(seed, path, value)
         return seed
@@ -381,7 +471,9 @@ class DocumentCollection:
     async def _write_document(self, conn, document: dict) -> None:
         tenant_id = await self.database.tenant_id()
         raw_id = str(document["_id"])
-        payload = _json_value({key: value for key, value in document.items() if key != "_id"})
+        payload = _json_value(
+            {key: value for key, value in document.items() if key != "_id"}
+        )
         await conn.execute(
             """
             update private.runtime_documents
@@ -394,13 +486,64 @@ class DocumentCollection:
             json.dumps(payload, ensure_ascii=False),
         )
 
-    async def update_one(self, query: dict, update: dict, upsert: bool = False) -> UpdateResult:
+    async def _update_one_by_id(
+        self, raw_id: str, query: dict, update: dict, upsert: bool
+    ) -> UpdateResult:
+        tenant_id = await self.database.tenant_id()
+        async with self.database.pool.acquire() as conn:
+            async with conn.transaction():
+                current = await self._document_by_id(raw_id, conn=conn, for_update=True)
+                if upsert and current is None:
+                    await conn.execute(
+                        "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+                        f"{tenant_id}:{self.name}:{raw_id}",
+                    )
+                    current = await self._document_by_id(
+                        raw_id, conn=conn, for_update=True
+                    )
+                if current is not None and _matches(current, query):
+                    updated = _apply_update(current, update)
+                    changed = updated != current
+                    if changed:
+                        await self._write_document(conn, updated)
+                    return UpdateResult(1, int(changed))
+                if not upsert:
+                    return UpdateResult(0, 0)
+                inserted = _apply_update(
+                    self._upsert_seed(query), update, inserting=True
+                )
+                inserted_raw_id = str(inserted.pop("_id", raw_id))
+                await conn.execute(
+                    """
+                    insert into private.runtime_documents (tenant_id, collection, id, data)
+                    values ($1::uuid, $2, $3, $4::jsonb)
+                    """,
+                    tenant_id,
+                    self.name,
+                    inserted_raw_id,
+                    json.dumps(_json_value(inserted), ensure_ascii=False),
+                )
+                inserted_id = (
+                    ObjectId(inserted_raw_id)
+                    if ObjectId.is_valid(inserted_raw_id)
+                    else inserted_raw_id
+                )
+                return UpdateResult(0, 0, inserted_id)
+
+    async def update_one(
+        self, query: dict, update: dict, upsert: bool = False
+    ) -> UpdateResult:
         tenant_id = await self.database.tenant_id()
         try:
+            raw_id = _exact_query_id(query)
+            if raw_id is not None:
+                return await self._update_one_by_id(raw_id, query, update, upsert)
             async with self.database.pool.acquire() as conn:
                 async with conn.transaction():
                     documents = await self._all_documents(conn=conn, for_update=True)
-                    current = next((doc for doc in documents if _matches(doc, query)), None)
+                    current = next(
+                        (doc for doc in documents if _matches(doc, query)), None
+                    )
                     if current is not None:
                         updated = _apply_update(current, update)
                         changed = updated != current
@@ -409,7 +552,9 @@ class DocumentCollection:
                         return UpdateResult(1, int(changed))
                     if not upsert:
                         return UpdateResult(0, 0)
-                    inserted = _apply_update(self._upsert_seed(query), update, inserting=True)
+                    inserted = _apply_update(
+                        self._upsert_seed(query), update, inserting=True
+                    )
                     raw_id = str(inserted.pop("_id", ObjectId()))
                     payload = _json_value(inserted)
                     await conn.execute(
@@ -422,12 +567,16 @@ class DocumentCollection:
                         raw_id,
                         json.dumps(payload, ensure_ascii=False),
                     )
-                    inserted_id = ObjectId(raw_id) if ObjectId.is_valid(raw_id) else raw_id
+                    inserted_id = (
+                        ObjectId(raw_id) if ObjectId.is_valid(raw_id) else raw_id
+                    )
                     return UpdateResult(0, 0, inserted_id)
         except asyncpg.UniqueViolationError as exc:
             raise DuplicateKeyError(str(exc)) from exc
 
-    async def update_many(self, query: dict, update: dict, upsert: bool = False) -> UpdateResult:
+    async def update_many(
+        self, query: dict, update: dict, upsert: bool = False
+    ) -> UpdateResult:
         async with self.database.pool.acquire() as conn:
             async with conn.transaction():
                 documents = await self._all_documents(conn=conn, for_update=True)
@@ -452,10 +601,61 @@ class DocumentCollection:
     ) -> dict | None:
         tenant_id = await self.database.tenant_id()
         try:
+            raw_id = _exact_query_id(query)
+            if raw_id is not None:
+                async with self.database.pool.acquire() as conn:
+                    async with conn.transaction():
+                        current = await self._document_by_id(
+                            raw_id, conn=conn, for_update=True
+                        )
+                        if upsert and current is None:
+                            await conn.execute(
+                                "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+                                f"{tenant_id}:{self.name}:{raw_id}",
+                            )
+                            current = await self._document_by_id(
+                                raw_id, conn=conn, for_update=True
+                            )
+                        if current is not None and _matches(current, query):
+                            before = copy.deepcopy(current)
+                            updated = _apply_update(current, update)
+                            if updated != current:
+                                await self._write_document(conn, updated)
+                            return (
+                                updated
+                                if return_document == ReturnDocument.AFTER
+                                else before
+                            )
+                        if not upsert:
+                            return None
+                        updated = _apply_update(
+                            self._upsert_seed(query), update, inserting=True
+                        )
+                        inserted_raw_id = str(updated.pop("_id", raw_id))
+                        await conn.execute(
+                            """
+                            insert into private.runtime_documents (tenant_id, collection, id, data)
+                            values ($1::uuid, $2, $3, $4::jsonb)
+                            """,
+                            tenant_id,
+                            self.name,
+                            inserted_raw_id,
+                            json.dumps(_json_value(updated), ensure_ascii=False),
+                        )
+                        updated["_id"] = (
+                            ObjectId(inserted_raw_id)
+                            if ObjectId.is_valid(inserted_raw_id)
+                            else inserted_raw_id
+                        )
+                        return (
+                            updated if return_document == ReturnDocument.AFTER else None
+                        )
             async with self.database.pool.acquire() as conn:
                 async with conn.transaction():
                     documents = await self._all_documents(conn=conn, for_update=True)
-                    current = next((doc for doc in documents if _matches(doc, query)), None)
+                    current = next(
+                        (doc for doc in documents if _matches(doc, query)), None
+                    )
                     if current is None:
                         if not upsert:
                             return None
@@ -472,24 +672,53 @@ class DocumentCollection:
                             raw_id,
                             json.dumps(_json_value(updated), ensure_ascii=False),
                         )
-                        updated["_id"] = ObjectId(raw_id) if ObjectId.is_valid(raw_id) else raw_id
-                        return updated if return_document == ReturnDocument.AFTER else None
+                        updated["_id"] = (
+                            ObjectId(raw_id) if ObjectId.is_valid(raw_id) else raw_id
+                        )
+                        return (
+                            updated if return_document == ReturnDocument.AFTER else None
+                        )
                     before = copy.deepcopy(current)
                     updated = _apply_update(current, update)
                     if updated != current:
                         await self._write_document(conn, updated)
-                    return updated if return_document == ReturnDocument.AFTER else before
+                    return (
+                        updated if return_document == ReturnDocument.AFTER else before
+                    )
         except asyncpg.UniqueViolationError as exc:
             raise DuplicateKeyError(str(exc)) from exc
 
-    async def delete_one(self, query: dict) -> DeleteResult:
+    async def find_one_and_delete(self, query: dict) -> dict | None:
         tenant_id = await self.database.tenant_id()
+        raw_id = _exact_query_id(query)
+        if raw_id is not None and set(query) == {"_id"}:
+            async with self.database.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    delete from private.runtime_documents
+                    where tenant_id = $1::uuid and collection = $2 and id = $3
+                    returning id, data
+                    """,
+                    tenant_id,
+                    self.name,
+                    raw_id,
+                )
+            return _document_from_row(row)
         async with self.database.pool.acquire() as conn:
             async with conn.transaction():
-                documents = await self._all_documents(conn=conn, for_update=True)
-                current = next((doc for doc in documents if _matches(doc, query)), None)
+                if raw_id is not None:
+                    current = await self._document_by_id(
+                        raw_id, conn=conn, for_update=True
+                    )
+                    if current is not None and not _matches(current, query):
+                        current = None
+                else:
+                    documents = await self._all_documents(conn=conn, for_update=True)
+                    current = next(
+                        (doc for doc in documents if _matches(doc, query)), None
+                    )
                 if current is None:
-                    return DeleteResult(0)
+                    return None
                 await conn.execute(
                     """
                     delete from private.runtime_documents
@@ -499,7 +728,11 @@ class DocumentCollection:
                     self.name,
                     str(current["_id"]),
                 )
-                return DeleteResult(1)
+                return current
+
+    async def delete_one(self, query: dict) -> DeleteResult:
+        deleted = await self.find_one_and_delete(query)
+        return DeleteResult(int(deleted is not None))
 
     async def delete_many(self, query: dict) -> DeleteResult:
         tenant_id = await self.database.tenant_id()

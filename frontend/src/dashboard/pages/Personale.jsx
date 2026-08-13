@@ -187,8 +187,12 @@ export default function Personale() {
 
   const create = useMutation({
     mutationFn: async (body) => (await client.post("/personale", body)).data,
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["personale"] });
+    onSuccess: (saved) => {
+      qc.setQueryData(["personale"], (current = []) => [
+        ...current.filter((item) => String(item.id) !== String(saved.id)),
+        saved,
+      ]);
+      void qc.invalidateQueries({ queryKey: ["personale"] });
       setShowForm(false);
       toast.success("Anagrafica personale creata");
     },
@@ -197,8 +201,13 @@ export default function Personale() {
   const update = useMutation({
     mutationFn: async ({ id, body }) =>
       (await client.patch(`/personale/${id}`, body)).data,
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["personale"] });
+    onSuccess: (saved) => {
+      qc.setQueryData(["personale"], (current = []) =>
+        current.map((item) =>
+          String(item.id) === String(saved.id) ? saved : item,
+        ),
+      );
+      void qc.invalidateQueries({ queryKey: ["personale"] });
       toast.success("Anagrafica aggiornata");
     },
     onError: async (error) => toast.error(await extractErrorDetail(error)),

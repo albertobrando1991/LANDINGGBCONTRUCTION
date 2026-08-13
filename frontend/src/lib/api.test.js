@@ -1,4 +1,5 @@
 import client, {
+  API_PERFORMANCE_EVENT,
   backendUrlForHostname,
   extractErrorDetail,
   setApiAccessToken,
@@ -59,6 +60,32 @@ test("mantiene un header Authorization esplicito", async () => {
   });
 
   expect(response.data.authorization).toBe("Bearer explicit-session");
+});
+
+test("misura tutte le richieste API e separa tempo server da rete e client", async () => {
+  const measurements = [];
+  const listener = (event) => measurements.push(event.detail);
+  window.addEventListener(API_PERFORMANCE_EVENT, listener);
+  const response = await client.get("/cantieri", {
+    adapter: async (config) => ({
+      data: [],
+      status: 200,
+      statusText: "OK",
+      headers: { "x-response-time-ms": "12.5" },
+      config,
+    }),
+  });
+  window.removeEventListener(API_PERFORMANCE_EVENT, listener);
+
+  expect(response.durationMs).toBeGreaterThanOrEqual(0);
+  expect(measurements.at(-1)).toEqual(
+    expect.objectContaining({
+      method: "GET",
+      url: "/cantieri",
+      status: 200,
+      serverDurationMs: 12.5,
+    }),
+  );
 });
 
 test("legge il dettaglio di un errore JSON normale", async () => {

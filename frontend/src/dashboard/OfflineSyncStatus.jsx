@@ -38,7 +38,7 @@ export default function OfflineSyncStatus() {
         const result = await syncOfflineOperations(slug, userId);
         await refresh();
         if (result.synced) {
-          await qc.invalidateQueries();
+          void qc.invalidateQueries();
           if (announce) {
             toast.success(
               `${result.synced} ${

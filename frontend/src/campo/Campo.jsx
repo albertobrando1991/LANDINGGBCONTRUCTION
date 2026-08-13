@@ -239,7 +239,7 @@ export default function Campo() {
       }, slug);
       await refreshQueue();
       if (result.synced) {
-        await queryClient.invalidateQueries({ queryKey: ["campo", "misure"] });
+        void queryClient.invalidateQueries({ queryKey: ["campo", "misure"] });
         toast.success(
           `${result.synced} ${result.synced === 1 ? "misura sincronizzata" : "misure sincronizzate"}`,
         );
@@ -405,7 +405,7 @@ export default function Campo() {
               ? "Rettifica registrata"
               : "Misura registrata",
           );
-          await queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["campo", "misure", slug, form.cantiere_id],
           });
         } catch (error) {

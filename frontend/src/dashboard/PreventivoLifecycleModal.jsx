@@ -70,14 +70,14 @@ export default function PreventivoLifecycleModal({ preventivo, onClose }) {
     setAzioneDaConfermare(null);
   }, [open, preventivo]);
 
-  const refresh = async () => {
-    await Promise.all([
+  const refresh = () => {
+    void Promise.all([
       queryClient.invalidateQueries({ queryKey: ["preventivi"] }),
       queryClient.invalidateQueries({
         queryKey: ["preventivo-eventi", preventivo?.id],
       }),
-      refreshLeadViews(queryClient),
     ]);
+    refreshLeadViews(queryClient);
   };
 
   const sendMutation = useMutation({
@@ -88,8 +88,8 @@ export default function PreventivoLifecycleModal({ preventivo, onClose }) {
       return (await client.post(`/preventivi/${preventivo.id}/invia`, payload))
         .data;
     },
-    onSuccess: async () => {
-      await refresh();
+    onSuccess: () => {
+      refresh();
       toast.success("Preventivo inviato con PDF allegato");
       onClose?.();
     },
@@ -104,8 +104,8 @@ export default function PreventivoLifecycleModal({ preventivo, onClose }) {
           stato,
         })
       ).data,
-    onSuccess: async (updated) => {
-      await refresh();
+    onSuccess: (updated) => {
+      refresh();
       setAzioneDaConfermare(null);
       toast.success(
         `Preventivo ${PREVENTIVO_STATI[updated.stato]?.label?.toLowerCase() || "aggiornato"}`,

@@ -1076,8 +1076,8 @@ export default function PrimoRilievo({ isOnline }) {
       });
       setQueueCount((await listRilievoOperations(slug)).length);
       if (result.synced) {
-        await qc.invalidateQueries({ queryKey: ["campo", "rilievi"] });
-        await qc.invalidateQueries({ queryKey: ["campo", "rilievo"] });
+        void qc.invalidateQueries({ queryKey: ["campo", "rilievi"] });
+        void qc.invalidateQueries({ queryKey: ["campo", "rilievo"] });
         toast.success(`${result.synced} modifiche rilievo sincronizzate`);
       }
       if (result.failures.length)
@@ -1096,12 +1096,12 @@ export default function PrimoRilievo({ isOnline }) {
 
   const createMutation = useMutation({
     mutationFn: (body) => createRilievo(body),
-    onSuccess: async (created) => {
+    onSuccess: (created) => {
       toast.success("Scheda rilievo creata");
       setCreating(false);
       setCreateForm({ ...EMPTY_RILIEVO, data_rilievo: localDate() });
-      await qc.invalidateQueries({ queryKey: ["campo", "rilievi", slug] });
       setSelectedId(created.id);
+      void qc.invalidateQueries({ queryKey: ["campo", "rilievi", slug] });
     },
     onError: (error) =>
       toast.error("Rilievo non creato", { description: detailMessage(error) }),
@@ -1177,10 +1177,10 @@ export default function PrimoRilievo({ isOnline }) {
         data: updated,
         cached: false,
       });
-      await qc.invalidateQueries({ queryKey: ["campo", "rilievi", slug] });
       toast.success(
         stato === "completato" ? "Rilievo completato" : "Rilievo riaperto",
       );
+      void qc.invalidateQueries({ queryKey: ["campo", "rilievi", slug] });
     } catch (error) {
       toast.error("Stato non aggiornato", {
         description: detailMessage(error),

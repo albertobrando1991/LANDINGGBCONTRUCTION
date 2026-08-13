@@ -51,7 +51,7 @@ test("mostra le presenze giornaliere del cantiere", async () => {
   });
   await act(async () => {
     container.querySelector("button").click();
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   });
   expect(container.textContent).toContain("Squadra Alfa");
   expect(container.textContent).toContain("4 presenti");

@@ -34,8 +34,8 @@ export default function LeadDetail() {
 
   const patch = useMutation({
     mutationFn: async (body) => (await client.patch(`/leads/${id}`, body)).data,
-    onSuccess: async (updatedLead) => {
-      await refreshLeadViews(qc, {
+    onSuccess: (updatedLead) => {
+      refreshLeadViews(qc, {
         leadId: id,
         updatedLead,
         includeAppointments: true,

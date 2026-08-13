@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@/index.css";
 import App from "@/App";
+import { queryRetryDelay, shouldRetryQuery } from "@/lib/queryPolicy";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -10,9 +11,12 @@ const queryClient = new QueryClient({
       staleTime: 60_000,
       refetchOnWindowFocus: false,
       networkMode: "always",
+      retry: shouldRetryQuery,
+      retryDelay: queryRetryDelay,
     },
     mutations: {
       networkMode: "always",
+      retry: false,
     },
   },
 });

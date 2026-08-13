@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -130,7 +130,7 @@ export default function CantiereDetail() {
           "Salvato sul dispositivo: sara sincronizzato appena torna la connessione",
         );
       } else {
-        await qc.invalidateQueries({ queryKey: ["cantieri"] });
+        void qc.invalidateQueries({ queryKey: ["cantieri"] });
       }
       return data;
     } catch (error) {
@@ -145,13 +145,35 @@ export default function CantiereDetail() {
     }
   };
 
-  const deleteCantiere = async (cantiereId) => {
-    try {
-      await client.delete(`/cantieri/${cantiereId}`);
-      await qc.invalidateQueries({ queryKey: ["cantieri"] });
+  const deleteCantiereMutation = useMutation({
+    mutationFn: (cantiereId) => client.delete(`/cantieri/${cantiereId}`),
+    onMutate: async (cantiereId) => {
+      const listQueries = {
+        predicate: (query) =>
+          query.queryKey[0] === "cantieri" && query.queryKey[1] !== "detail",
+      };
+      await qc.cancelQueries(listQueries);
+      const previousLists = qc.getQueriesData(listQueries);
+      qc.setQueriesData(listQueries, (current) =>
+        Array.isArray(current)
+          ? current.filter((item) => String(item.id) !== String(cantiereId))
+          : current,
+      );
+      return { previousLists };
+    },
+    onSuccess: (_, cantiereId) => {
+      qc.removeQueries({
+        queryKey: ["cantieri", "detail", cantiereId],
+        exact: true,
+      });
       toast.success("Cantiere eliminato");
       navigate("/dashboard/cantieri", { replace: true });
-    } catch (error) {
+      void qc.invalidateQueries({ queryKey: ["leads"] });
+    },
+    onError: (error, _cantiereId, context) => {
+      for (const [queryKey, data] of context?.previousLists || []) {
+        qc.setQueryData(queryKey, data);
+      }
       toast.error(
         formatApiErrorDetail(
           error?.response?.data?.detail ||
@@ -159,6 +181,12 @@ export default function CantiereDetail() {
             "Eliminazione non riuscita",
         ),
       );
+    },
+  });
+
+  const deleteCantiere = (cantiereId) => {
+    if (!deleteCantiereMutation.isPending) {
+      deleteCantiereMutation.mutate(cantiereId);
     }
   };
 
@@ -253,7 +281,7 @@ export default function CantiereDetail() {
           cantiere={cantiere}
           staffNames={staffNames}
           saving={false}
-          deleting={false}
+          deleting={deleteCantiereMutation.isPending}
           canDelete={user?.role === "admin"}
           onSave={persistCantiere}
           onAtomicSave={persistCantiere}

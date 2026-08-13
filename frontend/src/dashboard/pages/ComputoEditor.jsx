@@ -322,13 +322,14 @@ export default function ComputoEditor() {
   });
   const vociPrezz = vociPrezzData.items || [];
 
-  const refresh = () =>
-    Promise.all([
+  const refresh = () => {
+    void Promise.all([
       qc.invalidateQueries({ queryKey: ["computo", id] }),
       qc.invalidateQueries({ queryKey: ["confronto-variante", id] }),
       qc.invalidateQueries({ queryKey: ["computi"] }),
       qc.invalidateQueries({ queryKey: ["preventivi"] }),
     ]);
+  };
 
   const add = useMutation({
     mutationFn: async () => {
@@ -349,7 +350,7 @@ export default function ComputoEditor() {
         })
       ).data;
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success(
         computo?.preventivo_bozza_id
           ? "Voce aggiunta e bozza preventivo aggiornata"
@@ -362,7 +363,7 @@ export default function ComputoEditor() {
         qta: 1,
         prezzo_unitario: "",
       });
-      await refresh();
+      refresh();
     },
     onError: (error) =>
       toast.error(error?.response?.data?.detail || "Errore aggiunta voce"),
@@ -371,13 +372,13 @@ export default function ComputoEditor() {
   const update = useMutation({
     mutationFn: async ({ id: currentVoceId, patch }) =>
       (await client.patch(`/computi/voci/${currentVoceId}`, patch)).data,
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success(
         computo?.preventivo_bozza_id
           ? "Voce aggiornata e bozza preventivo sincronizzata"
           : "Voce aggiornata",
       );
-      await refresh();
+      refresh();
     },
     onError: (error) =>
       toast.error(error?.response?.data?.detail || "Errore aggiornamento voce"),
@@ -386,13 +387,13 @@ export default function ComputoEditor() {
   const remove = useMutation({
     mutationFn: async (currentVoceId) =>
       (await client.delete(`/computi/voci/${currentVoceId}`)).data,
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success(
         computo?.preventivo_bozza_id
           ? "Voce eliminata e bozza preventivo aggiornata"
           : "Voce eliminata",
       );
-      await refresh();
+      refresh();
     },
     onError: (error) =>
       toast.error(error?.response?.data?.detail || "Errore eliminazione voce"),
@@ -423,7 +424,7 @@ export default function ComputoEditor() {
       ).data;
     },
     onMutate: () => setCronoprogrammaSaveState("saving"),
-    onSuccess: async () => {
+    onSuccess: () => {
       setCronoprogrammaSaveState("saved");
       setCronoprogrammaSavedAt(
         new Date().toLocaleTimeString("it-IT", {
@@ -436,7 +437,7 @@ export default function ComputoEditor() {
           ? "Cronoprogramma salvato e PDF della bozza aggiornato"
           : "Cronoprogramma salvato",
       );
-      await refresh();
+      refresh();
     },
     onError: (error) => {
       setCronoprogrammaSaveState("error");
@@ -448,9 +449,9 @@ export default function ComputoEditor() {
 
   const confirm = useMutation({
     mutationFn: async () => (await client.post(`/computi/${id}/conferma`)).data,
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success("Dati confermati: il preventivo è pronto per l’invio");
-      await refresh();
+      refresh();
     },
     onError: (error) =>
       toast.error(error?.response?.data?.detail || "Conferma bloccata"),
@@ -463,9 +464,9 @@ export default function ComputoEditor() {
           voce_ids: ids || undefined,
         })
       ).data,
-    onSuccess: async (data) => {
+    onSuccess: (data) => {
       toast.success(`Validate ${data.validate} voci automatiche`);
-      await refresh();
+      refresh();
     },
     onError: (error) =>
       toast.error(error?.response?.data?.detail || "Errore validazione voci"),
@@ -478,13 +479,13 @@ export default function ComputoEditor() {
           params: { forza: Boolean(forza) },
         })
       ).data,
-    onSuccess: async (data) => {
+    onSuccess: (data) => {
       toast.success(
         data.riclassificate
           ? `Assegnata la fase a ${data.riclassificate} voci`
           : "Tutte le voci hanno già una fase",
       );
-      await refresh();
+      refresh();
     },
     onError: (error) =>
       toast.error(
@@ -524,8 +525,8 @@ export default function ComputoEditor() {
           iva: 10,
         })
       ).data,
-    onSuccess: async (preventivo) => {
-      await refresh();
+    onSuccess: (preventivo) => {
+      refresh();
       toast.success(`Preventivo ${preventivo.numero} pronto`);
       navigate("/dashboard/preventivi");
     },
@@ -872,9 +873,7 @@ export default function ComputoEditor() {
                   onClick={apriClassificazione}
                   className="min-h-11 rounded-xl border border-amber-400/40 px-3 text-xs font-display uppercase text-amber-200 disabled:opacity-40"
                 >
-                  {duplicate.isPending
-                    ? "Apertura…"
-                    : "Classifica le voci"}
+                  {duplicate.isPending ? "Apertura…" : "Classifica le voci"}
                 </button>
               )}
             </div>

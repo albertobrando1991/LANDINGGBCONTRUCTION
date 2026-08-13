@@ -27,6 +27,33 @@ const client = axios.create({
   withCredentials: true,
 });
 
+export const API_PERFORMANCE_EVENT = "gb:api-performance";
+
+function monotonicNow() {
+  return typeof performance !== "undefined" && performance.now
+    ? performance.now()
+    : Date.now();
+}
+
+function recordApiPerformance(config, response) {
+  const startedAt = Number(config?.metadata?.startedAt);
+  if (!Number.isFinite(startedAt)) return null;
+
+  const durationMs = Math.max(0, monotonicNow() - startedAt);
+  const serverDuration = Number(response?.headers?.["x-response-time-ms"]);
+  const detail = {
+    method: String(config?.method || "get").toUpperCase(),
+    url: String(config?.url || ""),
+    status: Number(response?.status) || null,
+    durationMs,
+    serverDurationMs: Number.isFinite(serverDuration) ? serverDuration : null,
+  };
+  if (typeof window !== "undefined" && typeof CustomEvent !== "undefined") {
+    window.dispatchEvent(new CustomEvent(API_PERFORMANCE_EVENT, { detail }));
+  }
+  return durationMs;
+}
+
 let apiAccessToken = null;
 
 export function setApiAccessToken(token) {
@@ -35,6 +62,7 @@ export function setApiAccessToken(token) {
 
 client.interceptors.request.use((config) => {
   config.headers = config.headers || {};
+  config.metadata = { ...config.metadata, startedAt: monotonicNow() };
   if (apiAccessToken && !config.headers.Authorization) {
     config.headers.Authorization = `Bearer ${apiAccessToken}`;
   }
@@ -43,6 +71,17 @@ client.interceptors.request.use((config) => {
   }
   return config;
 });
+
+client.interceptors.response.use(
+  (response) => {
+    response.durationMs = recordApiPerformance(response.config, response);
+    return response;
+  },
+  (error) => {
+    error.durationMs = recordApiPerformance(error?.config, error?.response);
+    return Promise.reject(error);
+  },
+);
 
 export function formatApiErrorDetail(detail) {
   if (detail == null) return "Si è verificato un errore. Riprova.";

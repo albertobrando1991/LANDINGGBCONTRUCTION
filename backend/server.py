@@ -9,6 +9,7 @@ load_dotenv(ROOT_DIR / '.env', override=True)
 
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Any, Dict, Literal
@@ -1427,11 +1428,10 @@ async def update_lead(
 @api.delete("/leads/{lead_id}")
 async def delete_lead(lead_id: str, user: dict = Depends(require_admin)):
     oid = object_id_or_400(lead_id, "Lead")
-    existing = await db.leads.find_one({"_id": oid})
+    existing = await db.leads.find_one_and_delete({"_id": oid})
     if not existing:
         raise HTTPException(status_code=404, detail="Lead non trovato")
     linked_slots = await db.sopralluogo_slots.find({"lead_id": lead_id}).to_list(100)
-    await db.leads.delete_one({"_id": oid})
     # Libera eventuali slot sopralluogo collegati e scollega i job AI.
     await db.sopralluogo_slots.update_many(
         {"lead_id": lead_id},
@@ -2540,11 +2540,8 @@ async def update_cantiere(cantiere_id: str, body: CantiereUpdate, user: dict = D
 @api.delete("/cantieri/{cantiere_id}")
 async def delete_cantiere(cantiere_id: str, user: dict = Depends(require_admin)):
     oid = object_id_or_400(cantiere_id, "Cantiere")
-    existing = await db.cantieri.find_one({"_id": oid})
+    existing = await db.cantieri.find_one_and_delete({"_id": oid})
     if not existing:
-        raise HTTPException(status_code=404, detail="Cantiere non trovato")
-    res = await db.cantieri.delete_one({"_id": oid})
-    if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Cantiere non trovato")
 
     lead_id = _clean_text(existing.get("lead_id"))
@@ -2868,9 +2865,49 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def performance_timing(request: Request, call_next):
+    started_at = time.perf_counter()
+    request_id = (request.headers.get("x-request-id") or uuid.uuid4().hex)[:100]
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        logger.exception(
+            "request_failed method=%s path=%s duration_ms=%.1f request_id=%s",
+            request.method,
+            request.url.path,
+            duration_ms,
+            request_id,
+        )
+        raise
+
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
+    response.headers["X-Response-Time-Ms"] = f"{duration_ms:.1f}"
+    response.headers["X-Request-ID"] = request_id
+    try:
+        slow_request_ms = float(os.environ.get("SLOW_REQUEST_MS", "750"))
+    except ValueError:
+        slow_request_ms = 750.0
+    if duration_ms >= slow_request_ms:
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", request.url.path)
+        logger.warning(
+            "slow_request method=%s route=%s status=%s duration_ms=%.1f request_id=%s",
+            request.method,
+            route_path,
+            response.status_code,
+            duration_ms,
+            request_id,
+        )
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
+    expose_headers=["Server-Timing", "X-Response-Time-Ms", "X-Request-ID"],
     allow_origins=[
         origin.strip()
         for origin in os.environ.get(

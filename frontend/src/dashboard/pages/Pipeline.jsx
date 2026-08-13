@@ -59,8 +59,8 @@ export default function Pipeline() {
   const move = useMutation({
     mutationFn: async ({ id, status }) =>
       (await client.patch(`/leads/${id}`, { status })).data,
-    onSuccess: async (updatedLead) => {
-      await refreshLeadViews(qc, {
+    onSuccess: (updatedLead) => {
+      refreshLeadViews(qc, {
         leadId: updatedLead.id,
         updatedLead,
         includeAppointments: true,

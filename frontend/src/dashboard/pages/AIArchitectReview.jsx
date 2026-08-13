@@ -407,10 +407,12 @@ export default function AIArchitectReview() {
     setConceptFeedback(selectedJob?.layout_correction_notes || "");
   }, [selectedJob?.id, selectedJob?.layout_correction_notes]);
 
-  const invalidateJob = async (jobId) => {
-    await qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] });
-    await qc.invalidateQueries({ queryKey: ["ai-architect-job", jobId] });
-    await qc.invalidateQueries({ queryKey: ["ai-credits"] });
+  const invalidateJob = (jobId) => {
+    void Promise.all([
+      qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] }),
+      qc.invalidateQueries({ queryKey: ["ai-architect-job", jobId] }),
+      qc.invalidateQueries({ queryKey: ["ai-credits"] }),
+    ]);
   };
 
   const approve = useMutation({
@@ -419,9 +421,9 @@ export default function AIArchitectReview() {
         reviewer: "Dashboard staff",
         notes: "Concept approvato da dashboard staff.",
       }),
-    onSuccess: async (_, jobId) => {
+    onSuccess: (_, jobId) => {
       toast.success("Concept approvato. Render avviati.");
-      await invalidateJob(jobId);
+      invalidateJob(jobId);
     },
     onError: (err) =>
       toast.error(formatApiErrorDetail(err.response?.data?.detail)),
@@ -432,9 +434,9 @@ export default function AIArchitectReview() {
       client.post(`/ai-architect/jobs/${jobId}/confirm`, {
         plan_type_selected: planType,
       }),
-    onSuccess: async (_, { jobId }) => {
+    onSuccess: (_, { jobId }) => {
       toast.success("Tipo planimetria confermato. Elaborazione avviata.");
-      await invalidateJob(jobId);
+      invalidateJob(jobId);
     },
     onError: (err) =>
       toast.error(formatApiErrorDetail(err.response?.data?.detail)),
@@ -446,14 +448,14 @@ export default function AIArchitectReview() {
         output_types: outputTypes,
         correction_notes: correctionNotes,
       }),
-    onSuccess: async (_, { jobId, outputTypes }) => {
+    onSuccess: (_, { jobId, outputTypes }) => {
       const isConcept = outputTypes?.includes("concept_2d");
       toast.success(
         isConcept
           ? "Correzione inviata. Concept 2D in rigenerazione."
           : "Rigenerazione avviata.",
       );
-      await invalidateJob(jobId);
+      invalidateJob(jobId);
     },
     onError: (err) =>
       toast.error(formatApiErrorDetail(err.response?.data?.detail)),
@@ -461,13 +463,13 @@ export default function AIArchitectReview() {
 
   const reanalyze = useMutation({
     mutationFn: (jobId) => client.post(`/ai-architect/jobs/${jobId}/reanalyze`),
-    onSuccess: async (_, jobId) => {
+    onSuccess: (_, jobId) => {
       toast.success(
         selectedJob?.status === "requested"
           ? "Lavorazione della richiesta avviata."
           : "Ri-analisi planimetria avviata.",
       );
-      await invalidateJob(jobId);
+      invalidateJob(jobId);
     },
     onError: (err) =>
       toast.error(formatApiErrorDetail(err.response?.data?.detail)),
@@ -479,9 +481,9 @@ export default function AIArchitectReview() {
         `/ai-architect/jobs/${selectedId}/outputs/${outputId}/refine`,
         { instruction, region, reviewer: "Dashboard staff" },
       ),
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success("Correzione inviata. Nuova versione in elaborazione.");
-      await invalidateJob(selectedId);
+      invalidateJob(selectedId);
     },
     onError: (err) =>
       toast.error(formatApiErrorDetail(err.response?.data?.detail)),
@@ -501,8 +503,13 @@ export default function AIArchitectReview() {
       client.patch(`/ai-architect/refinement-memories/${memoryId}`, {
         enabled,
       }),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["ai-architect-memories"] });
+    onSuccess: (_response, { memoryId, enabled }) => {
+      qc.setQueryData(["ai-architect-memories"], (current = []) =>
+        current.map((item) =>
+          String(item.id) === String(memoryId) ? { ...item, enabled } : item,
+        ),
+      );
+      void qc.invalidateQueries({ queryKey: ["ai-architect-memories"] });
     },
     onError: (err) =>
       toast.error(formatApiErrorDetail(err.response?.data?.detail)),
@@ -746,11 +753,11 @@ export default function AIArchitectReview() {
           <div className="rounded-2xl border border-stroke bg-surface p-4 md:p-6">
             <AIArchitect
               embedded
-              onComplete={async (aiJob) => {
-                await qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] });
-                await qc.invalidateQueries({ queryKey: ["ai-credits"] });
+              onComplete={(aiJob) => {
                 setSelectedId(aiJob.id);
                 setTab("tutti");
+                void qc.invalidateQueries({ queryKey: ["ai-architect-jobs"] });
+                void qc.invalidateQueries({ queryKey: ["ai-credits"] });
               }}
             />
           </div>

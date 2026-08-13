@@ -529,7 +529,9 @@ export default function Economics() {
     [fixedCosts],
   );
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ["economics"] });
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ["economics"] });
+  };
   const create = useMutation({
     mutationFn: async ({ kind, values, file }) => {
       const endpoint = {
@@ -549,10 +551,10 @@ export default function Economics() {
       }
       return (await client.post(`/economics/${endpoint}`, body)).data;
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success("Movimento economico registrato");
       setFormKind(null);
-      await refresh();
+      refresh();
     },
     onError: (error) =>
       toast.error(
@@ -564,9 +566,9 @@ export default function Economics() {
   const update = useMutation({
     mutationFn: async ({ group, id, body }) =>
       (await client.patch(`/economics/${group}/${id}`, body)).data,
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success("Stato aggiornato");
-      await refresh();
+      refresh();
     },
     onError: (error) =>
       toast.error(
@@ -578,8 +580,8 @@ export default function Economics() {
       id
         ? (await client.patch(`/economics/costi-fissi/${id}`, body)).data
         : (await client.post("/economics/costi-fissi", body)).data,
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["economics", "costi-fissi"] });
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["economics", "costi-fissi"] });
       setFixedCostEditing(undefined);
       toast.success("Costo fisso salvato");
     },

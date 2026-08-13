@@ -334,10 +334,10 @@ export default function Computi() {
           lead_id: leadId || undefined,
         })
       ).data,
-    onSuccess: async (computo) => {
+    onSuccess: (computo) => {
       toast.success("Computo creato");
       qc.invalidateQueries({ queryKey: ["computi"] });
-      await refreshLeadViews(qc, { leadId: requestedLeadId || undefined });
+      refreshLeadViews(qc, { leadId: requestedLeadId || undefined });
       navigate(`/dashboard/computi/${computo.id}`);
     },
     onError: (error) =>
@@ -356,12 +356,12 @@ export default function Computi() {
       form.append("iva", String(options.iva || 0));
       return (await client.post("/computi/importa-pdf", form)).data;
     },
-    onSuccess: async (computo) => {
+    onSuccess: (computo) => {
       const extraction = computo.importazione || {};
       setImportOpen(false);
       qc.invalidateQueries({ queryKey: ["computi"] });
       qc.invalidateQueries({ queryKey: ["preventivi"] });
-      await refreshLeadViews(qc, { leadId: requestedLeadId || undefined });
+      refreshLeadViews(qc, { leadId: requestedLeadId || undefined });
       if (computo.preventivo) {
         toast.success(
           `${extraction.n_voci || 0} voci estratte. Bozza ${computo.preventivo.numero} creata: controlla e modifica le singole voci prima della conferma.`,
@@ -387,15 +387,27 @@ export default function Computi() {
   const elimina = useMutation({
     mutationFn: async (computo) =>
       (await client.delete(`/computi/${computo.id}`)).data,
-    onSuccess: async () => {
-      toast.success("Computo eliminato");
-      await qc.invalidateQueries({ queryKey: ["computi"] });
-      await qc.invalidateQueries({ queryKey: ["preventivi"] });
+    onMutate: async (computo) => {
+      await qc.cancelQueries({ queryKey: ["computi"] });
+      const previous = qc.getQueryData(["computi"]);
+      qc.setQueryData(["computi"], (current = []) =>
+        current.filter((item) => String(item.id) !== String(computo.id)),
+      );
+      return { previous };
     },
-    onError: (error) =>
+    onSuccess: () => {
+      toast.success("Computo eliminato");
+      void qc.invalidateQueries({ queryKey: ["computi"] });
+      void qc.invalidateQueries({ queryKey: ["preventivi"] });
+    },
+    onError: (error, _computo, context) => {
+      if (context?.previous !== undefined) {
+        qc.setQueryData(["computi"], context.previous);
+      }
       toast.error(
         error?.response?.data?.detail || "Impossibile eliminare il computo",
-      ),
+      );
+    },
   });
 
   if (isLoading) {

@@ -105,6 +105,13 @@ export default function CantierePresenze({
       : active;
   }, [assegnazioni, cantiere.id, data, personale]);
 
+  const persistCachedRows = (righe) => {
+    const current = qc.getQueryData(queryKey) || { data, righe: [] };
+    const next = summarizePresenze(current, righe, data);
+    qc.setQueryData(queryKey, next);
+    void putOfflineCache(slug, userId, `presenze:${cantiere.id}:${data}`, next);
+  };
+
   const create = useMutation({
     mutationFn: async () => {
       const body = {
@@ -136,29 +143,23 @@ export default function CantierePresenze({
         _offline_presence_key: `${cantiere.id}:${body.personale_id}:${data}`,
       };
     },
-    onSuccess: async (saved) => {
-      if (saved?._offline_pending) {
-        const current = qc.getQueryData(queryKey) || { data, righe: [] };
-        const righe = [
-          ...(current.righe || []).filter(
-            (item) =>
-              item._offline_presence_key !== saved._offline_presence_key,
-          ),
-          saved,
-        ];
-        const next = summarizePresenze(current, righe, data);
-        qc.setQueryData(queryKey, next);
-        await putOfflineCache(
-          slug,
-          userId,
-          `presenze:${cantiere.id}:${data}`,
-          next,
-        );
-      } else {
-        await Promise.all([
-          qc.invalidateQueries({ queryKey }),
-          qc.invalidateQueries({ queryKey: ["presenze-personale"] }),
-        ]);
+    onSuccess: (saved) => {
+      const current = qc.getQueryData(queryKey) || { data, righe: [] };
+      const savedKey = saved?._offline_presence_key;
+      persistCachedRows([
+        ...(current.righe || []).filter((item) => {
+          if (String(item.id) === String(saved.id)) return false;
+          if (savedKey && item._offline_presence_key === savedKey) return false;
+          return !(
+            String(item.personale_id) === String(saved.personale_id) &&
+            String(item.data || data) === String(saved.data || data)
+          );
+        }),
+        saved,
+      ]);
+      if (!saved?._offline_pending) {
+        void qc.invalidateQueries({ queryKey });
+        void qc.invalidateQueries({ queryKey: ["presenze-personale"] });
       }
       setForm((current) => ({ ...current, personale_id: "", note: "" }));
       toast.success(
@@ -186,28 +187,18 @@ export default function CantierePresenze({
       });
       return { removedId: item.id, queued: result.queued };
     },
-    onSuccess: async ({ removedId, queued }) => {
-      if (queued) {
-        const current = qc.getQueryData(queryKey);
-        if (current) {
-          const next = summarizePresenze(
-            current,
-            (current.righe || []).filter(
-              (item) => String(item.id) !== String(removedId),
-            ),
-            data,
-          );
-          qc.setQueryData(queryKey, next);
-          await putOfflineCache(
-            slug,
-            userId,
-            `presenze:${cantiere.id}:${data}`,
-            next,
-          );
-        }
-      } else {
-        await qc.invalidateQueries({ queryKey });
-        await qc.invalidateQueries({ queryKey: ["presenze-personale"] });
+    onSuccess: ({ removedId, queued }) => {
+      const current = qc.getQueryData(queryKey);
+      if (current) {
+        persistCachedRows(
+          (current.righe || []).filter(
+            (item) => String(item.id) !== String(removedId),
+          ),
+        );
+      }
+      if (!queued) {
+        void qc.invalidateQueries({ queryKey });
+        void qc.invalidateQueries({ queryKey: ["presenze-personale"] });
       }
       toast.success(queued ? "Rimozione salvata offline" : "Presenza rimossa");
     },
