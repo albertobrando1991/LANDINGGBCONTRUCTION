@@ -11,7 +11,6 @@ import {
   BarChart3,
   Settings as SettingsIcon,
   Menu,
-  Bell,
   LogOut,
   Search,
   X,
@@ -27,6 +26,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/dashboard/Avatar";
 import EmailComposeModal from "@/dashboard/EmailComposeModal";
 import OfflineSyncStatus from "@/dashboard/OfflineSyncStatus";
+import SystemNotifications from "@/dashboard/SystemNotifications";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -376,23 +376,7 @@ export default function DashboardLayout() {
                 }
               />
             </div>
-            <button
-              type="button"
-              className="relative inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-xl text-fog hover:text-ink active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-              onClick={() => navigate("/dashboard/inbox?status=nuovo")}
-              aria-label={
-                newLeadCount
-                  ? `${newLeadCount} nuovi lead`
-                  : "Nessun nuovo lead"
-              }
-            >
-              <Bell className="w-5 h-5" aria-hidden="true" />
-              {newLeadCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-brand text-white text-[9px] flex items-center justify-center">
-                  {newLeadCount > 99 ? "99+" : newLeadCount}
-                </span>
-              )}
-            </button>
+            <SystemNotifications />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button

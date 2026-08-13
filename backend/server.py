@@ -37,6 +37,7 @@ import api_security
 import boq_service
 import lead_bridge
 import report_service
+import system_notifications
 import db as db_pg
 import tenancy
 from edilos_routes import register_edilos_routes
@@ -1653,6 +1654,57 @@ async def dashboard_today(user: dict = Depends(current_user)):
         "sopralluoghi_count": len(sopralluoghi),
         "alert": alert,
     }
+
+
+@api.get("/notifications")
+async def list_system_notifications(
+    request: Request,
+    user: dict = Depends(current_user),
+):
+    """Restituisce gli avvisi operativi reali e lo stato letto dell'utente."""
+    async with get_tenant_conn(request, user) as (conn, tenant):
+        return await system_notifications.collect_notifications(
+            db,
+            conn,
+            str(tenant["id"]),
+            user,
+        )
+
+
+@api.post("/notifications/read-all")
+async def read_all_system_notifications(
+    request: Request,
+    user: dict = Depends(current_user),
+):
+    async with get_tenant_conn(request, user) as (conn, tenant):
+        payload = await system_notifications.collect_notifications(
+            db,
+            conn,
+            str(tenant["id"]),
+            user,
+        )
+    unread_ids = [item["id"] for item in payload["items"] if not item["read"]]
+    marked = await system_notifications.mark_notifications_read(
+        db,
+        user,
+        unread_ids,
+    )
+    return {"ok": True, "marked": marked}
+
+
+@api.post("/notifications/{notification_id}/read")
+async def read_system_notification(
+    notification_id: str,
+    user: dict = Depends(current_user),
+):
+    if not system_notifications.NOTIFICATION_ID_RE.fullmatch(notification_id):
+        raise HTTPException(status_code=400, detail="Notifica non valida")
+    marked = await system_notifications.mark_notifications_read(
+        db,
+        user,
+        [notification_id],
+    )
+    return {"ok": True, "marked": marked}
 
 
 # Stati da cui una prenotazione sopralluogo può promuovere automaticamente il lead.
