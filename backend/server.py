@@ -2540,8 +2540,11 @@ async def update_cantiere(cantiere_id: str, body: CantiereUpdate, user: dict = D
 @api.delete("/cantieri/{cantiere_id}")
 async def delete_cantiere(cantiere_id: str, user: dict = Depends(require_admin)):
     oid = object_id_or_400(cantiere_id, "Cantiere")
-    existing = await db.cantieri.find_one_and_delete({"_id": oid})
+    existing = await db.cantieri.find_one({"_id": oid})
     if not existing:
+        raise HTTPException(status_code=404, detail="Cantiere non trovato")
+    res = await db.cantieri.delete_one({"_id": oid})
+    if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Cantiere non trovato")
 
     lead_id = _clean_text(existing.get("lead_id"))
