@@ -40,7 +40,7 @@ import db as db_pg
 import tenancy
 from edilos_routes import register_edilos_routes
 from financial_routes import register_financial_routes
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 # Il runtime documentale storico vive ora nello schema private di Supabase.
 # L'adapter conserva l'API usata dai servizi durante il cutover, senza una
@@ -2652,14 +2652,18 @@ async def get_tenant_conn(request: Request, user: dict):
     user = map_legacy_user(user)
     if user.get("auth_provider") == "supabase" and user.get("access_token"):
         token = user["access_token"]
+        stack = AsyncExitStack()
         try:
-            async with db_pg.tenant_conn(token) as conn:
-                tenant = await tenancy.current_tenant(request, user, conn=conn)
+            conn = await stack.enter_async_context(db_pg.tenant_conn(token))
+            tenant = await tenancy.current_tenant(request, user, conn=conn)
+        except Exception:
+            await stack.aclose()
+            # fallback a claim sintetici soltanto se apertura/identificazione
+            # della connessione JWT falliscono, non per errori della route.
+        else:
+            async with stack:
                 yield conn, tenant
             return
-        except Exception:
-            # fallback a claim sintetici se JWKS/claim incompleti
-            pass
 
     claims = claims_for_user(user)
     async with db_pg.tenant_conn_claims(claims) as conn:
