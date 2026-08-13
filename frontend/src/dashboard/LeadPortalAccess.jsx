@@ -112,7 +112,7 @@ export default function LeadPortalAccess({ leadId, email }) {
             </span>
           </div>
 
-          <div className="mt-3 font-body text-[10px] text-fog">
+          <div className="mt-3 font-body text-[10px] text-fog min-w-0 break-all">
             Preventivo {data.numero_preventivo || "collegato"}
             {recipient ? ` - ${recipient}` : ""}
           </div>
