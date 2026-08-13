@@ -1,4 +1,7 @@
+import asyncio
+import json
 from decimal import Decimal
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -191,3 +194,74 @@ def test_dettaglio_contratto_rifiuta_una_somma_diversa_dal_totale():
 
     assert exc.value.status_code == 422
     assert "somma delle scadenze" in exc.value.detail
+
+
+def test_editor_decodifica_jsonb_restituito_come_stringa():
+    preventivo = {
+        "id": "preventivo-id",
+        "numero": "PREV-2026-001",
+        "totale_imponibile": Decimal("1000.00"),
+        "iva_percentuale": Decimal("10.00"),
+        "totale_documento": Decimal("1100.00"),
+    }
+    sections = default_sections(preventivo)
+    payment = contract_payment_snapshot("due_tranche", preventivo)
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [
+        preventivo,
+        {"id": "contratto-id"},
+        {"id": "scelta-id", "tipo": "due_tranche"},
+        {
+            "versione": 1,
+            "sezioni": json.dumps(sections),
+            "pagamento_snapshot": json.dumps(payment),
+        },
+    ]
+    conn.fetch.side_effect = [[], []]
+
+    result = asyncio.run(
+        workflow.get_editor(conn, "tenant-id", "preventivo-id")
+    )
+
+    assert isinstance(result["sezioni"], list)
+    assert result["pagamento_dettaglio"]["tipo"] == "due_tranche"
+    assert len(result["pagamento_dettaglio"]["rate"]) == 2
+
+
+def test_valida_con_jsonb_restituito_come_stringa():
+    preventivo = {
+        "id": "preventivo-id",
+        "numero": "PREV-2026-001",
+        "cantiere_id": None,
+        "computo_stato": "confermato",
+        "totale_imponibile": Decimal("1000.00"),
+        "iva_percentuale": Decimal("10.00"),
+        "totale_documento": Decimal("1100.00"),
+    }
+    sections = default_sections(preventivo)
+    payment = contract_payment_snapshot("due_tranche", preventivo)
+    conn = AsyncMock()
+    conn.fetchrow.side_effect = [
+        preventivo,
+        {"id": "contratto-id"},
+        {
+            "versione": 1,
+            "sezioni": json.dumps(sections),
+            "pagamento_snapshot": json.dumps(payment),
+        },
+        {"id": "scelta-id", "tipo": "due_tranche"},
+        {"id": "versione-id", "versione": 2},
+        {"id": "contratto-id", "numero": "CTR-2026-001"},
+    ]
+
+    result = asyncio.run(
+        workflow.validate_contract(
+            conn,
+            "tenant-id",
+            "preventivo-id",
+            "00000000-0000-0000-0000-000000000001",
+        )
+    )
+
+    assert result["contratto"]["numero"] == "CTR-2026-001"
+    assert conn.execute.await_count == 1

@@ -77,6 +77,27 @@ def _rows(rows) -> list[dict]:
     return [_row(row) for row in rows]
 
 
+def _json_container(value: Any, expected_type: type, default: Any) -> Any:
+    """Normalizza i JSONB restituiti da asyncpg con o senza codec JSON."""
+
+    if isinstance(value, (str, bytes, bytearray)):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError, UnicodeDecodeError):
+            return default
+    if not isinstance(value, expected_type):
+        return default
+    return _json(value)
+
+
+def _json_dict(value: Any) -> dict:
+    return _json_container(value, dict, {})
+
+
+def _json_list(value: Any) -> list:
+    return _json_container(value, list, [])
+
+
 def payment_options() -> list[dict]:
     return [{"tipo": key, **value} for key, value in PAYMENT_METHODS.items()]
 
@@ -84,14 +105,7 @@ def payment_options() -> list[dict]:
 def _sal_duration(preventivo: dict) -> tuple[int, int]:
     """Restituisce mesi di SAL e giorni lavorativi dal cronoprogramma corrente."""
 
-    snapshot = preventivo.get("snapshot_voci") or []
-    if isinstance(snapshot, str):
-        try:
-            snapshot = json.loads(snapshot)
-        except (TypeError, ValueError):
-            snapshot = []
-    if not isinstance(snapshot, list):
-        snapshot = []
+    snapshot = _json_list(preventivo.get("snapshot_voci"))
     durata = cronoprogramma.stima(
         snapshot,
         superficie_mq=preventivo.get("superficie_mq"),
@@ -742,14 +756,16 @@ async def get_editor(conn, tenant_id: str, preventivo_id: str) -> dict:
             tenant_id,
             contract["id"],
         )
-    sections = _json(version["sezioni"]) if version else default_sections(preventivo)
+    sections = _json_list(version["sezioni"]) if version else []
+    if not sections:
+        sections = default_sections(preventivo)
     payment_detail = None
     suggested_payment = None
     if choice:
         suggested_payment = contract_payment_snapshot(
             str(choice["tipo"]), preventivo
         )
-        stored_payment = _json(version["pagamento_snapshot"]) if version else None
+        stored_payment = _json_dict(version["pagamento_snapshot"]) if version else {}
         payment_detail = (
             contract_payment_snapshot(str(choice["tipo"]), preventivo, stored_payment)
             if stored_payment and stored_payment.get("rate")
@@ -880,15 +896,19 @@ async def validate_contract(
             status_code=409,
             detail="Il cliente deve prima confermare la modalità di pagamento nel portale",
         )
-    stored_payment = _json(draft["pagamento_snapshot"])
+    stored_payment = _json_dict(draft["pagamento_snapshot"])
     snapshot = contract_payment_snapshot(
         str(choice["tipo"]),
         preventivo,
         stored_payment if stored_payment and stored_payment.get("rate") else None,
     )
-    validated_sections = sections_with_payment_article(
-        _json(draft["sezioni"]), snapshot
-    )
+    draft_sections = _json_list(draft["sezioni"])
+    if not draft_sections:
+        raise HTTPException(
+            status_code=409,
+            detail="La bozza del contratto non contiene sezioni valide: salvala nuovamente",
+        )
+    validated_sections = sections_with_payment_article(draft_sections, snapshot)
     next_version = int(draft["versione"]) + 1
     raw = json.dumps(
         {"sezioni": validated_sections, "pagamento": snapshot},
@@ -952,15 +972,27 @@ async def validated_contract_payload(conn, tenant_id: str, preventivo_id: str) -
             status_code=409,
             detail="Il contratto deve essere validato dopo la scelta del pagamento",
         )
+    stored_payment = _json_dict(row["pagamento_snapshot"])
+    if not stored_payment.get("tipo"):
+        raise HTTPException(
+            status_code=409,
+            detail="Il contratto validato non contiene un piano di pagamento valido",
+        )
     pagamento = contract_payment_snapshot(
-        str(_json(row["pagamento_snapshot"]).get("tipo")),
+        str(stored_payment["tipo"]),
         preventivo,
-        _json(row["pagamento_snapshot"]),
+        stored_payment,
     )
+    sections = _json_list(row["sezioni"])
+    if not sections:
+        raise HTTPException(
+            status_code=409,
+            detail="Il contratto validato non contiene sezioni valide",
+        )
     return {
         "preventivo": preventivo,
         "contratto": _row(row),
-        "sezioni": sections_with_payment_article(_json(row["sezioni"]), pagamento),
+        "sezioni": sections_with_payment_article(sections, pagamento),
         "pagamento": pagamento,
         "tenant_piva": row["tenant_piva"],
     }
