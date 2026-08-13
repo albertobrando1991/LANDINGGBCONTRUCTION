@@ -8,7 +8,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import client, { BACKEND_URL, formatApiErrorDetail } from "@/lib/api";
-import { formatEuro, formatDateTime } from "@/lib/format";
+import { formatArrivalDateTime, formatEuro, formatDateTime } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { openEmailCompose } from "@/lib/emailCompose";
 import { refreshLeadViews } from "@/lib/leadSync";
@@ -161,7 +161,7 @@ export default function LeadDetail() {
                   <MapPin className="w-3 h-3 mt-0.5 shrink-0" /> {lead.indirizzo}
                 </div>
               )}
-              <div className="capitalize truncate">Origine: {lead.origine} · {formatDateTime(lead.created_at)}</div>
+              <div className="truncate"><span className="capitalize">Origine: {lead.origine}</span> · Arrivato il {formatArrivalDateTime(lead.data_arrivo || lead.created_at)}</div>
             </div>
             {lead.email && (
               <div className="mt-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-bg border border-stroke rounded-xl px-3 py-2 min-w-0">

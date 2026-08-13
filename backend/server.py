@@ -104,6 +104,43 @@ def serialize(doc: dict) -> dict:
     return doc
 
 
+def _lead_arrival_at(lead: dict) -> Optional[str]:
+    """Data immutabile di ricezione del lead, con fallback per i record legacy."""
+    value = (
+        lead.get("data_arrivo")
+        or lead.get("lead_created_at")
+        or lead.get("created_at")
+    )
+    return str(value) if value not in (None, "") else None
+
+
+def _lead_arrival_sort_key(lead: dict) -> tuple[datetime, str]:
+    raw = _lead_arrival_at(lead)
+    parsed = datetime.min.replace(tzinfo=timezone.utc)
+    if raw:
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            else:
+                parsed = parsed.astimezone(timezone.utc)
+        except (TypeError, ValueError):
+            pass
+    lead_id = str(lead.get("id") or lead.get("_id") or "")
+    return parsed, lead_id
+
+
+def _serialize_lead(doc: dict) -> dict:
+    lead = serialize(doc)
+    lead["data_arrivo"] = _lead_arrival_at(lead)
+    return lead
+
+
+def _sort_leads_by_arrival(leads: List[dict]) -> List[dict]:
+    """Piu recenti prima; l'ordine non cambia quando varia lo stato pipeline."""
+    return sorted(leads, key=_lead_arrival_sort_key, reverse=True)
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
@@ -1291,8 +1328,8 @@ async def list_leads(request: Request, status: Optional[str] = None,
         else:
             query["$and"] = and_conditions
 
-    docs = await db.leads.find(query).sort("created_at", -1).to_list(500)
-    return [serialize(d) for d in docs]
+    docs = await db.leads.find(query).sort([("created_at", -1), ("_id", -1)]).to_list(500)
+    return _sort_leads_by_arrival([_serialize_lead(d) for d in docs])
 
 
 @api.get("/leads/counts")
@@ -1337,7 +1374,7 @@ async def get_lead(lead_id: str, user: dict = Depends(current_user)):
     doc = await db.leads.find_one({"_id": ObjectId(lead_id)})
     if not doc:
         raise HTTPException(status_code=404, detail="Lead non trovato")
-    return serialize(doc)
+    return _serialize_lead(doc)
 
 
 @api.patch("/leads/{lead_id}")
@@ -1378,7 +1415,7 @@ async def update_lead(
         # Il mirror viene creato solo quando il lead entra nei flussi EdilOS.
         # Inbox/Pipeline restano disponibili anche durante un guasto Postgres.
         logger.warning("Mirror Postgres lead %s non aggiornato: %s", lead_id, exc)
-    return serialize(doc)
+    return _serialize_lead(doc)
 
 
 @api.delete("/leads/{lead_id}")
@@ -1777,7 +1814,7 @@ async def _sync_lead_with_sopralluogo_slot(lead: dict, slot: dict) -> dict:
 
 @api.get("/pipeline")
 async def pipeline(user: dict = Depends(current_user)):
-    leads = await db.leads.find({}).sort("status_changed_at", -1).to_list(1000)
+    leads = await db.leads.find({}).sort([("created_at", -1), ("_id", -1)]).to_list(1000)
     appointments = await _booked_appointments_by_lead()
 
     # Auto-sync: se esiste un appuntamento booked, il lead deve comparire in pipeline
@@ -1798,7 +1835,7 @@ async def pipeline(user: dict = Depends(current_user)):
                 "status": "booked",
             }
             lead = await _sync_lead_with_sopralluogo_slot(raw, slot_doc)
-        serialized = serialize(lead)
+        serialized = _serialize_lead(lead)
         if appt:
             # Fonte di verità calendario: arricchisce sempre la card pipeline
             serialized["sopralluogo"] = {
@@ -1810,9 +1847,13 @@ async def pipeline(user: dict = Depends(current_user)):
             serialized["has_sopralluogo"] = bool(serialized.get("sopralluogo"))
         synced_leads.append(serialized)
 
+    synced_leads = _sort_leads_by_arrival(synced_leads)
+
     cols = []
     for key, label in PIPELINE_STATI:
-        items = [l for l in synced_leads if l.get("status") == key]
+        items = _sort_leads_by_arrival(
+            [l for l in synced_leads if l.get("status") == key]
+        )
         for it in items:
             it["giorni_in_stato"] = _giorni_da(it.get("status_changed_at", it.get("created_at")))
         valore = sum((l.get("range_alto", 0) + l.get("range_basso", 0)) / 2 for l in items)

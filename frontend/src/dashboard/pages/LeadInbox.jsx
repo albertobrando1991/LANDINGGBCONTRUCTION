@@ -13,7 +13,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import client, { formatApiErrorDetail } from "@/lib/api";
-import { formatEuro, relativeDate } from "@/lib/format";
+import { formatArrivalDateTime, formatEuro, relativeDate } from "@/lib/format";
 import { buildWhatsappUrl } from "@/lib/whatsapp";
 import { openEmailCompose } from "@/lib/emailCompose";
 import { LEAD_AUTO_REFRESH_MS, refreshLeadViews } from "@/lib/leadSync";
@@ -166,6 +166,7 @@ export default function LeadInbox() {
                 <th className="px-4 py-3">Range €</th>
                 <th className="px-4 py-3">Stato</th>
                 <th className="px-4 py-3">Origine</th>
+                <th className="px-4 py-3">Data arrivo</th>
                 <th className="px-4 py-3">Ultimo contatto</th>
                 <th className="px-4 py-3">Owner</th>
                 <th className="px-4 py-3 text-right">Azioni</th>
@@ -175,7 +176,7 @@ export default function LeadInbox() {
               {isLoading ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className="px-4 py-8 text-center text-fog font-display uppercase animate-pulse"
                   >
                     Caricamento…
@@ -184,7 +185,7 @@ export default function LeadInbox() {
               ) : leads.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className="px-4 py-8 text-center text-fog font-body"
                   >
                     Nessun lead in questa vista.
@@ -242,6 +243,9 @@ export default function LeadInbox() {
                     </td>
                     <td className="px-4 py-3 font-body text-xs text-fog capitalize">
                       {l.origine}
+                    </td>
+                    <td className="px-4 py-3 font-body text-xs text-ink whitespace-nowrap">
+                      {formatArrivalDateTime(l.data_arrivo || l.created_at)}
                     </td>
                     <td className="px-4 py-3 font-body text-xs text-fog">
                       {relativeDate(l.last_contact)}

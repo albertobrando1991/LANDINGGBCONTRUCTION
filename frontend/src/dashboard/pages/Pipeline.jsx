@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Clock3 } from "lucide-react";
 import { toast } from "sonner";
 import client from "@/lib/api";
-import { formatEuro } from "@/lib/format";
+import { formatArrivalDateTime, formatEuro } from "@/lib/format";
 import { LEAD_AUTO_REFRESH_MS, refreshLeadViews } from "@/lib/leadSync";
 import { STATI, priority, initials, ageColor } from "@/dashboard/leadMeta";
 
@@ -158,6 +158,16 @@ export default function Pipeline() {
                       </div>
                       <div className="font-body text-[11px] text-fog">
                         {l.citta}
+                      </div>
+                      <div className="mt-2 flex items-center gap-1.5 font-body text-[10px] text-fog">
+                        <Clock3
+                          className="h-3 w-3 shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span>
+                          Arrivato il{" "}
+                          {formatArrivalDateTime(l.data_arrivo || l.created_at)}
+                        </span>
                       </div>
                       {appt && (
                         <div
