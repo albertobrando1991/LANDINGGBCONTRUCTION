@@ -649,6 +649,8 @@ class ContrattoRataBody(BaseModel):
 class ContrattoPagamentoBody(BaseModel):
     tipo: Literal["sal", "scaglionato_fisso", "due_tranche"]
     rate: List[ContrattoRataBody] = Field(min_length=1, max_length=30)
+    mesi_lavorazione: Optional[int] = Field(default=None, ge=2, le=30)
+    giorni_lavorativi: Optional[int] = Field(default=None, ge=0, le=7300)
 
 
 class ContrattoBozzaBody(BaseModel):

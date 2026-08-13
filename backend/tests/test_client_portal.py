@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -131,6 +132,53 @@ def test_scelta_pagamento_accetta_solo_preventivi_pubblicati_nel_portale():
     query = " ".join(conn.fetchval.await_args.args[0].lower().split())
     assert "from public.portale_preventivi_pdf" in query
     assert len(conn.fetchval.await_args.args) == 3
+
+
+def test_scelta_sal_congela_una_rata_per_mese_di_cronoprogramma(monkeypatch):
+    preventivo_id = "40000000-0000-4000-8000-000000000001"
+    conn = AsyncMock()
+    conn.fetchval.return_value = 10000
+    conn.fetchrow.side_effect = [
+        {
+            "tenant_id": TENANT_ID,
+            "preventivo_id": preventivo_id,
+            "numero": "PREV-2026-0042",
+            "totale_documento": 10000,
+            "snapshot_voci": [{"descrizione": "Lavoro"}],
+            "superficie_mq": 100,
+            "durate_fasi": {},
+        },
+        {
+            "preventivo_id": preventivo_id,
+            "user_id": USER_ID,
+            "tipo": "sal",
+            "stato": "confermata",
+        },
+    ]
+    monkeypatch.setattr(
+        contract_workflow_service.cronoprogramma,
+        "stima",
+        lambda *_args, **_kwargs: {"giorni_totali": 106},
+    )
+
+    asyncio.run(
+        contract_workflow_service.choose_payment(
+            conn,
+            TENANT_ID,
+            preventivo_id,
+            USER_ID,
+            "sal",
+            ip="127.0.0.1",
+            user_agent="pytest",
+        )
+    )
+
+    condizioni = json.loads(conn.fetchrow.await_args_list[1].args[5])
+    assert condizioni["mesi_lavorazione"] == 5
+    assert condizioni["giorni_lavorativi"] == 106
+    assert len(condizioni["rate"]) == 5
+    assert condizioni["rate"][0]["percentuale"] == 25
+    assert condizioni["rate"][-1]["descrizione"] == "SAL finale e saldo"
 
 
 def test_migrazione_pubblica_preventivi_inviati_nel_fascicolo():

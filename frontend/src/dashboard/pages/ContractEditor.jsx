@@ -67,6 +67,7 @@ export default function ContractEditor() {
   const queryClient = useQueryClient();
   const [sections, setSections] = useState([]);
   const [paymentDetail, setPaymentDetail] = useState(null);
+  const [suggestedPayment, setSuggestedPayment] = useState(null);
   const [invite, setInvite] = useState({ email: "", nome: "" });
   const [document, setDocument] = useState({
     tipo: "altro",
@@ -85,6 +86,14 @@ export default function ContractEditor() {
         ? {
             ...data.pagamento_dettaglio,
             rate: data.pagamento_dettaglio.rate.map((rate) => ({ ...rate })),
+          }
+        : null,
+    );
+    setSuggestedPayment(
+      data?.pagamento_suggerito
+        ? {
+            ...data.pagamento_suggerito,
+            rate: data.pagamento_suggerito.rate.map((rate) => ({ ...rate })),
           }
         : null,
     );
@@ -194,6 +203,15 @@ export default function ContractEditor() {
         },
       ],
     }));
+  const applySuggestedPayment = () =>
+    setPaymentDetail(
+      suggestedPayment
+        ? {
+            ...suggestedPayment,
+            rate: suggestedPayment.rate.map((rate) => ({ ...rate })),
+          }
+        : null,
+    );
 
   const downloadContract = async () => {
     try {
@@ -248,6 +266,7 @@ export default function ContractEditor() {
         Number(row.importo) > 0,
     ) &&
     Math.abs(totals.difference) < 0.005;
+  const isSal = choice?.tipo === "sal";
 
   return (
     <div className="space-y-6 pb-16">
@@ -369,19 +388,32 @@ export default function ContractEditor() {
                 </h2>
               </div>
               <p className="mt-2 max-w-3xl text-xs leading-5 text-fog">
-                Specifica scadenza, causale e importo IVA inclusa di ogni quota.
+                {isSal
+                  ? `Piano SAL su ${paymentDetail.mesi_lavorazione || suggestedPayment?.mesi_lavorazione || 0} mesi: 25% all'accettazione, restante 75% in rate mensili e saldo finale nell'ultimo mese.`
+                  : "Specifica scadenza, causale e importo IVA inclusa di ogni quota."}{" "}
                 Imponibile e IVA vengono calcolati e verificati prima della
                 validazione, quindi riportati nell’art. 13 e nel PDF.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={addPaymentRate}
-              disabled={paymentDetail.rate.length >= 30}
-              className="inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 font-display text-[10px] uppercase text-fog hover:border-brand hover:text-brand disabled:opacity-40"
-            >
-              <Plus className="h-4 w-4" /> Aggiungi scadenza
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {isSal && suggestedPayment && (
+                <button
+                  type="button"
+                  onClick={applySuggestedPayment}
+                  className="inline-flex items-center gap-2 rounded-xl border border-brand px-3 py-2 font-display text-[10px] uppercase text-brand hover:bg-brand hover:text-white"
+                >
+                  <CircleDollarSign className="h-4 w-4" /> Rigenera SAL mensili
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={addPaymentRate}
+                disabled={paymentDetail.rate.length >= 30}
+                className="inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 font-display text-[10px] uppercase text-fog hover:border-brand hover:text-brand disabled:opacity-40"
+              >
+                <Plus className="h-4 w-4" /> Aggiungi scadenza
+              </button>
+            </div>
           </div>
 
           <div className="mt-5 space-y-3">

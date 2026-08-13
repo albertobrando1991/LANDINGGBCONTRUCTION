@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -13,17 +14,19 @@ from uuid import UUID, uuid4
 import asyncpg
 from fastapi import HTTPException, UploadFile
 
+import cronoprogramma
 from system_jobs.client_documents import download_document, upload_document
 from system_jobs.client_invites import find_or_invite_user
 
 PAYMENT_METHODS = {
     "sal": {
         "titolo": "Pagamento a Stato Avanzamento Lavori (SAL)",
-        "sintesi": "25% all'accettazione e quote successive collegate all'avanzamento dei lavori.",
+        "sintesi": "25% all'accettazione e restante 75% ripartito in SAL mensili fino al saldo finale.",
         "condizioni": [
             "25% all'accettazione del preventivo",
-            "Pagamenti intermedi in base allo stato di avanzamento",
-            "Il calendario definitivo viene concordato nel piano lavori",
+            "Una scadenza per ogni mese previsto di lavorazione",
+            "Il restante 75% viene ripartito tra i SAL mensili successivi",
+            "L'ultima scadenza coincide con il saldo a ultimazione lavori",
         ],
     },
     "scaglionato_fisso": {
@@ -78,7 +81,75 @@ def payment_options() -> list[dict]:
     return [{"tipo": key, **value} for key, value in PAYMENT_METHODS.items()]
 
 
-def payment_snapshot(tipo: str, totale: Any) -> dict:
+def _sal_duration(preventivo: dict) -> tuple[int, int]:
+    """Restituisce mesi di SAL e giorni lavorativi dal cronoprogramma corrente."""
+
+    snapshot = preventivo.get("snapshot_voci") or []
+    if isinstance(snapshot, str):
+        try:
+            snapshot = json.loads(snapshot)
+        except (TypeError, ValueError):
+            snapshot = []
+    if not isinstance(snapshot, list):
+        snapshot = []
+    durata = cronoprogramma.stima(
+        snapshot,
+        superficie_mq=preventivo.get("superficie_mq"),
+        durate_fasi=preventivo.get("durate_fasi") or {},
+    )
+    giorni = max(0, int(durata.get("giorni_totali") or 0))
+    if not giorni:
+        # Mantiene una proposta utilizzabile anche per i preventivi storici che
+        # non hanno ancora uno snapshot tecnico completo.
+        return 4, 0
+    mesi = math.ceil(giorni / cronoprogramma.GIORNI_MESE_MEDIO)
+    return max(2, mesi), giorni
+
+
+def _sal_monthly_rates(total: Decimal, months: int) -> list[dict]:
+    """25% iniziale, poi il residuo su una rata per ogni mese di lavoro."""
+
+    months = max(2, int(months))
+    initial = (total * Decimal("0.25")).quantize(Decimal("0.01"))
+    residual = total - initial
+    following = months - 1
+    monthly = (residual / Decimal(following)).quantize(Decimal("0.01"))
+    distributed = Decimal("0")
+    rates: list[dict] = [
+        {
+            "riferimento": f"Mese 1 di {months} - accettazione preventivo",
+            "descrizione": "Acconto iniziale",
+            "percentuale": 25.0,
+            "importo": float(initial),
+        }
+    ]
+    for month in range(2, months + 1):
+        amount = monthly if month < months else residual - distributed
+        distributed += amount
+        rates.append(
+            {
+                "riferimento": (
+                    f"Mese {month} di {months} - ultimazione lavori"
+                    if month == months
+                    else f"Mese {month} di {months}"
+                ),
+                "descrizione": (
+                    "SAL finale e saldo"
+                    if month == months
+                    else f"SAL mensile {month - 1}"
+                ),
+                "percentuale": float(
+                    (amount * Decimal("100") / total).quantize(Decimal("0.001"))
+                ),
+                "importo": float(amount),
+            }
+        )
+    return rates
+
+
+def payment_snapshot(
+    tipo: str, totale: Any, *, mesi_lavorazione: int | None = None
+) -> dict:
     if tipo not in PAYMENT_METHODS:
         raise HTTPException(status_code=400, detail="Modalità di pagamento non valida")
     total = Decimal(str(totale or 0)).quantize(Decimal("0.01"))
@@ -91,33 +162,8 @@ def payment_snapshot(tipo: str, totale: Any) -> dict:
         return float((total * percent / Decimal("100")).quantize(Decimal("0.01")))
 
     if tipo == "sal":
-        quarter = Decimal(str(quota(Decimal("25"))))
-        rate = [
-            {
-                "riferimento": "All'accettazione",
-                "descrizione": "Acconto",
-                "percentuale": 25,
-                "importo": float(quarter),
-            },
-            {
-                "riferimento": "Durante i lavori",
-                "descrizione": "SAL 1",
-                "percentuale": 25,
-                "importo": float(quarter),
-            },
-            {
-                "riferimento": "Durante i lavori",
-                "descrizione": "SAL 2",
-                "percentuale": 25,
-                "importo": float(quarter),
-            },
-            {
-                "riferimento": "A ultimazione",
-                "descrizione": "SAL finale",
-                "percentuale": 25,
-                "importo": float(total - quarter * 3),
-            },
-        ]
+        months = max(2, int(mesi_lavorazione or 4))
+        rate = _sal_monthly_rates(total, months)
     elif tipo == "scaglionato_fisso":
         rate = [
             {
@@ -168,13 +214,16 @@ def payment_snapshot(tipo: str, totale: Any) -> dict:
                 "importo": float(total - Decimal(str(quota(Decimal("50"))))),
             },
         ]
-    return {
+    snapshot = {
         "tipo": tipo,
         **PAYMENT_METHODS[tipo],
         "condizioni_generali": GENERAL_PAYMENT_TERMS,
         "totale": float(total),
         "rate": rate,
     }
+    if tipo == "sal":
+        snapshot["mesi_lavorazione"] = months
+    return snapshot
 
 
 def _money(value: Any, label: str) -> Decimal:
@@ -216,9 +265,30 @@ def contract_payment_snapshot(
             status_code=422,
             detail="Il dettaglio non corrisponde alla modalità scelta dal cliente",
         )
+    mesi_lavorazione = None
+    giorni_lavorativi = None
+    if tipo == "sal":
+        stored_months = (dettaglio or {}).get("mesi_lavorazione")
+        stored_days = (dettaglio or {}).get("giorni_lavorativi")
+        if stored_months is not None:
+            try:
+                mesi_lavorazione = max(2, int(stored_months))
+                giorni_lavorativi = max(0, int(stored_days or 0))
+            except (TypeError, ValueError):
+                mesi_lavorazione = None
+        elif isinstance((dettaglio or {}).get("rate"), list):
+            # Gli snapshot SAL creati prima di questa regola restano versionati
+            # con il numero di rate originario, senza essere rigenerati.
+            mesi_lavorazione = max(2, len(dettaglio["rate"]))
+            giorni_lavorativi = 0
+        if mesi_lavorazione is None:
+            mesi_lavorazione, giorni_lavorativi = _sal_duration(preventivo)
+
     source_rates = (dettaglio or {}).get("rate")
     if source_rates is None:
-        source_rates = payment_snapshot(tipo, totale)["rate"]
+        source_rates = payment_snapshot(
+            tipo, totale, mesi_lavorazione=mesi_lavorazione
+        )["rate"]
     if not isinstance(source_rates, list) or not 1 <= len(source_rates) <= 30:
         raise HTTPException(
             status_code=422, detail="Il piano deve contenere da 1 a 30 scadenze"
@@ -289,7 +359,7 @@ def contract_payment_snapshot(
             }
         )
 
-    return {
+    snapshot = {
         "tipo": tipo,
         **PAYMENT_METHODS[tipo],
         "condizioni_generali": GENERAL_PAYMENT_TERMS,
@@ -299,6 +369,18 @@ def contract_payment_snapshot(
         "totale": float(totale),
         "rate": clean_rates,
     }
+    if tipo == "sal":
+        snapshot.update(
+            {
+                "mesi_lavorazione": mesi_lavorazione,
+                "giorni_lavorativi": giorni_lavorativi,
+                "sintesi": (
+                    f"25% all'accettazione e restante 75% in {mesi_lavorazione - 1} "
+                    f"SAL mensili, con saldo nel mese {mesi_lavorazione}."
+                ),
+            }
+        )
+    return snapshot
 
 
 def _euro_text(value: Any) -> str:
@@ -311,15 +393,25 @@ def payment_article_text(snapshot: dict) -> str:
     aliquota_text = f"{aliquota:g}".replace(".", ",")
     righe = []
     for index, rata in enumerate(snapshot.get("rate") or [], 1):
+        percentuale = float(rata.get("percentuale") or 0)
+        percentuale_text = f"{percentuale:g}".replace(".", ",")
         righe.append(
             f"{index}) {rata['riferimento']} — {rata['descrizione']}: "
+            f"quota {percentuale_text}% del totale, "
             f"imponibile € {_euro_text(rata['imponibile'])}, "
             f"IVA {aliquota_text}% € {_euro_text(rata['iva_importo'])}, "
             f"totale IVA inclusa € {_euro_text(rata['importo'])}."
         )
+    sal_rule = ""
+    if snapshot.get("tipo") == "sal" and snapshot.get("mesi_lavorazione"):
+        sal_rule = (
+            f"Il piano segue {int(snapshot['mesi_lavorazione'])} mesi di lavorazione, "
+            "con una scadenza per ogni mese e saldo finale all'ultimazione. "
+        )
     return (
         f"Il pagamento avviene con la modalità «{snapshot['titolo']}». "
-        f"Corrispettivo imponibile € {_euro_text(snapshot['totale_imponibile'])}, "
+        + sal_rule
+        + f"Corrispettivo imponibile € {_euro_text(snapshot['totale_imponibile'])}, "
         f"IVA {aliquota_text}% € {_euro_text(snapshot['totale_iva'])}, "
         f"totale contrattuale IVA inclusa € {_euro_text(snapshot['totale'])}. "
         "La ripartizione concordata è la seguente: "
@@ -652,12 +744,16 @@ async def get_editor(conn, tenant_id: str, preventivo_id: str) -> dict:
         )
     sections = _json(version["sezioni"]) if version else default_sections(preventivo)
     payment_detail = None
+    suggested_payment = None
     if choice:
+        suggested_payment = contract_payment_snapshot(
+            str(choice["tipo"]), preventivo
+        )
         stored_payment = _json(version["pagamento_snapshot"]) if version else None
-        if not stored_payment or not stored_payment.get("rate"):
-            stored_payment = _json(choice["condizioni"]) if choice["condizioni"] else None
-        payment_detail = contract_payment_snapshot(
-            str(choice["tipo"]), preventivo, stored_payment
+        payment_detail = (
+            contract_payment_snapshot(str(choice["tipo"]), preventivo, stored_payment)
+            if stored_payment and stored_payment.get("rate")
+            else suggested_payment
         )
         sections = sections_with_payment_article(sections, payment_detail)
     return {
@@ -668,6 +764,7 @@ async def get_editor(conn, tenant_id: str, preventivo_id: str) -> dict:
         "clienti": _rows(clients),
         "scelta_pagamento": _row(choice),
         "pagamento_dettaglio": payment_detail,
+        "pagamento_suggerito": suggested_payment,
         "documenti": _rows(documents),
         "modalita_pagamento": payment_options(),
         "condizioni_generali": GENERAL_PAYMENT_TERMS,
@@ -892,7 +989,18 @@ async def choose_payment(
         raise HTTPException(
             status_code=404, detail="Preventivo non disponibile nel portale"
         )
-    snapshot = payment_snapshot(tipo, total)
+    mesi_lavorazione = None
+    giorni_lavorativi = None
+    if tipo == "sal":
+        preventivo_portale = await portal_quote_pdf_payload(
+            conn, tenant_id, preventivo_id
+        )
+        mesi_lavorazione, giorni_lavorativi = _sal_duration(preventivo_portale)
+    snapshot = payment_snapshot(
+        tipo, total, mesi_lavorazione=mesi_lavorazione
+    )
+    if tipo == "sal":
+        snapshot["giorni_lavorativi"] = giorni_lavorativi
     row = await conn.fetchrow(
         """insert into public.scelte_pagamento_cliente
            (tenant_id,preventivo_id,user_id,tipo,stato,condizioni,confermata_at,ip,user_agent)

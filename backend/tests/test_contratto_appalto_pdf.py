@@ -1,5 +1,6 @@
 import fitz
 
+from contract_workflow_service import payment_snapshot
 from contratto_appalto_pdf import (
     genera_pdf_contratto,
     numero_contratto,
@@ -155,5 +156,29 @@ def test_contract_payment_table_shows_taxable_vat_and_gross_amounts():
         assert "3.750,00" in text
         assert "375,00" in text
         assert "4.125,00" in text
+    finally:
+        document.close()
+
+
+def test_contract_payment_table_shows_monthly_sal_and_final_balance():
+    rates = payment_snapshot(
+        "sal", _preventivo()["totale_documento"], mesi_lavorazione=5
+    )["rate"]
+    document, text = _text(
+        genera_pdf_contratto(
+            _preventivo(),
+            _tenant(),
+            piano_pagamenti_override=rates,
+        )
+    )
+    try:
+        assert "Mese 1 di 5" in text
+        assert "accettazione" in text
+        assert "preventivo" in text
+        assert "Mese 5 di 5" in text
+        assert "ultimazione" in text
+        assert "Acconto iniziale" in text
+        assert "SAL finale e saldo" in text
+        assert text.count("18,8%") == 4
     finally:
         document.close()

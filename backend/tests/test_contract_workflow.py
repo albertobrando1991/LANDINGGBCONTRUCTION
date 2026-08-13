@@ -3,6 +3,7 @@ from decimal import Decimal
 import pytest
 from fastapi import HTTPException
 
+import contract_workflow_service as workflow
 from contract_workflow_service import (
     contract_payment_snapshot,
     default_sections,
@@ -26,6 +27,67 @@ def test_scaglionato_fisso_contiene_otto_rate_di_saldo():
     deferred = [row for row in snapshot["rate"] if "Mese" in row["riferimento"]]
     assert len(deferred) == 8
     assert round(sum(row["importo"] for row in deferred), 2) == 2500
+
+
+def test_sal_quattro_mesi_genera_quattro_quote_del_venticinque_percento():
+    snapshot = payment_snapshot("sal", 10000, mesi_lavorazione=4)
+
+    assert snapshot["mesi_lavorazione"] == 4
+    assert len(snapshot["rate"]) == 4
+    assert [row["importo"] for row in snapshot["rate"]] == [2500.0] * 4
+    assert [row["percentuale"] for row in snapshot["rate"]] == [25.0] * 4
+    assert snapshot["rate"][0]["descrizione"] == "Acconto iniziale"
+    assert snapshot["rate"][-1]["descrizione"] == "SAL finale e saldo"
+
+
+def test_sal_cinque_mesi_mantiene_acconto_25_e_ripartisce_il_residuo():
+    snapshot = payment_snapshot("sal", 10000, mesi_lavorazione=5)
+
+    assert len(snapshot["rate"]) == 5
+    assert [row["importo"] for row in snapshot["rate"]] == [
+        2500.0,
+        1875.0,
+        1875.0,
+        1875.0,
+        1875.0,
+    ]
+    assert snapshot["rate"][-1]["riferimento"] == (
+        "Mese 5 di 5 - ultimazione lavori"
+    )
+
+
+def test_sal_mensile_assorbe_i_centesimi_nel_saldo_finale():
+    snapshot = payment_snapshot("sal", Decimal("10001.00"), mesi_lavorazione=5)
+
+    assert sum(Decimal(str(row["importo"])) for row in snapshot["rate"]) == Decimal(
+        "10001.00"
+    )
+    assert snapshot["rate"][-1]["importo"] == 1875.18
+
+
+def test_dettaglio_sal_usa_i_mesi_calcolati_dal_cronoprogramma(monkeypatch):
+    monkeypatch.setattr(
+        workflow.cronoprogramma,
+        "stima",
+        lambda *_args, **_kwargs: {"giorni_totali": 106},
+    )
+    snapshot = contract_payment_snapshot(
+        "sal",
+        {
+            "totale_imponibile": Decimal("10000.00"),
+            "iva_percentuale": Decimal("10.00"),
+            "totale_documento": Decimal("11000.00"),
+        },
+    )
+
+    assert snapshot["mesi_lavorazione"] == 5
+    assert snapshot["giorni_lavorativi"] == 106
+    assert len(snapshot["rate"]) == 5
+    assert snapshot["rate"][0]["percentuale"] == 25
+    assert snapshot["rate"][-1]["descrizione"] == "SAL finale e saldo"
+    article = payment_article_text(snapshot)
+    assert "Il piano segue 5 mesi di lavorazione" in article
+    assert "quota 18,75% del totale" in article
 
 
 def test_editor_parte_da_sezioni_complete_e_accetta_nuove_parti():
