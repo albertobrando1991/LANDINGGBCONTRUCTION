@@ -65,7 +65,10 @@ export default function SecondChance() {
   };
 
   return (
-    <section id="progetti" className="py-20 bg-surface px-6">
+    <section
+      id="progetti"
+      className="home-deferred-section py-20 bg-surface px-6"
+    >
       <div className="max-w-7xl mx-auto">
         <p className="font-display font-semibold uppercase tracking-[0.3em] text-xs text-brand mb-3">
           I nostri lavori
@@ -82,10 +85,26 @@ export default function SecondChance() {
               className={`relative break-inside-avoid rounded-2xl overflow-hidden border border-stroke group ${p.tall ? "h-80" : "h-56"}`}
             >
               <img
-                src={p.poster}
+                src={p.previewPoster || p.poster}
                 alt={`Copertina video cantiere ${p.nome}`}
-                className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
+                width="480"
+                height="852"
+                className="home-video-poster home-video-poster--gallery w-full h-full object-cover"
                 loading="lazy"
+                fetchPriority="low"
+                decoding="async"
+                onLoad={(event) => {
+                  event.currentTarget.dataset.loaded = "true";
+                }}
+                onError={(event) => {
+                  const image = event.currentTarget;
+                  if (image.dataset.fallback !== "true") {
+                    image.dataset.fallback = "true";
+                    image.src = p.poster;
+                    return;
+                  }
+                  image.dataset.loaded = "true";
+                }}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/85 to-transparent" />
               {p.label && (

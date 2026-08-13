@@ -165,9 +165,47 @@ html.is-scroll-locked body {
   opacity: 1;
 }
 
+/* Le cover cantiere arrivano gia ridimensionate: il fade avviene solo dopo
+   la decodifica, evitando che il browser mostri caricamenti progressivi a scatti. */
+.home-video-poster {
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
+.home-video-poster[data-loaded="true"] {
+  opacity: 1;
+}
+
+.home-video-poster--gallery[data-loaded="true"] {
+  opacity: 0.9;
+}
+
+.home-deferred-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 1400px;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .group:hover .home-video-poster--gallery[data-loaded="true"] {
+    opacity: 1;
+    transform: scale(1.025);
+    transition:
+      opacity 180ms ease-out,
+      transform 260ms ease-out;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+
+  .home-video-poster {
+    transition: none;
+  }
+
+  .group:hover .home-video-poster--gallery[data-loaded="true"] {
+    transform: none;
   }
 }
 

@@ -30,11 +30,15 @@ const cantiereAsset = (fileName) =>
     (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
   )}`;
 
+const cantierePreview = (fileName) =>
+  `${process.env.PUBLIC_URL || ""}/cantieri/previews/${fileName}`;
+
 // Video reali dei cantieri presenti nella cartella root PUBLIC.
 export const CANTIERE_VIDEOS = [
   {
     src: cantiereAsset("ACERRA.mp4"),
     poster: cantiereAsset("ACERRA.webp"),
+    previewPoster: cantierePreview("acerra.webp"),
     nome: "Acerra",
     citta: "Acerra",
     label: "Video reale",
@@ -42,6 +46,7 @@ export const CANTIERE_VIDEOS = [
   {
     src: cantiereAsset("CASALNUOVO.mp4"),
     poster: cantiereAsset("CASALNUOVO.webp"),
+    previewPoster: cantierePreview("casalnuovo.webp"),
     nome: "Casalnuovo",
     citta: "Casalnuovo di Napoli",
     label: "Video reale",
@@ -49,6 +54,7 @@ export const CANTIERE_VIDEOS = [
   {
     src: cantiereAsset("CASALNUOVO 2.mp4"),
     poster: cantiereAsset("CASALNUOVO 2 (2).webp"),
+    previewPoster: cantierePreview("casalnuovo-2.webp"),
     nome: "Casalnuovo 2",
     citta: "Casalnuovo di Napoli",
     label: "Video reale",
@@ -56,6 +62,7 @@ export const CANTIERE_VIDEOS = [
   {
     src: cantiereAsset("MEDAGLIE D'ORO.mp4"),
     poster: cantiereAsset("medaglie d'oro.webp"),
+    previewPoster: cantierePreview("medaglie-doro.webp"),
     nome: "Medaglie d'Oro",
     citta: "Napoli",
     label: "Video reale",
@@ -63,6 +70,7 @@ export const CANTIERE_VIDEOS = [
   {
     src: cantiereAsset("POMIGLIANO.mp4"),
     poster: cantiereAsset("POMIGLIANO.webp"),
+    previewPoster: cantierePreview("pomigliano.webp"),
     nome: "Pomigliano",
     citta: "Pomigliano d'Arco",
     label: "Video reale",
@@ -70,6 +78,7 @@ export const CANTIERE_VIDEOS = [
   {
     src: cantiereAsset("TAVERNANOVA.mp4"),
     poster: cantiereAsset("TAVERNANOVA.webp"),
+    previewPoster: cantierePreview("tavernanova.webp"),
     nome: "Tavernanova",
     citta: "Casalnuovo di Napoli",
     label: "Video reale",
@@ -77,6 +86,7 @@ export const CANTIERE_VIDEOS = [
   {
     src: cantiereAsset("VOLLA.mp4"),
     poster: cantiereAsset("VOLLA.webp"),
+    previewPoster: cantierePreview("volla.webp"),
     nome: "Volla",
     citta: "Volla",
     label: "Video reale",
@@ -84,6 +94,7 @@ export const CANTIERE_VIDEOS = [
   {
     src: cantiereAsset("ZONA OSPEDALIERA.mp4"),
     poster: cantiereAsset("ZONA OSPEDALIERA.webp"),
+    previewPoster: cantierePreview("zona-ospedaliera.webp"),
     nome: "Zona Ospedaliera",
     citta: "Napoli",
     label: "Video reale",

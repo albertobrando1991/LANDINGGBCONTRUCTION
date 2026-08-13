@@ -4,6 +4,7 @@ import { Maximize2 } from "lucide-react";
 import HlsVideo from "@/components/HlsVideo";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { CANTIERE_VIDEOS, TESTIMONIAL_IMAGES } from "@/lib/assets";
+import { prefersReducedEffects } from "@/lib/network";
 
 const CARDS = CANTIERE_VIDEOS;
 
@@ -16,10 +17,19 @@ const BADGES = [
 
 export default function SocialProof() {
   const sectionRef = useRef(null);
+  const loadedPriorityPosters = useRef(new Set());
+  const [reduceEffects] = useState(prefersReducedEffects);
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "start" });
   const [selected, setSelected] = useState(null);
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [isSectionVisible, setIsSectionVisible] = useState(false);
+  const [isCarouselReady, setIsCarouselReady] = useState(false);
+
+  const markPosterReady = useCallback((index) => {
+    if (index >= 3 || loadedPriorityPosters.current.has(index)) return;
+    loadedPriorityPosters.current.add(index);
+    if (loadedPriorityPosters.current.size === 3) setIsCarouselReady(true);
+  }, []);
 
   const autoplay = useCallback(() => {
     if (emblaApi) emblaApi.scrollNext();
@@ -42,10 +52,23 @@ export default function SocialProof() {
   }, []);
 
   useEffect(() => {
-    if (selectedVideo || !isSectionVisible) return undefined;
+    if (
+      selectedVideo ||
+      !isSectionVisible ||
+      !isCarouselReady ||
+      reduceEffects
+    ) {
+      return undefined;
+    }
     const id = setInterval(autoplay, 4000);
     return () => clearInterval(id);
-  }, [autoplay, isSectionVisible, selectedVideo]);
+  }, [
+    autoplay,
+    isCarouselReady,
+    isSectionVisible,
+    reduceEffects,
+    selectedVideo,
+  ]);
 
   return (
     <section ref={sectionRef} className="py-12 md:py-16 px-6 bg-bg">
@@ -56,7 +79,7 @@ export default function SocialProof() {
 
         <div className="overflow-hidden" ref={emblaRef}>
           <div className="flex gap-4">
-            {CARDS.map((c) => (
+            {CARDS.map((c, index) => (
               <div
                 key={c.nome}
                 className="flex-[0_0_70%] sm:flex-[0_0_45%] lg:flex-[0_0_30%] min-w-0"
@@ -68,12 +91,29 @@ export default function SocialProof() {
                   className="relative aspect-[4/5] w-full rounded-2xl overflow-hidden border border-stroke group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                 >
                   <img
-                    src={c.poster}
+                    src={c.previewPoster || c.poster}
                     alt=""
                     aria-hidden="true"
-                    loading="lazy"
+                    width="480"
+                    height="852"
+                    loading={index < 3 ? "eager" : "lazy"}
+                    fetchPriority={index < 3 ? "low" : "auto"}
                     decoding="async"
-                    className="w-full h-full object-cover"
+                    onLoad={(event) => {
+                      event.currentTarget.dataset.loaded = "true";
+                      markPosterReady(index);
+                    }}
+                    onError={(event) => {
+                      const image = event.currentTarget;
+                      if (image.dataset.fallback !== "true") {
+                        image.dataset.fallback = "true";
+                        image.src = c.poster;
+                        return;
+                      }
+                      image.dataset.loaded = "true";
+                      markPosterReady(index);
+                    }}
+                    className="home-video-poster w-full h-full object-cover"
                   />
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                   {c.label && (

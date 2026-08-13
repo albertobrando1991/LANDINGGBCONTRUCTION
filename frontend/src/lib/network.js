@@ -28,6 +28,33 @@ export function prefersLightMedia() {
   return SLOW_EFFECTIVE_TYPES.has(connection.effectiveType);
 }
 
+/**
+ * Disattiva gli effetti decorativi continui sui dispositivi che dichiarano
+ * poche risorse, una rete limitata o la preferenza di ridurre il movimento.
+ * I valori assenti non vengono interpretati come un dispositivo lento.
+ */
+export function prefersReducedEffects() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return false;
+  }
+
+  const reducedMotion =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const hardwareConcurrency = Number(navigator.hardwareConcurrency);
+  const deviceMemory = Number(navigator.deviceMemory);
+  const hasLimitedCpu =
+    Number.isFinite(hardwareConcurrency) &&
+    hardwareConcurrency > 0 &&
+    hardwareConcurrency <= 4;
+  const hasLimitedMemory =
+    Number.isFinite(deviceMemory) && deviceMemory > 0 && deviceMemory <= 4;
+
+  return (
+    reducedMotion || hasLimitedCpu || hasLimitedMemory || prefersLightMedia()
+  );
+}
+
 export async function mapLimit(items, limit, iteratee) {
   const values = Array.from(items || []);
   const concurrency = Math.max(1, Math.floor(Number(limit) || 1));
