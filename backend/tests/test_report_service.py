@@ -90,9 +90,13 @@ def test_report_normalizes_dimensions_and_uses_midpoint_values_safely():
     )
 
     assert report["geografia"] == [
-        {"citta": "Napoli", "lead": 2},
-        {"citta": "Altro", "lead": 1},
+        {"citta": "Napoli", "lead": 2, "percentuale": 100.0},
     ]
+    assert report["copertura_geografica"] == {
+        "segnalati": 2,
+        "non_segnalati": 1,
+        "copertura_percentuale": 66.7,
+    }
     assert report["distribuzione"] == [
         {"name": "Premium", "value": 2},
         {"name": "Da definire", "value": 1},
@@ -100,6 +104,35 @@ def test_report_normalizes_dimensions_and_uses_midpoint_values_safely():
     assert report["kpi"]["valore_pipeline"] == 50_000
     assert report["persi"][0]["nome"] == "Lead senza nome"
     assert report["persi"][0]["range"] == 90_000
+
+
+def test_geography_excludes_missing_placeholders_and_generic_areas():
+    report = build_sales_report(
+        [
+            lead("nuovo", citta="Casalnuovo di Napoli"),
+            lead("nuovo", citta=""),
+            lead("nuovo", citta=None),
+            lead("nuovo", citta="Altro"),
+            lead("nuovo", citta="Non specificata"),
+            lead("nuovo", citta="Napoli e provincia"),
+            lead("nuovo", citta="Provincia di Caserta"),
+            lead("nuovo", citta="Campania"),
+        ],
+        now=NOW,
+    )
+
+    assert report["geografia"] == [
+        {
+            "citta": "Casalnuovo di Napoli",
+            "lead": 1,
+            "percentuale": 100.0,
+        }
+    ]
+    assert report["copertura_geografica"] == {
+        "segnalati": 1,
+        "non_segnalati": 7,
+        "copertura_percentuale": 12.5,
+    }
 
 
 def test_report_does_not_truncate_histories_over_one_thousand_leads():

@@ -147,6 +147,22 @@ function cityTick({ x, y, payload }) {
   );
 }
 
+const UNREPORTED_GEOGRAPHY_LABELS = new Set([
+  "",
+  "altro",
+  "non indicata",
+  "non segnalata",
+  "non specificata",
+]);
+
+function isReportedGeography(entry) {
+  return !UNREPORTED_GEOGRAPHY_LABELS.has(
+    String(entry?.citta || "")
+      .trim()
+      .toLocaleLowerCase("it-IT"),
+  );
+}
+
 export default function Report() {
   const [period, setPeriod] = useState("180d");
   const [insights, setInsights] = useState("");
@@ -217,7 +233,41 @@ export default function Report() {
   const timeline = data?.timeline || [];
   const distribution = data?.distribuzione || [];
   const funnel = data?.funnel || [];
-  const geography = (data?.geografia || []).slice(0, 8);
+  const rawGeography = data?.geografia || [];
+  const reportedGeography = rawGeography.filter(isReportedGeography);
+  const reportedFromRows = reportedGeography.reduce(
+    (total, entry) => total + (Number(entry?.lead) || 0),
+    0,
+  );
+  const geographyCoverage = data?.copertura_geografica || {};
+  const geographyReported = Math.max(
+    0,
+    Number(geographyCoverage.segnalati ?? reportedFromRows) || 0,
+  );
+  const geographyUnreported = Math.max(
+    0,
+    Number(
+      geographyCoverage.non_segnalati ??
+        Number(kpi.lead_ricevuti || 0) - reportedFromRows,
+    ) || 0,
+  );
+  const geographyCoveragePercentage = Math.max(
+    0,
+    Number(
+      geographyCoverage.copertura_percentuale ??
+        (Number(kpi.lead_ricevuti || 0)
+          ? (geographyReported / Number(kpi.lead_ricevuti)) * 100
+          : 0),
+    ) || 0,
+  );
+  const geography = reportedGeography.slice(0, 8).map((entry) => ({
+    ...entry,
+    percentuale:
+      entry.percentuale ??
+      (geographyReported
+        ? Math.round((Number(entry.lead || 0) / geographyReported) * 1000) / 10
+        : 0),
+  }));
   const lost = data?.persi || [];
   const updatedAt = generatedAtLabel(meta.generated_at);
 
@@ -308,15 +358,21 @@ export default function Report() {
         />
         <KPI label="Tasso conversione" value={`${kpi.conversione ?? 0}%`} />
         <KPI
-          label="Pipeline aperta"
+          label="Pipeline aperta stimata"
           value={formatEuro(kpi.valore_pipeline || 0)}
         />
         <KPI
-          label="Valore chiuso"
+          label="Valore chiuso stimato"
           value={formatEuro(kpi.valore_chiuso || 0)}
           accent
         />
       </section>
+
+      <p className="rounded-xl border border-stroke bg-surface px-4 py-3 font-body text-xs leading-5 text-fog">
+        Il periodo considera la data di ricezione del lead. I valori economici
+        sono stime basate sull&apos;intervallo disponibile; la provenienza
+        include soltanto località dichiarate in modo preciso.
+      </p>
 
       <section
         className="rounded-2xl border border-stroke bg-surface p-4 sm:p-6"
@@ -538,13 +594,57 @@ export default function Report() {
         <Panel
           id="geography-title"
           title="Provenienza geografica"
-          subtitle="Prime 8 località per numero di lead."
+          subtitle="Prime 8 località precise. I dati mancanti restano separati e non incidono sulla distribuzione."
         >
+          <div
+            className="mb-4 grid grid-cols-1 gap-2 min-[420px]:grid-cols-3"
+            aria-label="Copertura dei dati geografici"
+          >
+            <div className="rounded-xl border border-stroke bg-bg/60 p-3">
+              <p className="font-body text-[10px] uppercase text-fog">
+                Segnalati
+              </p>
+              <strong
+                className="mt-1 block font-display text-lg text-ink"
+                data-testid="geography-reported"
+              >
+                {formatNumber(geographyReported)}
+              </strong>
+            </div>
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3">
+              <p className="font-body text-[10px] uppercase text-fog">
+                Non segnalati
+              </p>
+              <strong
+                className="mt-1 block font-display text-lg text-amber-200"
+                data-testid="geography-unreported"
+              >
+                {formatNumber(geographyUnreported)}
+              </strong>
+            </div>
+            <div className="rounded-xl border border-stroke bg-bg/60 p-3">
+              <p className="font-body text-[10px] uppercase text-fog">
+                Copertura
+              </p>
+              <strong className="mt-1 block font-display text-lg text-ink">
+                {geographyCoveragePercentage.toLocaleString("it-IT", {
+                  maximumFractionDigits: 1,
+                })}
+                %
+              </strong>
+            </div>
+          </div>
           {!hasLeads || geography.length === 0 ? (
-            <EmptyChart message="Nessuna località disponibile per questo periodo." />
+            <EmptyChart
+              message={
+                hasLeads
+                  ? "Nessuna località precisa segnalata per questo periodo."
+                  : "Nessun lead nel periodo selezionato."
+              }
+            />
           ) : (
             <div
-              className="h-[260px] min-w-0"
+              className="h-[220px] min-w-0"
               role="img"
               aria-label="Grafico della provenienza geografica"
             >
@@ -574,7 +674,10 @@ export default function Report() {
                   />
                   <Tooltip
                     contentStyle={tooltipStyle}
-                    formatter={(value) => [formatNumber(value), "Lead"]}
+                    formatter={(value, _name, item) => [
+                      `${formatNumber(value)} (${item?.payload?.percentuale || 0}%)`,
+                      "Lead segnalati",
+                    ]}
                   />
                   <Bar dataKey="lead" fill="#D4A847" radius={[0, 6, 6, 0]} />
                 </BarChart>

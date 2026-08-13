@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import re
+import unicodedata
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
@@ -41,6 +43,76 @@ _LEVEL_LABELS = {
     "essenziale": "Essenziale",
     "premium": "Premium",
     "luxury": "Luxury",
+}
+
+_UNREPORTED_CITY_LABEL = "Non segnalata"
+_UNREPORTED_CITY_VALUES = {
+    "",
+    "-",
+    "altro",
+    "altra",
+    "campania",
+    "da confermare",
+    "da definire",
+    "da verificare",
+    "italia",
+    "n a",
+    "n d",
+    "na",
+    "nd",
+    "nessuna",
+    "nessuno",
+    "non disponibile",
+    "non indicata",
+    "non indicato",
+    "non pervenuta",
+    "non pervenuto",
+    "non segnalata",
+    "non segnalato",
+    "non specificata",
+    "non specificato",
+    "null",
+    "provincia",
+    "regione",
+    "sconosciuta",
+    "sconosciuto",
+    "sud italia",
+    "unknown",
+}
+_ITALIAN_REGION_NAMES = {
+    "abruzzo",
+    "basilicata",
+    "calabria",
+    "campania",
+    "emilia romagna",
+    "friuli venezia giulia",
+    "lazio",
+    "liguria",
+    "lombardia",
+    "marche",
+    "molise",
+    "piemonte",
+    "puglia",
+    "sardegna",
+    "sicilia",
+    "toscana",
+    "trentino alto adige",
+    "umbria",
+    "valle d aosta",
+    "veneto",
+}
+_LOWERCASE_CITY_PARTICLES = {
+    "a",
+    "da",
+    "dal",
+    "dalla",
+    "de",
+    "dei",
+    "del",
+    "della",
+    "delle",
+    "di",
+    "in",
 }
 
 
@@ -90,9 +162,46 @@ def _period_start(period: str, now: datetime) -> datetime | None:
     return now - timedelta(days=days)
 
 
-def _city_label(value: Any) -> str:
+def _location_key(value: str) -> str:
+    normalized = "".join(
+        char
+        for char in unicodedata.normalize("NFKD", value.casefold())
+        if not unicodedata.combining(char)
+    )
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", normalized).split())
+
+
+def _city_label(value: Any) -> str | None:
     cleaned = " ".join(str(value or "").split())
-    return cleaned.title() if cleaned else "Altro"
+    key = _location_key(cleaned)
+    is_generic_area = (
+        key in _ITALIAN_REGION_NAMES
+        or key.startswith("provincia di ")
+        or key.startswith("regione ")
+        or key.startswith("area metropolitana ")
+        or key.endswith(" provincia")
+        or key.endswith(" e provincia")
+        or key.endswith(" e dintorni")
+        or key.endswith(" area metropolitana")
+    )
+    if (
+        not key
+        or key in _UNREPORTED_CITY_VALUES
+        or is_generic_area
+        or not any(char.isalpha() for char in key)
+    ):
+        return None
+    words = cleaned.title().split()
+    return " ".join(
+        word.casefold()
+        if index > 0 and word.casefold() in _LOWERCASE_CITY_PARTICLES
+        else word
+        for index, word in enumerate(words)
+    )
+
+
+def _city_display_label(value: Any) -> str:
+    return _city_label(value) or _UNREPORTED_CITY_LABEL
 
 
 def _solution_label(lead: dict[str, Any]) -> str:
@@ -218,9 +327,23 @@ def build_sales_report(
         if distribution_counts[label]
     ]
 
-    city_counts: Counter[str] = Counter(_city_label(lead.get("citta")) for lead in leads)
+    reported_cities = [
+        city
+        for lead in leads
+        if (city := _city_label(lead.get("citta"))) is not None
+    ]
+    city_counts: Counter[str] = Counter(reported_cities)
+    geography_reported = len(reported_cities)
+    geography_unreported = total - geography_reported
     geografia = [
-        {"citta": city, "lead": count}
+        {
+            "citta": city,
+            "lead": count,
+            "percentuale": round(
+                (count / geography_reported * 100) if geography_reported else 0,
+                1,
+            ),
+        }
         for city, count in sorted(
             city_counts.items(), key=lambda item: (-item[1], item[0].casefold())
         )
@@ -275,13 +398,21 @@ def build_sales_report(
         },
         "distribuzione": distribuzione,
         "geografia": geografia,
+        "copertura_geografica": {
+            "segnalati": geography_reported,
+            "non_segnalati": geography_unreported,
+            "copertura_percentuale": round(
+                (geography_reported / total * 100) if total else 0,
+                1,
+            ),
+        },
         "funnel": funnel,
         "timeline": timeline,
         "persi": [
             {
                 "id": str(lead.get("id") or lead.get("_id") or ""),
                 "nome": str(lead.get("nome") or "Lead senza nome"),
-                "citta": _city_label(lead.get("citta")),
+                "citta": _city_display_label(lead.get("citta")),
                 "livello": _solution_label(lead),
                 "range": round(_estimated_value(lead)),
                 "data": lead.get("status_changed_at") or lead.get("created_at"),

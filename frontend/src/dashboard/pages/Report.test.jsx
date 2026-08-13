@@ -65,7 +65,12 @@ const REPORT_DATA = {
     { step: "Lead", value: 12, percentuale: 100 },
     { step: "Vinti", value: 2, percentuale: 16.7 },
   ],
-  geografia: [{ citta: "Napoli", lead: 12 }],
+  geografia: [{ citta: "Napoli", lead: 8, percentuale: 100 }],
+  copertura_geografica: {
+    segnalati: 8,
+    non_segnalati: 4,
+    copertura_percentuale: 66.7,
+  },
   persi: [
     {
       id: "lost-1",
@@ -145,6 +150,40 @@ describe("Report", () => {
     expect(container.textContent).toContain("Lead ricevuti");
     expect(container.textContent).toContain("12");
     expect(container.textContent).toContain("Cliente perso");
+    expect(container.textContent).toContain("Pipeline aperta stimata");
+    expect(container.textContent).toContain("Valore chiuso stimato");
+    expect(
+      container.querySelector('[data-testid="geography-reported"]').textContent,
+    ).toContain("8");
+    expect(
+      container.querySelector('[data-testid="geography-unreported"]')
+        .textContent,
+    ).toContain("4");
+    expect(container.textContent).toContain(
+      "I dati mancanti restano separati e non incidono sulla distribuzione.",
+    );
+  });
+
+  test("separa anche i dati geografici non segnalati restituiti dal vecchio backend", async () => {
+    client.get.mockResolvedValue({
+      data: {
+        ...REPORT_DATA,
+        geografia: [
+          { citta: "Napoli", lead: 8 },
+          { citta: "Altro", lead: 4 },
+        ],
+        copertura_geografica: undefined,
+      },
+    });
+    await renderPage();
+
+    expect(
+      container.querySelector('[data-testid="geography-reported"]').textContent,
+    ).toContain("8");
+    expect(
+      container.querySelector('[data-testid="geography-unreported"]')
+        .textContent,
+    ).toContain("4");
   });
 
   test("ricarica dati e insight quando cambia il periodo", async () => {
