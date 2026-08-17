@@ -66,3 +66,25 @@ test("persiste i path caricati prima del post della misura", async () => {
   expect(stored.body.foto_paths).toEqual(["tenant/cantiere/foto.jpg"]);
   expect(stored.photos).toEqual([]);
 });
+
+test("non supera una misura fallita per preservare l'ordine del libretto", async () => {
+  await enqueueCampoMeasurement(queuedItem());
+  await enqueueCampoMeasurement(
+    queuedItem({
+      body: {
+        client_uuid: "40000000-0000-4000-8000-000000000001",
+        qta: 3,
+        foto_paths: [],
+      },
+    }),
+  );
+  const sent = [];
+  const result = await syncQueuedCampoMeasurements(async (item) => {
+    sent.push(item.body.client_uuid);
+    throw new Error("connessione interrotta");
+  }, "gbconstruction");
+
+  expect(sent).toEqual([UUID]);
+  expect(result.failures).toHaveLength(1);
+  expect(await listQueuedCampoMeasurements("gbconstruction")).toHaveLength(2);
+});

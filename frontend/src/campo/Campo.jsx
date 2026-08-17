@@ -26,15 +26,18 @@ import {
 } from "@/lib/campoApi";
 import {
   cacheCampoBootstrap,
+  cacheCampoOfflinePack,
   cacheCampoMisure,
   enqueueCampoMeasurement,
   isRetryableCampoError,
   listQueuedCampoMeasurements,
   readCampoBootstrap,
+  readCampoOfflinePack,
   readCampoMisure,
   replaceQueuedCampoMeasurement,
   syncQueuedCampoMeasurements,
 } from "@/lib/campoQueue";
+import { requestPersistentOfflineStorage } from "@/lib/offlineStorage";
 import { formatApiErrorDetail } from "@/lib/api";
 import {
   compressCampoPhoto,
@@ -125,10 +128,17 @@ export default function Campo() {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [photoProgress, setPhotoProgress] = useState("");
+  const [offlinePack, setOfflinePack] = useState(null);
+  const [preparingOffline, setPreparingOffline] = useState(false);
   const [section, setSection] = useState("rilievi");
+  const [rilievoQueueCount, setRilievoQueueCount] = useState(0);
+  const [rilievoSyncing, setRilievoSyncing] = useState(false);
+  const [rilievoSyncRequest, setRilievoSyncRequest] = useState(0);
   const syncingRef = useRef(false);
   const photoInputRef = useRef(null);
   const photosEnabled = canUseTenantStorage(user);
+  const activeQueueCount = rilievoQueueCount + queued.length;
+  const activeSyncing = rilievoSyncing || syncing;
 
   const bootstrapQuery = useQuery({
     queryKey: ["campo", "cantieri", slug],
@@ -144,6 +154,7 @@ export default function Campo() {
       }
     },
     retry: 1,
+    networkMode: "always",
   });
   const cantieri = useMemo(
     () => bootstrapQuery.data?.data || [],
@@ -200,8 +211,56 @@ export default function Campo() {
       }
     },
     retry: 1,
+    networkMode: "always",
   });
   const measures = measuresQuery.data?.data || [];
+
+  useEffect(() => {
+    readCampoOfflinePack(slug).then(setOfflinePack);
+  }, [slug]);
+
+  const prepareCampoOffline = async () => {
+    if (!isOnline) {
+      toast.error("Collegati a Internet per aggiornare i dati offline");
+      return;
+    }
+    setPreparingOffline(true);
+    try {
+      const storage = await requestPersistentOfflineStorage();
+      const latestCantieri = await loadCampoCantieri();
+      await cacheCampoBootstrap(slug, latestCantieri);
+      let cachedMeasures = 0;
+      for (const cantiere of latestCantieri) {
+        const data = await loadCampoMisure(cantiere.id);
+        await cacheCampoMisure(slug, cantiere.id, data);
+        queryClient.setQueryData(["campo", "misure", slug, cantiere.id], {
+          data,
+          cached: false,
+        });
+        cachedMeasures += data.length;
+      }
+      const pack = await cacheCampoOfflinePack(slug, {
+        ready: true,
+        cantieri: latestCantieri.length,
+        misure: cachedMeasures,
+        persistent: storage.persisted,
+      });
+      setOfflinePack(pack);
+      queryClient.setQueryData(["campo", "cantieri", slug], {
+        data: latestCantieri,
+        cached: false,
+      });
+      toast.success("Libretto pronto per l'uso offline", {
+        description: `${latestCantieri.length} cantieri e ${cachedMeasures} misure salvati sul tablet.`,
+      });
+    } catch (error) {
+      toast.error("Preparazione offline non completata", {
+        description: apiDetail(error),
+      });
+    } finally {
+      setPreparingOffline(false);
+    }
+  };
 
   const refreshQueue = useCallback(async () => {
     const items = await listQueuedCampoMeasurements(slug);
@@ -451,12 +510,28 @@ export default function Campo() {
               </h1>
             </div>
           </div>
-          {installPrompt && (
-            <button type="button" onClick={install} className="campo-install">
-              <Download aria-hidden="true" />
-              <span>Installa</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void prepareCampoOffline()}
+              disabled={!isOnline || preparingOffline}
+              className="campo-install disabled:opacity-40"
+            >
+              <Download
+                className={preparingOffline ? "animate-pulse" : ""}
+                aria-hidden="true"
+              />
+              <span>
+                {offlinePack?.ready ? "Aggiorna libretto" : "Prepara libretto"}
+              </span>
             </button>
-          )}
+            {installPrompt && (
+              <button type="button" onClick={install} className="campo-install">
+                <Download aria-hidden="true" />
+                <span>Installa</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div
@@ -474,22 +549,25 @@ export default function Campo() {
               </span>
               <span className="text-fog">·</span>
               <span className="truncate font-body text-[11px] text-fog">
-                {syncing
+                {activeSyncing
                   ? "Sincronizzazione…"
-                  : queued.length
-                    ? `${queued.length} in attesa`
+                  : activeQueueCount
+                    ? `${activeQueueCount} in attesa`
                     : "Tutto sincronizzato"}
               </span>
             </div>
             <button
               type="button"
-              onClick={flushQueue}
-              disabled={!isOnline || syncing || !queued.length}
+              onClick={() => {
+                void flushQueue();
+                setRilievoSyncRequest((value) => value + 1);
+              }}
+              disabled={!isOnline || activeSyncing || !activeQueueCount}
               className="campo-sync-button"
-              aria-label="Sincronizza misure in attesa"
+              aria-label="Sincronizza dati in attesa"
             >
               <RefreshCw
-                className={syncing ? "animate-spin" : ""}
+                className={activeSyncing ? "animate-spin" : ""}
                 aria-hidden="true"
               />
             </button>
@@ -516,373 +594,393 @@ export default function Campo() {
         </div>
       </div>
 
-      {section === "rilievi" ? (
-        <PrimoRilievo isOnline={isOnline} />
-      ) : (
-      <main className="mx-auto grid max-w-5xl gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:py-8">
-        <section className="campo-panel" aria-labelledby="nuova-misura-title">
-          <div className="campo-panel-heading">
-            <div>
-              <p className="campo-eyebrow">Rilievo rapido</p>
-              <h2 id="nuova-misura-title">Nuova misura</h2>
-            </div>
-            <Ruler aria-hidden="true" />
-          </div>
-
-          {bootstrapQuery.isLoading ? (
-            <div className="campo-empty" role="status">
-              Caricamento cantieri…
-            </div>
-          ) : bootstrapQuery.isError ? (
-            <div className="campo-alert" role="alert">
-              <AlertTriangle aria-hidden="true" />
+      <div className={section === "rilievi" ? "block" : "hidden"}>
+        <PrimoRilievo
+          isOnline={isOnline}
+          syncRequest={rilievoSyncRequest}
+          onQueueCountChange={setRilievoQueueCount}
+          onSyncingChange={setRilievoSyncing}
+        />
+      </div>
+      {section === "libretto" && (
+        <main className="mx-auto grid max-w-5xl gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:py-8">
+          <section className="campo-panel" aria-labelledby="nuova-misura-title">
+            <div className="campo-panel-heading">
               <div>
-                <strong>Accesso al libretto non disponibile</strong>
-                <p>{apiDetail(bootstrapQuery.error)}</p>
+                <p className="campo-eyebrow">Rilievo rapido</p>
+                <h2 id="nuova-misura-title">Nuova misura</h2>
               </div>
+              <Ruler aria-hidden="true" />
             </div>
-          ) : !cantieri.length ? (
-            <div className="campo-empty">
-              <HardHat aria-hidden="true" />
-              <strong>Nessun cantiere operativo</strong>
-              <span>Attiva un cantiere dalla dashboard per iniziare.</span>
-            </div>
-          ) : (
-            <form onSubmit={submit} className="space-y-5">
-              <label className="campo-field">
-                <span>Cantiere</span>
-                <select
-                  value={form.cantiere_id}
-                  onChange={(event) =>
-                    update("cantiere_id", event.target.value)
-                  }
-                  required
-                >
-                  {cantieri.map((cantiere) => (
-                    <option key={cantiere.id} value={cantiere.id}>
-                      {cantiere.cliente}
-                      {cantiere.indirizzo ? ` — ${cantiere.indirizzo}` : ""}
-                    </option>
-                  ))}
-                </select>
-                {selectedCantiere && (
-                  <small>
-                    {selectedCantiere.stato === "in_pausa"
-                      ? "In pausa"
-                      : "Attivo"}
-                    {selectedCantiere.capocantiere
-                      ? ` · ${selectedCantiere.capocantiere}`
-                      : ""}
-                  </small>
-                )}
-              </label>
 
-              <label className="campo-field">
-                <span>Voce di computo per il SAL</span>
-                <select
-                  value={form.computo_voce_id}
-                  onChange={(event) =>
-                    update("computo_voce_id", event.target.value)
-                  }
-                  required
-                  disabled={!selectedCantiere?.voci?.length}
-                >
-                  <option value="">Seleziona una voce confermata</option>
-                  {(selectedCantiere?.voci || []).map((voce) => (
-                    <option key={voce.id} value={voce.id}>
-                      {voce.descrizione} · {voce.um}
-                    </option>
-                  ))}
-                </select>
-                {selectedVoice && (
-                  <small>
-                    Contratto: {formatQuantity(selectedVoice.qta_contrattuale)}{" "}
-                    {selectedVoice.um}
-                  </small>
-                )}
-                {selectedCantiere && !selectedCantiere.voci?.length && (
-                  <small className="text-red-600">
-                    Nessuna voce disponibile: collega e conferma un computo per
-                    questo cantiere prima di registrare misure destinate al SAL.
-                  </small>
-                )}
-              </label>
-
-              <fieldset>
-                <legend className="campo-legend">Tipo registrazione</legend>
-                <div className="campo-mode-grid">
-                  <button
-                    type="button"
-                    aria-pressed={form.mode === "rilievo"}
-                    onClick={() => update("mode", "rilievo")}
-                    className={form.mode === "rilievo" ? "is-active" : ""}
-                  >
-                    <Plus aria-hidden="true" /> Rilievo
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={form.mode === "rettifica"}
-                    onClick={() => update("mode", "rettifica")}
-                    className={
-                      form.mode === "rettifica" ? "is-active is-negative" : ""
-                    }
-                  >
-                    <Minus aria-hidden="true" /> Rettifica
-                  </button>
+            {bootstrapQuery.isLoading ? (
+              <div className="campo-empty" role="status">
+                Caricamento cantieri…
+              </div>
+            ) : bootstrapQuery.isError ? (
+              <div className="campo-alert" role="alert">
+                <AlertTriangle aria-hidden="true" />
+                <div>
+                  <strong>Accesso al libretto non disponibile</strong>
+                  <p>{apiDetail(bootstrapQuery.error)}</p>
                 </div>
-              </fieldset>
-
-              <div className="campo-measure-row">
-                <label className="campo-field campo-quantity">
-                  <span>Quantita</span>
-                  <div>
-                    <span aria-hidden="true">
-                      {form.mode === "rettifica" ? "−" : "+"}
-                    </span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0.001"
-                      step="0.001"
-                      value={form.qta}
-                      onChange={(event) => update("qta", event.target.value)}
-                      placeholder="0,000"
-                      required
-                    />
-                    <b>{selectedVoice?.um || "u"}</b>
-                  </div>
-                </label>
+              </div>
+            ) : !cantieri.length ? (
+              <div className="campo-empty">
+                <HardHat aria-hidden="true" />
+                <strong>Nessun cantiere operativo</strong>
+                <span>Attiva un cantiere dalla dashboard per iniziare.</span>
+              </div>
+            ) : (
+              <form onSubmit={submit} className="space-y-5">
                 <label className="campo-field">
-                  <span>Data</span>
-                  <input
-                    type="date"
-                    value={form.data_misura}
+                  <span>Cantiere</span>
+                  <select
+                    value={form.cantiere_id}
                     onChange={(event) =>
-                      update("data_misura", event.target.value)
+                      update("cantiere_id", event.target.value)
                     }
                     required
-                  />
-                </label>
-              </div>
-
-              <label className="campo-field">
-                <span>
-                  Descrizione <em>facoltativa</em>
-                </span>
-                <textarea
-                  rows="3"
-                  maxLength="1000"
-                  value={form.descrizione}
-                  onChange={(event) =>
-                    update("descrizione", event.target.value)
-                  }
-                  placeholder="Es. parete cucina, tratto lato nord…"
-                />
-              </label>
-
-              <div className="campo-photo-field">
-                <div>
-                  <span>
-                    Foto <em>facoltative</em>
-                  </span>
-                  <small>
-                    {photosEnabled
-                      ? "Compresse sul dispositivo e caricate con ripresa automatica."
-                      : "Disponibili con accesso Supabase interno."}
-                  </small>
-                </div>
-                <input
-                  ref={photoInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  capture="environment"
-                  multiple
-                  onChange={addPhotos}
-                  disabled={!photosEnabled || photos.length >= MAX_CAMPO_PHOTOS}
-                />
-                <button
-                  type="button"
-                  onClick={() => photoInputRef.current?.click()}
-                  disabled={!photosEnabled || photos.length >= MAX_CAMPO_PHOTOS}
-                  className="campo-photo-button"
-                >
-                  <Camera aria-hidden="true" />
-                  Scatta o scegli foto
-                </button>
-                {photos.length > 0 && (
-                  <div className="campo-photo-grid">
-                    {photos.map((photo) => (
-                      <PhotoPreview
-                        key={photo.id}
-                        photo={photo}
-                        onRemove={() =>
-                          setPhotos((current) =>
-                            current.filter((item) => item.id !== photo.id),
-                          )
-                        }
-                      />
+                  >
+                    {cantieri.map((cantiere) => (
+                      <option key={cantiere.id} value={cantiere.id}>
+                        {cantiere.cliente}
+                        {cantiere.indirizzo ? ` — ${cantiere.indirizzo}` : ""}
+                      </option>
                     ))}
-                  </div>
-                )}
-                {photoProgress && (
-                  <small aria-live="polite">{photoProgress}</small>
-                )}
-              </div>
+                  </select>
+                  {selectedCantiere && (
+                    <small>
+                      {selectedCantiere.stato === "in_pausa"
+                        ? "In pausa"
+                        : "Attivo"}
+                      {selectedCantiere.capocantiere
+                        ? ` · ${selectedCantiere.capocantiere}`
+                        : ""}
+                    </small>
+                  )}
+                </label>
 
-              <details className="campo-details">
-                <summary>Dettaglio dimensioni</summary>
-                <div className="campo-dimensions">
-                  <label className="campo-field">
-                    <span>Parti</span>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min="1"
-                      step="1"
-                      value={form.parti}
-                      onChange={(event) => update("parti", event.target.value)}
-                    />
-                  </label>
-                  {[
-                    ["lunghezza", "Lunghezza"],
-                    ["larghezza", "Larghezza"],
-                    ["altezza", "Altezza"],
-                  ].map(([field, label]) => (
-                    <label className="campo-field" key={field}>
-                      <span>{label}</span>
+                <label className="campo-field">
+                  <span>Voce di computo per il SAL</span>
+                  <select
+                    value={form.computo_voce_id}
+                    onChange={(event) =>
+                      update("computo_voce_id", event.target.value)
+                    }
+                    required
+                    disabled={!selectedCantiere?.voci?.length}
+                  >
+                    <option value="">Seleziona una voce confermata</option>
+                    {(selectedCantiere?.voci || []).map((voce) => (
+                      <option key={voce.id} value={voce.id}>
+                        {voce.descrizione} · {voce.um}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedVoice && (
+                    <small>
+                      Contratto:{" "}
+                      {formatQuantity(selectedVoice.qta_contrattuale)}{" "}
+                      {selectedVoice.um}
+                    </small>
+                  )}
+                  {selectedCantiere && !selectedCantiere.voci?.length && (
+                    <small className="text-red-600">
+                      Nessuna voce disponibile: collega e conferma un computo
+                      per questo cantiere prima di registrare misure destinate
+                      al SAL.
+                    </small>
+                  )}
+                </label>
+
+                <fieldset>
+                  <legend className="campo-legend">Tipo registrazione</legend>
+                  <div className="campo-mode-grid">
+                    <button
+                      type="button"
+                      aria-pressed={form.mode === "rilievo"}
+                      onClick={() => update("mode", "rilievo")}
+                      className={form.mode === "rilievo" ? "is-active" : ""}
+                    >
+                      <Plus aria-hidden="true" /> Rilievo
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={form.mode === "rettifica"}
+                      onClick={() => update("mode", "rettifica")}
+                      className={
+                        form.mode === "rettifica" ? "is-active is-negative" : ""
+                      }
+                    >
+                      <Minus aria-hidden="true" /> Rettifica
+                    </button>
+                  </div>
+                </fieldset>
+
+                <div className="campo-measure-row">
+                  <label className="campo-field campo-quantity">
+                    <span>Quantita</span>
+                    <div>
+                      <span aria-hidden="true">
+                        {form.mode === "rettifica" ? "−" : "+"}
+                      </span>
                       <input
                         type="number"
                         inputMode="decimal"
-                        min="0"
+                        min="0.001"
                         step="0.001"
-                        value={form[field]}
-                        onChange={(event) => update(field, event.target.value)}
-                        placeholder="m"
+                        value={form.qta}
+                        onChange={(event) => update("qta", event.target.value)}
+                        placeholder="0,000"
+                        required
+                      />
+                      <b>{selectedVoice?.um || "u"}</b>
+                    </div>
+                  </label>
+                  <label className="campo-field">
+                    <span>Data</span>
+                    <input
+                      type="date"
+                      value={form.data_misura}
+                      onChange={(event) =>
+                        update("data_misura", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                </div>
+
+                <label className="campo-field">
+                  <span>
+                    Descrizione <em>facoltativa</em>
+                  </span>
+                  <textarea
+                    rows="3"
+                    maxLength="1000"
+                    value={form.descrizione}
+                    onChange={(event) =>
+                      update("descrizione", event.target.value)
+                    }
+                    placeholder="Es. parete cucina, tratto lato nord…"
+                  />
+                </label>
+
+                <div className="campo-photo-field">
+                  <div>
+                    <span>
+                      Foto <em>facoltative</em>
+                    </span>
+                    <small>
+                      {photosEnabled
+                        ? "Compresse sul dispositivo e caricate con ripresa automatica."
+                        : "Disponibili con accesso Supabase interno."}
+                    </small>
+                  </div>
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    capture="environment"
+                    multiple
+                    onChange={addPhotos}
+                    disabled={
+                      !photosEnabled || photos.length >= MAX_CAMPO_PHOTOS
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() => photoInputRef.current?.click()}
+                    disabled={
+                      !photosEnabled || photos.length >= MAX_CAMPO_PHOTOS
+                    }
+                    className="campo-photo-button"
+                  >
+                    <Camera aria-hidden="true" />
+                    Scatta o scegli foto
+                  </button>
+                  {photos.length > 0 && (
+                    <div className="campo-photo-grid">
+                      {photos.map((photo) => (
+                        <PhotoPreview
+                          key={photo.id}
+                          photo={photo}
+                          onRemove={() =>
+                            setPhotos((current) =>
+                              current.filter((item) => item.id !== photo.id),
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {photoProgress && (
+                    <small aria-live="polite">{photoProgress}</small>
+                  )}
+                </div>
+
+                <details className="campo-details">
+                  <summary>Dettaglio dimensioni</summary>
+                  <div className="campo-dimensions">
+                    <label className="campo-field">
+                      <span>Parti</span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min="1"
+                        step="1"
+                        value={form.parti}
+                        onChange={(event) =>
+                          update("parti", event.target.value)
+                        }
                       />
                     </label>
-                  ))}
-                </div>
-              </details>
+                    {[
+                      ["lunghezza", "Lunghezza"],
+                      ["larghezza", "Larghezza"],
+                      ["altezza", "Altezza"],
+                    ].map(([field, label]) => (
+                      <label className="campo-field" key={field}>
+                        <span>{label}</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="0.001"
+                          value={form[field]}
+                          onChange={(event) =>
+                            update(field, event.target.value)
+                          }
+                          placeholder="m"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </details>
 
-              <button
-                type="submit"
-                disabled={saving || !form.computo_voce_id}
-                className="campo-submit"
-              >
-                {saving ? (
-                  <RefreshCw className="animate-spin" aria-hidden="true" />
-                ) : isOnline ? (
-                  <CheckCircle2 aria-hidden="true" />
-                ) : (
-                  <CloudOff aria-hidden="true" />
-                )}
-                {saving
-                  ? "Salvataggio…"
-                  : isOnline
-                    ? "Registra misura"
-                    : "Salva sul dispositivo"}
-              </button>
-            </form>
-          )}
-        </section>
-
-        <aside className="space-y-5">
-          {queued.length > 0 && (
-            <section
-              className="campo-panel campo-queue"
-              aria-labelledby="queue-title"
-            >
-              <div className="campo-panel-heading compact">
-                <div>
-                  <p className="campo-eyebrow">Coda dispositivo</p>
-                  <h2 id="queue-title">Da sincronizzare</h2>
-                </div>
-                <span>{queued.length}</span>
-              </div>
-              <div className="campo-list">
-                {queued.map((item) => (
-                  <article
-                    key={item.body.client_uuid}
-                    className="campo-list-row"
-                  >
-                    <div>
-                      <strong>{item.voce_label}</strong>
-                      <span>
-                        {item.cantiere_label} ·{" "}
-                        {formatDate(item.body.data_misura)}
-                      </span>
-                    </div>
-                    <b
-                      className={Number(item.body.qta) < 0 ? "is-negative" : ""}
-                    >
-                      {Number(item.body.qta) > 0 ? "+" : ""}
-                      {formatQuantity(item.body.qta)}
-                    </b>
-                  </article>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <section className="campo-panel" aria-labelledby="recenti-title">
-            <div className="campo-panel-heading compact">
-              <div>
-                <p className="campo-eyebrow">Ultime registrazioni</p>
-                <h2 id="recenti-title">Misure recenti</h2>
-              </div>
-              {measuresQuery.data?.cached && (
-                <span className="campo-cache-tag">Cache</span>
-              )}
-            </div>
-
-            {measuresQuery.isLoading ? (
-              <div className="campo-empty compact" role="status">
-                Caricamento misure…
-              </div>
-            ) : error && !measures.length ? (
-              <div className="campo-alert" role="alert">
-                <AlertTriangle aria-hidden="true" />
-                <p>{apiDetail(error)}</p>
-              </div>
-            ) : !form.cantiere_id || !measures.length ? (
-              <div className="campo-empty compact">
-                <Ruler aria-hidden="true" />
-                <span>Nessuna misura registrata per questo cantiere.</span>
-              </div>
-            ) : (
-              <div className="campo-list">
-                {measures.map((misura) => (
-                  <article key={misura.id} className="campo-list-row">
-                    <div>
-                      <strong>
-                        {misura.computo_voce_descrizione ||
-                          misura.descrizione ||
-                          "Misura libera"}
-                      </strong>
-                      <span>
-                        {formatDate(misura.data_misura)}
-                        {misura.descrizione ? ` · ${misura.descrizione}` : ""}
-                      </span>
-                    </div>
-                    <b className={Number(misura.qta) < 0 ? "is-negative" : ""}>
-                      {Number(misura.qta) > 0 ? "+" : ""}
-                      {formatQuantity(misura.qta)}{" "}
-                      {misura.computo_voce_um || ""}
-                    </b>
-                  </article>
-                ))}
-              </div>
+                <button
+                  type="submit"
+                  disabled={saving || !form.computo_voce_id}
+                  className="campo-submit"
+                >
+                  {saving ? (
+                    <RefreshCw className="animate-spin" aria-hidden="true" />
+                  ) : isOnline ? (
+                    <CheckCircle2 aria-hidden="true" />
+                  ) : (
+                    <CloudOff aria-hidden="true" />
+                  )}
+                  {saving
+                    ? "Salvataggio…"
+                    : isOnline
+                      ? "Registra misura"
+                      : "Salva sul dispositivo"}
+                </button>
+              </form>
             )}
           </section>
 
-          {(bootstrapQuery.data?.cached || measuresQuery.data?.cached) && (
-            <p className="campo-offline-note">
-              <CloudOff aria-hidden="true" /> Stai consultando l'ultima copia
-              disponibile sul dispositivo.
-            </p>
-          )}
-        </aside>
-      </main>
+          <aside className="space-y-5">
+            {queued.length > 0 && (
+              <section
+                className="campo-panel campo-queue"
+                aria-labelledby="queue-title"
+              >
+                <div className="campo-panel-heading compact">
+                  <div>
+                    <p className="campo-eyebrow">Coda dispositivo</p>
+                    <h2 id="queue-title">Da sincronizzare</h2>
+                  </div>
+                  <span>{queued.length}</span>
+                </div>
+                <div className="campo-list">
+                  {queued.map((item) => (
+                    <article
+                      key={item.body.client_uuid}
+                      className="campo-list-row"
+                    >
+                      <div>
+                        <strong>{item.voce_label}</strong>
+                        <span>
+                          {item.cantiere_label} ·{" "}
+                          {formatDate(item.body.data_misura)}
+                        </span>
+                      </div>
+                      <b
+                        className={
+                          Number(item.body.qta) < 0 ? "is-negative" : ""
+                        }
+                      >
+                        {Number(item.body.qta) > 0 ? "+" : ""}
+                        {formatQuantity(item.body.qta)}
+                      </b>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <section className="campo-panel" aria-labelledby="recenti-title">
+              <div className="campo-panel-heading compact">
+                <div>
+                  <p className="campo-eyebrow">Ultime registrazioni</p>
+                  <h2 id="recenti-title">Misure recenti</h2>
+                </div>
+                {measuresQuery.data?.cached && (
+                  <span className="campo-cache-tag">Cache</span>
+                )}
+              </div>
+
+              {measuresQuery.isLoading ? (
+                <div className="campo-empty compact" role="status">
+                  Caricamento misure…
+                </div>
+              ) : error && !measures.length ? (
+                <div className="campo-alert" role="alert">
+                  <AlertTriangle aria-hidden="true" />
+                  <p>{apiDetail(error)}</p>
+                </div>
+              ) : !form.cantiere_id || !measures.length ? (
+                <div className="campo-empty compact">
+                  <Ruler aria-hidden="true" />
+                  <span>Nessuna misura registrata per questo cantiere.</span>
+                </div>
+              ) : (
+                <div className="campo-list">
+                  {measures.map((misura) => (
+                    <article key={misura.id} className="campo-list-row">
+                      <div>
+                        <strong>
+                          {misura.computo_voce_descrizione ||
+                            misura.descrizione ||
+                            "Misura libera"}
+                        </strong>
+                        <span>
+                          {formatDate(misura.data_misura)}
+                          {misura.descrizione ? ` · ${misura.descrizione}` : ""}
+                        </span>
+                      </div>
+                      <b
+                        className={Number(misura.qta) < 0 ? "is-negative" : ""}
+                      >
+                        {Number(misura.qta) > 0 ? "+" : ""}
+                        {formatQuantity(misura.qta)}{" "}
+                        {misura.computo_voce_um || ""}
+                      </b>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {(bootstrapQuery.data?.cached || measuresQuery.data?.cached) && (
+              <p className="campo-offline-note">
+                <CloudOff aria-hidden="true" /> Stai consultando l'ultima copia
+                disponibile sul dispositivo.
+              </p>
+            )}
+          </aside>
+        </main>
       )}
     </div>
   );

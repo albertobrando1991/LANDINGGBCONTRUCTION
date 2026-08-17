@@ -22,12 +22,22 @@ def _bucket(name: str):
         raise
 
 
-def upload_asset(bucket: str, path: str, content: bytes, content_type: str) -> None:
+def upload_asset(
+    bucket: str,
+    path: str,
+    content: bytes,
+    content_type: str,
+    *,
+    upsert: bool = False,
+) -> None:
     try:
         _bucket(bucket).upload(
             path,
             content,
-            {"content-type": content_type, "upsert": "false"},
+            {
+                "content-type": content_type,
+                "upsert": "true" if upsert else "false",
+            },
         )
     except HTTPException:
         raise

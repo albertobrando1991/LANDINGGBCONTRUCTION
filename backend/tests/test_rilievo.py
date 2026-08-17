@@ -218,6 +218,35 @@ def test_upload_asset_rilievo_supporta_sessione_backend(monkeypatch):
     assert uploaded["content_type"] == "image/jpeg"
 
 
+def test_upload_asset_rilievo_usa_path_idempotente_per_retry(monkeypatch):
+    conn = AsyncMock()
+    conn.fetchrow.return_value = _rilievo()
+    uploaded = {}
+    image = BytesIO()
+    Image.new("RGB", (40, 30), "white").save(image, format="JPEG")
+    asset_id = "40000000-0000-4000-8000-000000000001"
+
+    def fake_upload(bucket, path, content, content_type, *, upsert=False):
+        uploaded.update(path=path, upsert=upsert)
+
+    monkeypatch.setattr(rilievo_service, "upload_asset", fake_upload)
+    result = asyncio.run(
+        rilievo_service.salva_asset(
+            conn,
+            TENANT_ID,
+            RILIEVO_ID,
+            tipo="foto_generale",
+            filename="soggiorno.jpg",
+            content_type="image/jpeg",
+            content=image.getvalue(),
+            asset_client_uuid=asset_id,
+        )
+    )
+
+    assert asset_id in result["path"]
+    assert uploaded == {"path": result["path"], "upsert": True}
+
+
 def test_url_asset_rilievo_e_tenant_scoped(monkeypatch):
     conn = AsyncMock()
     conn.fetchrow.return_value = _rilievo()

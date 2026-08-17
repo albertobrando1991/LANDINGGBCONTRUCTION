@@ -69,6 +69,9 @@ export async function syncQueuedCampoMeasurements(sendFn, tenantSlug) {
       synced += 1;
     } catch (error) {
       failures.push({ item, error });
+      // Non superare una misura fallita: il libretto deve mantenere l'ordine
+      // cronologico anche quando la connessione torna in modo intermittente.
+      break;
     }
   }
 
@@ -108,4 +111,14 @@ export async function cacheCampoMisure(tenantSlug, cantiereId, misure) {
 export async function readCampoMisure(tenantSlug, cantiereId) {
   return (await get(cacheKey(tenantSlug, `misure:${cantiereId}`), campoStore))
     ?.data;
+}
+
+export async function cacheCampoOfflinePack(tenantSlug, pack) {
+  const value = { ...pack, saved_at: new Date().toISOString() };
+  await set(cacheKey(tenantSlug, "offline-pack"), value, campoStore);
+  return value;
+}
+
+export async function readCampoOfflinePack(tenantSlug) {
+  return get(cacheKey(tenantSlug, "offline-pack"), campoStore);
 }

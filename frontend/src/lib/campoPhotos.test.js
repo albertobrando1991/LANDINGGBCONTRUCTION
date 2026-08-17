@@ -111,6 +111,7 @@ test("carica le foto rilievo tramite backend con autenticazione legacy", async (
     expect.any(FormData),
     expect.objectContaining({ onUploadProgress: expect.any(Function) }),
   );
+  expect(client.post.mock.calls[0][1].get("client_asset_uuid")).toBe(PHOTO);
 });
 
 test("carica al massimo tre foto insieme e mantiene l'ordine", async () => {

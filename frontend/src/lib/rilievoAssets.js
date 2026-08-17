@@ -34,9 +34,16 @@ export function rilievoPlanPath({ tenantId, rilievoId, filename, kind }) {
   return `${tenantId}/rilievo-${rilievoId}/planimetria/${kind}-${suffix}`;
 }
 
-async function uploadAsset(rilievoId, tipo, file, filename = file.name) {
+async function uploadAsset(
+  rilievoId,
+  tipo,
+  file,
+  filename = file.name,
+  clientAssetUuid = "",
+) {
   const form = new FormData();
   form.append("tipo", tipo);
+  if (clientAssetUuid) form.append("client_asset_uuid", clientAssetUuid);
   form.append("file", file, filename || "asset-rilievo");
   const { data } = await client.post(
     `/campo/rilievi/${rilievoId}/assets`,
@@ -58,9 +65,20 @@ export async function createRilievoPlanPreview({ rilievoId, file }) {
   return data;
 }
 
-export async function uploadRilievoPlan({ rilievoId, file, previewBlob }) {
+export async function uploadRilievoPlan({
+  rilievoId,
+  file,
+  previewBlob,
+  assetId = "",
+}) {
   const mimeType = validateRilievoPlan(file);
-  const source = await uploadAsset(rilievoId, "planimetria", file);
+  const source = await uploadAsset(
+    rilievoId,
+    "planimetria",
+    file,
+    file.name,
+    assetId,
+  );
 
   let previewPath = source.path;
   if (mimeType === "application/pdf") {
@@ -71,6 +89,7 @@ export async function uploadRilievoPlan({ rilievoId, file, previewBlob }) {
       "planimetria_preview",
       data,
       "preview.png",
+      assetId,
     );
     previewPath = preview.path;
   }
@@ -83,11 +102,16 @@ export async function uploadRilievoPlan({ rilievoId, file, previewBlob }) {
   };
 }
 
-export async function createRilievoPlanUrl(path, rilievoId) {
-  if (!path || !rilievoId) return "";
+export async function createRilievoPlanUrls(paths, rilievoId) {
+  if (!paths?.length || !rilievoId) return [];
   const { data } = await client.post(
     `/campo/rilievi/${rilievoId}/assets/urls`,
-    { bucket: RILIEVO_PLAN_BUCKET, paths: [path] },
+    { bucket: RILIEVO_PLAN_BUCKET, paths },
   );
-  return data?.[0]?.url || "";
+  return data || [];
+}
+
+export async function createRilievoPlanUrl(path, rilievoId) {
+  const [item] = await createRilievoPlanUrls(path ? [path] : [], rilievoId);
+  return item?.url || "";
 }

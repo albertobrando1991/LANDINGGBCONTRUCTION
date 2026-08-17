@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ClipboardList,
   CloudOff,
+  Download,
   Loader2,
   Map as MapIcon,
   PenLine,
@@ -29,22 +30,35 @@ import {
   saveRilievoAmbiente,
 } from "@/lib/rilievoApi";
 import {
-  cacheRilievi,
   cacheRilievo,
+  cacheRilievoReferences,
+  createOfflineRilievo,
   enqueueRilievoOperation,
   listRilievoOperations,
+  mergeRemoteRilievi,
+  promoteCachedRilievo,
   readCachedRilievi,
   readCachedRilievo,
+  readCachedRilievoReferences,
+  readRilievoOfflinePack,
+  replaceRilievoOperation,
+  resolveRilievoId,
+  saveRilievoIdResolution,
   syncRilievoOperations,
+  upsertCachedRilievo,
 } from "@/lib/rilievoQueue";
 import {
   compressCampoPhoto,
-  createRilievoPhotoUrls,
   MAX_RILIEVO_PHOTOS,
   uploadRilievoGeneralPhotos,
   uploadRilievoPhotos,
 } from "@/lib/campoPhotos";
 import { uploadRilievoPlan } from "@/lib/rilievoAssets";
+import {
+  loadOfflinePhotoPreviews,
+  prepareRilievoOffline,
+} from "@/lib/rilievoOffline";
+import { requestPersistentOfflineStorage } from "@/lib/offlineStorage";
 import { useAuth } from "@/context/AuthContext";
 import { useTenant } from "@/context/TenantContext";
 import {
@@ -106,6 +120,16 @@ function isRetryable(error) {
   return !error?.response || status === 408 || status === 429 || status >= 500;
 }
 
+function isOfflinePackReady(pack, rilievo) {
+  if (!pack?.ready) return false;
+  if (!pack.rilievo_updated_at || !rilievo?.updated_at) return true;
+  return String(pack.rilievo_updated_at) === String(rilievo.updated_at);
+}
+
+function hasUnsavedEditorState(value) {
+  return ["modificato", "salvataggio", "errore"].includes(value);
+}
+
 function PreviewBlob({ photo, onRemove, onAnnotate }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -151,6 +175,8 @@ function AmbienteEditor({
   slug,
   onSaved,
   onArchived,
+  onSaveStateChange,
+  onQueueChanged,
 }) {
   const [draft, setDraft] = useState(null);
   const [pendingPhotos, setPendingPhotos] = useState([]);
@@ -162,6 +188,10 @@ function AmbienteEditor({
   const savingRef = useRef(false);
   const lastSavedRef = useRef("");
   const photosEnabled = Boolean(user && user !== false);
+
+  useEffect(() => {
+    onSaveStateChange?.(saveState);
+  }, [onSaveStateChange, saveState]);
 
   useEffect(() => {
     const next = {
@@ -189,13 +219,63 @@ function AmbienteEditor({
 
   useEffect(() => {
     let active = true;
-    createRilievoPhotoUrls(draft?.foto_paths || [], rilievo.id)
-      .then((items) => active && setSavedPhotos(items))
-      .catch(() => active && setSavedPhotos([]));
+    listRilievoOperations(slug).then((operations) => {
+      if (!active) return;
+      const queued = operations.find(
+        (item) =>
+          item.kind === "ambiente" &&
+          item.rilievo_id === rilievo.id &&
+          item.ambiente_client_uuid === ambiente.client_uuid,
+      );
+      if (!queued) return;
+      const queuedPhotos = queued.photos || [];
+      setPendingPhotos(queuedPhotos);
+      setDraft((current) => {
+        if (!current) return current;
+        const next = {
+          ...current,
+          ...queued.body,
+          lunghezza: formatDecimale(queued.body?.lunghezza),
+          larghezza: formatDecimale(queued.body?.larghezza),
+          altezza: formatDecimale(queued.body?.altezza),
+          superficie: formatDecimale(queued.body?.superficie),
+          misure_extra: (queued.body?.misure_extra || []).map((item) => ({
+            ...item,
+            valore: formatDecimale(item.valore),
+          })),
+        };
+        lastSavedRef.current = JSON.stringify({
+          draft: next,
+          pending: queuedPhotos.map((photo) => photo.id),
+        });
+        return next;
+      });
+      setSaveState("in_attesa");
+    });
     return () => {
       active = false;
     };
-  }, [draft?.foto_paths, rilievo.id]);
+  }, [ambiente.client_uuid, rilievo.id, slug]);
+
+  useEffect(() => {
+    let active = true;
+    let localUrls = [];
+    loadOfflinePhotoPreviews({
+      tenantSlug: slug,
+      paths: draft?.foto_paths || [],
+      rilievoId: rilievo.id,
+      isOnline: isOnline && !rilievo.offline_pending,
+    })
+      .then((items) => {
+        localUrls = items.filter((item) => item.local).map((item) => item.url);
+        if (active) setSavedPhotos(items);
+      })
+      .catch(() => active && setSavedPhotos([]));
+    return () => {
+      active = false;
+      localUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [draft?.foto_paths, isOnline, rilievo.id, rilievo.offline_pending, slug]);
 
   const numericState = useMemo(() => {
     if (!draft) return { values: {}, extraValues: {}, errors: {} };
@@ -268,7 +348,7 @@ function AmbienteEditor({
       try {
         let body = payload;
         let queuedPhotos = pendingPhotos;
-        if (isOnline) {
+        if (isOnline && !rilievo.offline_pending) {
           try {
             const uploaded = await uploadRilievoPhotos({
               user,
@@ -320,6 +400,12 @@ function AmbienteEditor({
           body,
           photos: queuedPhotos,
         });
+        onSaved({
+          ...ambiente,
+          ...body,
+          client_uuid: ambiente.client_uuid,
+        });
+        onQueueChanged?.((await listRilievoOperations(slug)).length);
         lastSavedRef.current = JSON.stringify({
           draft,
           pending: pendingPhotos.map((photo) => photo.id),
@@ -338,16 +424,18 @@ function AmbienteEditor({
       }
     },
     [
-      ambiente.client_uuid,
+      ambiente,
       annotatingPhoto,
       draft,
       hasNumberErrors,
       isOnline,
       locked,
       onSaved,
+      onQueueChanged,
       payload,
       pendingPhotos,
       rilievo.id,
+      rilievo.offline_pending,
       slug,
       user,
     ],
@@ -426,8 +514,18 @@ function AmbienteEditor({
     if (!window.confirm(`Rimuovere l'ambiente “${draft.nome}” dal rilievo?`))
       return;
     try {
-      if (isOnline) {
-        await archiveRilievoAmbiente(rilievo.id, ambiente.client_uuid);
+      if (isOnline && !rilievo.offline_pending) {
+        try {
+          await archiveRilievoAmbiente(rilievo.id, ambiente.client_uuid);
+        } catch (error) {
+          if (!isRetryable(error)) throw error;
+          await enqueueRilievoOperation(slug, {
+            kind: "ambiente-elimina",
+            entity_id: `${rilievo.id}:${ambiente.client_uuid}`,
+            rilievo_id: rilievo.id,
+            ambiente_client_uuid: ambiente.client_uuid,
+          });
+        }
       } else {
         await enqueueRilievoOperation(slug, {
           kind: "ambiente-elimina",
@@ -437,8 +535,11 @@ function AmbienteEditor({
         });
       }
       onArchived(ambiente.client_uuid);
+      onQueueChanged?.((await listRilievoOperations(slug)).length);
       toast.success(
-        isOnline ? "Ambiente rimosso" : "Rimozione salvata sul dispositivo",
+        isOnline && !rilievo.offline_pending
+          ? "Ambiente rimosso"
+          : "Rimozione salvata sul dispositivo",
       );
     } catch (error) {
       toast.error("Ambiente non rimosso", {
@@ -812,7 +913,12 @@ function AmbienteEditor({
   );
 }
 
-export default function PrimoRilievo({ isOnline }) {
+export default function PrimoRilievo({
+  isOnline,
+  syncRequest = 0,
+  onQueueCountChange,
+  onSyncingChange,
+}) {
   const { slug } = useTenant();
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -827,14 +933,18 @@ export default function PrimoRilievo({ isOnline }) {
   const [activePanel, setActivePanel] = useState("tavola");
   const [queueCount, setQueueCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [offlinePacks, setOfflinePacks] = useState({});
+  const [preparingOffline, setPreparingOffline] = useState("");
+  const [roomSaveState, setRoomSaveState] = useState("salvato");
+  const [tavolaSaveState, setTavolaSaveState] = useState("salvato");
   const surveyLastSaved = useRef("");
+  const syncingRef = useRef(false);
 
   const listQuery = useQuery({
     queryKey: ["campo", "rilievi", slug],
     queryFn: async () => {
       try {
-        const data = await loadRilievi();
-        await cacheRilievi(slug, data);
+        const data = await mergeRemoteRilievi(slug, await loadRilievi());
         return { data, cached: false };
       } catch (error) {
         const cached = await readCachedRilievi(slug);
@@ -843,13 +953,19 @@ export default function PrimoRilievo({ isOnline }) {
       }
     },
     retry: 1,
+    networkMode: "always",
   });
-  const rilievi = listQuery.data?.data || [];
+  const rilievi = useMemo(
+    () => listQuery.data?.data || [],
+    [listQuery.data?.data],
+  );
 
   const detailQuery = useQuery({
-    queryKey: ["campo", "rilievo", selectedId],
+    queryKey: ["campo", "rilievo", slug, selectedId],
     enabled: Boolean(selectedId),
     queryFn: async () => {
+      const local = await readCachedRilievo(slug, selectedId);
+      if (local?.offline_pending) return { data: local, cached: true };
       try {
         const data = await loadRilievo(selectedId);
         await cacheRilievo(slug, data);
@@ -861,31 +977,68 @@ export default function PrimoRilievo({ isOnline }) {
       }
     },
     retry: 1,
+    networkMode: "always",
   });
   const rilievo = detailQuery.data?.data;
 
   const appointmentsQuery = useQuery({
-    queryKey: ["sopralluoghi", "campo-rilievo"],
-    queryFn: async () => (await client.get("/sopralluoghi")).data,
-    enabled: creating && isOnline,
+    queryKey: ["sopralluoghi", "campo-rilievo", slug],
+    queryFn: async () => {
+      try {
+        const data = (await client.get("/sopralluoghi")).data;
+        await cacheRilievoReferences(slug, "sopralluoghi", data);
+        return data;
+      } catch (error) {
+        const cached = await readCachedRilievoReferences(slug, "sopralluoghi");
+        if (cached) return cached;
+        throw error;
+      }
+    },
+    enabled: creating || isOnline,
     retry: 1,
+    networkMode: "always",
   });
   const leadsQuery = useQuery({
-    queryKey: ["leads", "campo-rilievo-picker"],
-    queryFn: async () =>
-      (
-        await client.get("/leads", {
-          params: { status: "tutti", origine: "tutte" },
-        })
-      ).data,
-    enabled: creating && isOnline,
+    queryKey: ["leads", "campo-rilievo-picker", slug],
+    queryFn: async () => {
+      try {
+        const data = (
+          await client.get("/leads", {
+            params: { status: "tutti", origine: "tutte" },
+          })
+        ).data;
+        await cacheRilievoReferences(slug, "leads", data);
+        return data;
+      } catch (error) {
+        const cached = await readCachedRilievoReferences(slug, "leads");
+        if (cached) return cached;
+        throw error;
+      }
+    },
+    enabled: creating || isOnline,
     retry: 1,
     staleTime: 30_000,
+    networkMode: "always",
   });
   const leadOptions = useMemo(
     () => normalizeRilievoLeads(leadsQuery.data),
     [leadsQuery.data],
   );
+
+  useEffect(() => {
+    let active = true;
+    Promise.all(
+      rilievi.map(async (item) => [
+        item.id,
+        await readRilievoOfflinePack(slug, item.id),
+      ]),
+    ).then((entries) => {
+      if (active) setOfflinePacks(Object.fromEntries(entries));
+    });
+    return () => {
+      active = false;
+    };
+  }, [rilievi, slug]);
 
   useEffect(() => {
     if (!rilievo?.id) return;
@@ -924,14 +1077,29 @@ export default function PrimoRilievo({ isOnline }) {
       return undefined;
     const timer = window.setTimeout(async () => {
       try {
-        if (isOnline) {
-          await patchRilievo(selectedId, surveyDraft);
+        if (isOnline && !rilievo?.offline_pending) {
+          const saved = await patchRilievo(selectedId, surveyDraft);
+          await upsertCachedRilievo(slug, saved);
+          qc.setQueryData(["campo", "rilievo", slug, selectedId], {
+            data: saved,
+            cached: false,
+          });
         } else {
           await enqueueRilievoOperation(slug, {
             kind: "rilievo",
             entity_id: selectedId,
             rilievo_id: selectedId,
             body: surveyDraft,
+          });
+          const local = {
+            ...rilievo,
+            ...surveyDraft,
+            updated_at: new Date().toISOString(),
+          };
+          await upsertCachedRilievo(slug, local);
+          qc.setQueryData(["campo", "rilievo", slug, selectedId], {
+            data: local,
+            cached: true,
           });
         }
         surveyLastSaved.current = snapshot;
@@ -944,6 +1112,16 @@ export default function PrimoRilievo({ isOnline }) {
             rilievo_id: selectedId,
             body: surveyDraft,
           });
+          const local = {
+            ...rilievo,
+            ...surveyDraft,
+            updated_at: new Date().toISOString(),
+          };
+          await upsertCachedRilievo(slug, local);
+          qc.setQueryData(["campo", "rilievo", slug, selectedId], {
+            data: local,
+            cached: true,
+          });
           surveyLastSaved.current = snapshot;
           setQueueCount((await listRilievoOperations(slug)).length);
           return;
@@ -954,16 +1132,25 @@ export default function PrimoRilievo({ isOnline }) {
       }
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [isOnline, rilievo?.stato, selectedId, slug, surveyDraft]);
+  }, [
+    isOnline,
+    qc,
+    rilievo,
+    rilievo?.offline_pending,
+    rilievo?.stato,
+    selectedId,
+    slug,
+    surveyDraft,
+  ]);
 
   const updateCachedRoom = useCallback(
     (saved) => {
-      qc.setQueryData(["campo", "rilievo", selectedId], (current) => {
+      qc.setQueryData(["campo", "rilievo", slug, selectedId], (current) => {
         if (!current?.data) return current;
         const exists = (current.data.ambienti || []).some(
           (item) => item.client_uuid === saved.client_uuid,
         );
-        return {
+        const next = {
           ...current,
           data: {
             ...current.data,
@@ -974,6 +1161,8 @@ export default function PrimoRilievo({ isOnline }) {
               : [...(current.data.ambienti || []), saved],
           },
         };
+        void upsertCachedRilievo(slug, next.data);
+        return next;
       });
       void qc.invalidateQueries({ queryKey: ["campo", "rilievi", slug] });
     },
@@ -982,48 +1171,91 @@ export default function PrimoRilievo({ isOnline }) {
 
   const hideCachedRoom = useCallback(
     (clientUuid) => {
-      qc.setQueryData(["campo", "rilievo", selectedId], (current) =>
-        current?.data
-          ? {
-              ...current,
-              data: {
-                ...current.data,
-                ambienti: (current.data.ambienti || []).filter(
-                  (item) => item.client_uuid !== clientUuid,
-                ),
-              },
-            }
-          : current,
-      );
+      qc.setQueryData(["campo", "rilievo", slug, selectedId], (current) => {
+        if (!current?.data) return current;
+        const next = {
+          ...current,
+          data: {
+            ...current.data,
+            ambienti: (current.data.ambienti || []).filter(
+              (item) => item.client_uuid !== clientUuid,
+            ),
+          },
+        };
+        void upsertCachedRilievo(slug, next.data);
+        return next;
+      });
       setSelectedRoom("");
     },
-    [qc, selectedId],
+    [qc, selectedId, slug],
   );
 
   const updateCachedRilievo = useCallback(
     (saved) => {
-      qc.setQueryData(["campo", "rilievo", selectedId], (current) =>
+      qc.setQueryData(["campo", "rilievo", slug, selectedId], (current) =>
         current?.data ? { ...current, data: saved } : current,
       );
-      void cacheRilievo(slug, saved);
+      void upsertCachedRilievo(slug, saved);
       void qc.invalidateQueries({ queryKey: ["campo", "rilievi", slug] });
     },
     [qc, selectedId, slug],
   );
 
   const flush = useCallback(async () => {
-    if (!isOnline || syncing) return;
+    if (!isOnline || syncingRef.current) return;
+    syncingRef.current = true;
     setSyncing(true);
     try {
       const result = await syncRilievoOperations(slug, async (operation) => {
-        if (operation.kind === "rilievo") {
-          return patchRilievo(operation.rilievo_id, operation.body);
+        if (operation.kind === "rilievo-crea") {
+          const created = await createRilievo(operation.body);
+          await saveRilievoIdResolution(slug, operation.rilievo_id, created.id);
+          const promoted = await promoteCachedRilievo(
+            slug,
+            operation.rilievo_id,
+            created,
+          );
+          qc.setQueryData(["campo", "rilievo", slug, created.id], {
+            data: promoted,
+            cached: true,
+          });
+          qc.removeQueries({
+            queryKey: ["campo", "rilievo", slug, operation.rilievo_id],
+            exact: true,
+          });
+          setSelectedId((current) =>
+            current === operation.rilievo_id ? created.id : current,
+          );
+          return created;
+        }
+        const rilievoId = await resolveRilievoId(slug, operation.rilievo_id);
+        if (
+          operation.kind === "rilievo" ||
+          operation.kind === "rilievo-stato"
+        ) {
+          const saved = await patchRilievo(rilievoId, operation.body);
+          await upsertCachedRilievo(slug, saved);
+          qc.setQueryData(["campo", "rilievo", slug, rilievoId], {
+            data: saved,
+            cached: false,
+          });
+          return saved;
         }
         if (operation.kind === "ambiente-elimina") {
-          return archiveRilievoAmbiente(
-            operation.rilievo_id,
+          const result = await archiveRilievoAmbiente(
+            rilievoId,
             operation.ambiente_client_uuid,
           );
+          const cached = await readCachedRilievo(slug, rilievoId);
+          if (cached) {
+            await upsertCachedRilievo(slug, {
+              ...cached,
+              ambienti: (cached.ambienti || []).filter(
+                (item) => item.client_uuid !== operation.ambiente_client_uuid,
+              ),
+            });
+          }
+          return result;
         }
         if (operation.kind === "tavola") {
           let body = operation.body;
@@ -1032,16 +1264,17 @@ export default function PrimoRilievo({ isOnline }) {
               ...body,
               ...(await uploadRilievoPlan({
                 user,
-                rilievoId: operation.rilievo_id,
+                rilievoId,
                 file: operation.plan_file,
                 previewBlob: operation.plan_preview,
+                assetId: operation.plan_asset_id,
               })),
             };
           }
           if (operation.photos?.length) {
             const paths = await uploadRilievoGeneralPhotos({
               user,
-              rilievoId: operation.rilievo_id,
+              rilievoId,
               photos: operation.photos,
             });
             body = {
@@ -1051,13 +1284,24 @@ export default function PrimoRilievo({ isOnline }) {
               ),
             };
           }
-          return saveRilievoTavola(operation.rilievo_id, body);
+          if (operation.plan_file || operation.photos?.length) {
+            await replaceRilievoOperation(slug, {
+              ...operation,
+              body,
+              plan_file: null,
+              plan_preview: null,
+              photos: [],
+            });
+          }
+          const saved = await saveRilievoTavola(rilievoId, body);
+          await upsertCachedRilievo(slug, saved);
+          return saved;
         }
         let body = operation.body;
         if (operation.photos?.length) {
           const paths = await uploadRilievoPhotos({
             user,
-            rilievoId: operation.rilievo_id,
+            rilievoId,
             ambienteClientUuid: operation.ambiente_client_uuid,
             photos: operation.photos,
           });
@@ -1067,12 +1311,32 @@ export default function PrimoRilievo({ isOnline }) {
               new Set([...(body.foto_paths || []), ...paths]),
             ),
           };
+          await replaceRilievoOperation(slug, {
+            ...operation,
+            body,
+            photos: [],
+          });
         }
-        return saveRilievoAmbiente(
-          operation.rilievo_id,
+        const saved = await saveRilievoAmbiente(
+          rilievoId,
           operation.ambiente_client_uuid,
           body,
         );
+        const cached = await readCachedRilievo(slug, rilievoId);
+        if (cached) {
+          const exists = (cached.ambienti || []).some(
+            (item) => item.client_uuid === saved.client_uuid,
+          );
+          await upsertCachedRilievo(slug, {
+            ...cached,
+            ambienti: exists
+              ? cached.ambienti.map((item) =>
+                  item.client_uuid === saved.client_uuid ? saved : item,
+                )
+              : [...(cached.ambienti || []), saved],
+          });
+        }
+        return saved;
       });
       setQueueCount((await listRilievoOperations(slug)).length);
       if (result.synced) {
@@ -1083,25 +1347,73 @@ export default function PrimoRilievo({ isOnline }) {
       if (result.failures.length)
         toast.error("Alcune modifiche richiedono un nuovo tentativo");
     } finally {
+      syncingRef.current = false;
       setSyncing(false);
     }
-  }, [isOnline, qc, slug, syncing, user]);
+  }, [isOnline, qc, slug, user]);
 
   useEffect(() => {
     listRilievoOperations(slug).then((items) => setQueueCount(items.length));
   }, [slug]);
   useEffect(() => {
+    onQueueCountChange?.(queueCount);
+  }, [onQueueCountChange, queueCount]);
+  useEffect(() => {
+    onSyncingChange?.(syncing);
+  }, [onSyncingChange, syncing]);
+  useEffect(() => {
     if (isOnline && queueCount) void flush();
   }, [flush, isOnline, queueCount]);
+  useEffect(() => {
+    if (syncRequest > 0 && isOnline && queueCount) void flush();
+  }, [flush, isOnline, queueCount, syncRequest]);
 
   const createMutation = useMutation({
-    mutationFn: (body) => createRilievo(body),
-    onSuccess: (created) => {
-      toast.success("Scheda rilievo creata");
+    networkMode: "always",
+    mutationFn: async (body) => {
+      await requestPersistentOfflineStorage();
+      if (isOnline) {
+        try {
+          const created = await createRilievo(body);
+          return {
+            created: await upsertCachedRilievo(slug, {
+              ...created,
+              ambienti: created.ambienti || [],
+            }),
+            queued: false,
+          };
+        } catch (error) {
+          if (!isRetryable(error)) throw error;
+        }
+      }
+      const local = createOfflineRilievo(body, body.client_uuid);
+      await enqueueRilievoOperation(slug, {
+        kind: "rilievo-crea",
+        entity_id: local.id,
+        rilievo_id: local.id,
+        local_rilievo_id: local.id,
+        body,
+      });
+      await upsertCachedRilievo(slug, local);
+      return { created: local, queued: true };
+    },
+    onSuccess: async ({ created, queued: wasQueued }) => {
+      toast.success(
+        wasQueued ? "Rilievo creato sul dispositivo" : "Scheda rilievo creata",
+      );
       setCreating(false);
       setCreateForm({ ...EMPTY_RILIEVO, data_rilievo: localDate() });
       setSelectedId(created.id);
-      void qc.invalidateQueries({ queryKey: ["campo", "rilievi", slug] });
+      qc.setQueryData(["campo", "rilievo", slug, created.id], {
+        data: created,
+        cached: wasQueued,
+      });
+      const list = (await readCachedRilievi(slug)) || [];
+      qc.setQueryData(["campo", "rilievi", slug], {
+        data: list,
+        cached: wasQueued,
+      });
+      setQueueCount((await listRilievoOperations(slug)).length);
     },
     onError: (error) =>
       toast.error("Rilievo non creato", { description: detailMessage(error) }),
@@ -1132,6 +1444,13 @@ export default function PrimoRilievo({ isOnline }) {
     );
 
   const addRoom = async () => {
+    if (
+      (activePanel === "ambiente" && hasUnsavedEditorState(roomSaveState)) ||
+      (activePanel === "tavola" && hasUnsavedEditorState(tavolaSaveState))
+    ) {
+      toast.error("Salva le modifiche aperte prima di aggiungere un ambiente");
+      return;
+    }
     const clientUuid = newUuid();
     const newRoom = {
       client_uuid: clientUuid,
@@ -1141,13 +1460,27 @@ export default function PrimoRilievo({ isOnline }) {
       foto_paths: [],
     };
     try {
-      if (isOnline) {
-        const saved = await saveRilievoAmbiente(
-          rilievo.id,
-          clientUuid,
-          newRoom,
-        );
-        updateCachedRoom(saved);
+      if (isOnline && !rilievo.offline_pending) {
+        try {
+          const saved = await saveRilievoAmbiente(
+            rilievo.id,
+            clientUuid,
+            newRoom,
+          );
+          updateCachedRoom(saved);
+        } catch (error) {
+          if (!isRetryable(error)) throw error;
+          await enqueueRilievoOperation(slug, {
+            kind: "ambiente",
+            entity_id: `${rilievo.id}:${clientUuid}`,
+            rilievo_id: rilievo.id,
+            ambiente_client_uuid: clientUuid,
+            body: newRoom,
+            photos: [],
+          });
+          updateCachedRoom(newRoom);
+          setQueueCount((await listRilievoOperations(slug)).length);
+        }
       } else {
         await enqueueRilievoOperation(slug, {
           kind: "ambiente",
@@ -1171,21 +1504,112 @@ export default function PrimoRilievo({ isOnline }) {
 
   const changeStatus = async (stato) => {
     try {
-      const updated = await patchRilievo(selectedId, { stato });
-      await cacheRilievo(slug, updated);
-      qc.setQueryData(["campo", "rilievo", selectedId], {
-        data: updated,
-        cached: false,
+      if (
+        stato === "completato" &&
+        [roomSaveState, tavolaSaveState].some(hasUnsavedEditorState)
+      ) {
+        toast.error("Salva le modifiche aperte prima di completare il rilievo");
+        return;
+      }
+      if (surveyDraft?.cliente?.trim()) {
+        await enqueueRilievoOperation(slug, {
+          kind: "rilievo",
+          entity_id: selectedId,
+          rilievo_id: selectedId,
+          body: surveyDraft,
+        });
+      }
+      await enqueueRilievoOperation(slug, {
+        kind: "rilievo-stato",
+        entity_id: selectedId,
+        rilievo_id: selectedId,
+        body: { stato },
       });
-      toast.success(
-        stato === "completato" ? "Rilievo completato" : "Rilievo riaperto",
-      );
+      const updated = {
+        ...rilievo,
+        ...surveyDraft,
+        stato,
+        updated_at: new Date().toISOString(),
+      };
+      await upsertCachedRilievo(slug, updated);
+      qc.setQueryData(["campo", "rilievo", slug, selectedId], {
+        data: updated,
+        cached: true,
+      });
       void qc.invalidateQueries({ queryKey: ["campo", "rilievi", slug] });
+      setQueueCount((await listRilievoOperations(slug)).length);
+      toast.success(
+        stato === "completato"
+          ? "Completamento salvato sul dispositivo"
+          : "Riapertura salvata sul dispositivo",
+      );
+      if (isOnline) void flush();
     } catch (error) {
       toast.error("Stato non aggiornato", {
         description: detailMessage(error),
       });
     }
+  };
+
+  const prepareForOffline = async (rilievoId) => {
+    if (!isOnline) {
+      toast.error("Collegati a Internet per preparare il sopralluogo");
+      return;
+    }
+    setPreparingOffline(rilievoId);
+    try {
+      const result = await prepareRilievoOffline({
+        tenantSlug: slug,
+        rilievoId,
+      });
+      setOfflinePacks((current) => ({
+        ...current,
+        [rilievoId]: result.pack,
+      }));
+      qc.setQueryData(["campo", "rilievo", slug, rilievoId], {
+        data: result.rilievo,
+        cached: false,
+      });
+      if (result.failures.length) {
+        toast.error("Preparazione offline incompleta", {
+          description: `${result.failures.length} allegati non sono stati scaricati. Riprova prima di uscire.`,
+        });
+      } else {
+        toast.success("Sopralluogo pronto per l'uso offline", {
+          description: result.storage.persisted
+            ? "Dati e allegati sono protetti nella memoria persistente del tablet."
+            : "Dati e allegati sono salvati sul tablet.",
+        });
+      }
+    } catch (error) {
+      toast.error("Sopralluogo non preparato", {
+        description: detailMessage(error),
+      });
+    } finally {
+      setPreparingOffline("");
+    }
+  };
+
+  const openTavola = () => {
+    if (activePanel === "ambiente" && hasUnsavedEditorState(roomSaveState)) {
+      toast.error("Salva l'ambiente prima di cambiare sezione");
+      return;
+    }
+    setActivePanel("tavola");
+  };
+
+  const openRoom = (clientUuid) => {
+    const currentState =
+      activePanel === "tavola" ? tavolaSaveState : roomSaveState;
+    if (
+      hasUnsavedEditorState(currentState) &&
+      (activePanel !== "ambiente" || selectedRoom !== clientUuid)
+    ) {
+      toast.error("Salva le modifiche aperte prima di cambiare ambiente");
+      return;
+    }
+    setSelectedRoom(clientUuid);
+    setActivePanel("ambiente");
   };
 
   if (!selectedId) {
@@ -1204,8 +1628,7 @@ export default function PrimoRilievo({ isOnline }) {
           <button
             type="button"
             onClick={() => setCreating(true)}
-            disabled={!isOnline}
-            className="flex min-h-11 items-center gap-2 rounded-xl bg-brand px-4 font-display text-xs uppercase text-white disabled:opacity-40"
+            className="flex min-h-11 items-center gap-2 rounded-xl bg-brand px-4 font-display text-xs uppercase text-white"
           >
             <Plus className="h-4 w-4" /> Nuovo rilievo
           </button>
@@ -1213,8 +1636,8 @@ export default function PrimoRilievo({ isOnline }) {
 
         {!isOnline && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-fog">
-            <CloudOff className="h-4 w-4 text-amber-400" /> Puoi consultare i
-            rilievi salvati; la creazione richiede una prima connessione.
+            <CloudOff className="h-4 w-4 text-amber-400" /> Puoi creare e
+            compilare un nuovo rilievo: verra sincronizzato quando torni online.
           </div>
         )}
         {queueCount > 0 && (
@@ -1385,7 +1808,7 @@ export default function PrimoRilievo({ isOnline }) {
               ) : (
                 <ClipboardList className="h-4 w-4" />
               )}{" "}
-              Crea e apri rilievo
+              {isOnline ? "Crea e apri rilievo" : "Crea sul dispositivo"}
             </button>
           </section>
         )}
@@ -1406,33 +1829,63 @@ export default function PrimoRilievo({ isOnline }) {
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {rilievi.map((item) => (
-              <button
+              <article
                 key={item.id}
-                type="button"
-                onClick={() => setSelectedId(item.id)}
-                className="rounded-2xl border border-stroke bg-surface p-4 text-left transition-colors hover:border-brand/50"
+                className="rounded-2xl border border-stroke bg-surface p-4 transition-colors hover:border-brand/50"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-display text-base uppercase text-ink">
-                      {item.cliente}
-                    </p>
-                    <p className="mt-1 text-xs text-fog">
-                      {item.indirizzo || "Indirizzo da completare"}
-                    </p>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(item.id)}
+                  className="w-full text-left"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-display text-base uppercase text-ink">
+                        {item.cliente}
+                      </p>
+                      <p className="mt-1 text-xs text-fog">
+                        {item.indirizzo || "Indirizzo da completare"}
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] uppercase ${item.stato === "completato" ? "bg-emerald-500/15 text-success" : "bg-brand/15 text-brand"}`}
+                    >
+                      {item.stato}
+                    </span>
                   </div>
-                  <span
-                    className={`rounded-full px-2 py-1 text-[10px] uppercase ${item.stato === "completato" ? "bg-emerald-500/15 text-success" : "bg-brand/15 text-brand"}`}
-                  >
-                    {item.stato}
+                  <div className="mt-4 flex gap-4 text-xs text-fog">
+                    <span>{item.n_ambienti || 0} ambienti</span>
+                    <span>{item.n_foto || 0} foto</span>
+                    <span>{item.data_rilievo}</span>
+                  </div>
+                </button>
+                <div className="mt-3 flex items-center justify-between gap-2 border-t border-stroke pt-3">
+                  <span className="text-[10px] uppercase text-fog">
+                    {item.offline_pending
+                      ? "Creato sul dispositivo"
+                      : isOfflinePackReady(offlinePacks[item.id], item)
+                        ? "Pronto offline"
+                        : "Solo online"}
                   </span>
+                  {!item.offline_pending && (
+                    <button
+                      type="button"
+                      onClick={() => void prepareForOffline(item.id)}
+                      disabled={!isOnline || preparingOffline === item.id}
+                      className="flex min-h-9 items-center gap-2 rounded-lg border border-brand/40 px-3 text-[10px] uppercase text-brand disabled:opacity-40"
+                    >
+                      {preparingOffline === item.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" />
+                      )}
+                      {isOfflinePackReady(offlinePacks[item.id], item)
+                        ? "Aggiorna"
+                        : "Prepara"}
+                    </button>
+                  )}
                 </div>
-                <div className="mt-4 flex gap-4 text-xs text-fog">
-                  <span>{item.n_ambienti || 0} ambienti</span>
-                  <span>{item.n_foto || 0} foto</span>
-                  <span>{item.data_rilievo}</span>
-                </div>
-              </button>
+              </article>
             ))}
           </div>
         )}
@@ -1453,17 +1906,31 @@ export default function PrimoRilievo({ isOnline }) {
     <main className="mx-auto max-w-6xl px-4 py-5 lg:py-8">
       <button
         type="button"
-        onClick={() => setSelectedId("")}
+        onClick={() => {
+          if (
+            hasUnsavedEditorState(
+              activePanel === "tavola" ? tavolaSaveState : roomSaveState,
+            )
+          ) {
+            toast.error("Salva le modifiche prima di chiudere il rilievo");
+            return;
+          }
+          setSelectedId("");
+        }}
         className="mb-4 flex items-center gap-1 text-xs uppercase text-fog hover:text-brand"
       >
         <ChevronLeft className="h-4 w-4" /> Tutti i rilievi
       </button>
-      {detailQuery.isLoading || !rilievo || !surveyDraft ? (
+      {detailQuery.isLoading ? (
         <div className="campo-empty">Caricamento scheda…</div>
-      ) : detailQuery.isError ? (
+      ) : detailQuery.isError && !rilievo ? (
         <div className="campo-alert">
           <AlertTriangle />
           <p>{detailMessage(detailQuery.error)}</p>
+        </div>
+      ) : !rilievo || !surveyDraft ? (
+        <div className="campo-empty">
+          Scheda non disponibile sul dispositivo.
         </div>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -1477,6 +1944,30 @@ export default function PrimoRilievo({ isOnline }) {
                   </h2>
                 </div>
                 {locked && <CheckCircle2 className="h-5 w-5 text-success" />}
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-stroke bg-bg p-3">
+                <span className="text-[10px] uppercase text-fog">
+                  {rilievo.offline_pending
+                    ? "Rilievo locale in attesa"
+                    : isOfflinePackReady(offlinePacks[rilievo.id], rilievo)
+                      ? "Pronto offline"
+                      : "Allegati non preparati"}
+                </span>
+                {!rilievo.offline_pending && (
+                  <button
+                    type="button"
+                    onClick={() => void prepareForOffline(rilievo.id)}
+                    disabled={!isOnline || preparingOffline === rilievo.id}
+                    className="flex min-h-9 items-center gap-1 rounded-lg border border-brand/40 px-2 text-[9px] uppercase text-brand disabled:opacity-40"
+                  >
+                    {preparingOffline === rilievo.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    Prepara
+                  </button>
+                )}
               </div>
               <div className="mt-4 space-y-3">
                 <label className="campo-field">
@@ -1568,7 +2059,10 @@ export default function PrimoRilievo({ isOnline }) {
               ) : (
                 <button
                   type="button"
-                  disabled={!isOnline || !rooms.length}
+                  disabled={
+                    !rooms.length ||
+                    [roomSaveState, tavolaSaveState].some(hasUnsavedEditorState)
+                  }
                   onClick={() => void changeStatus("completato")}
                   className="mt-4 min-h-11 w-full rounded-xl bg-brand text-xs uppercase text-white disabled:opacity-40"
                 >
@@ -1577,8 +2071,8 @@ export default function PrimoRilievo({ isOnline }) {
               )}
               {!isOnline && (
                 <p className="mt-2 text-[11px] text-fog">
-                  Le modifiche vengono salvate sul dispositivo. Completa quando
-                  torni online.
+                  Le modifiche e il completamento vengono salvati sul
+                  dispositivo e sincronizzati al ritorno della connessione.
                 </p>
               )}
             </section>
@@ -1586,7 +2080,7 @@ export default function PrimoRilievo({ isOnline }) {
             <section className="rounded-2xl border border-stroke bg-surface p-3">
               <button
                 type="button"
-                onClick={() => setActivePanel("tavola")}
+                onClick={openTavola}
                 className={`mb-3 flex w-full items-center gap-3 rounded-xl border p-3 text-left ${activePanel === "tavola" ? "border-brand bg-brand/10" : "border-stroke bg-bg"}`}
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-brand">
@@ -1624,10 +2118,7 @@ export default function PrimoRilievo({ isOnline }) {
                   <button
                     key={room.client_uuid}
                     type="button"
-                    onClick={() => {
-                      setSelectedRoom(room.client_uuid);
-                      setActivePanel("ambiente");
-                    }}
+                    onClick={() => openRoom(room.client_uuid)}
                     className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${activePanel === "ambiente" && selectedRoom === room.client_uuid ? "border-brand bg-brand/10" : "border-stroke bg-bg"}`}
                   >
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 font-display text-xs text-brand">
@@ -1666,6 +2157,7 @@ export default function PrimoRilievo({ isOnline }) {
                 locked={locked}
                 onSaved={updateCachedRilievo}
                 onQueueChanged={setQueueCount}
+                onSaveStateChange={setTavolaSaveState}
               />
             ) : activeRoom ? (
               <AmbienteEditor
@@ -1678,6 +2170,8 @@ export default function PrimoRilievo({ isOnline }) {
                 slug={slug}
                 onSaved={updateCachedRoom}
                 onArchived={hideCachedRoom}
+                onQueueChanged={setQueueCount}
+                onSaveStateChange={setRoomSaveState}
               />
             ) : (
               <div className="campo-empty rounded-2xl border border-stroke bg-surface">

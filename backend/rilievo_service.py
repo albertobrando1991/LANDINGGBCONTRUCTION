@@ -178,11 +178,13 @@ async def salva_asset(
     content_type: str,
     content: bytes,
     ambiente_client_uuid: Optional[str] = None,
+    asset_client_uuid: Optional[str] = None,
 ) -> dict:
     await _require_rilievo(conn, tenant_id, rilievo_id)
     if not content:
         raise HTTPException(status_code=400, detail="Il file e vuoto")
     declared_mime = (content_type or "").lower().split(";", 1)[0]
+    stable_asset_id = str(UUID(asset_client_uuid)) if asset_client_uuid else None
     if tipo == "planimetria":
         if len(content) > 25 * 1024 * 1024:
             raise HTTPException(
@@ -199,7 +201,7 @@ async def salva_asset(
         safe_name = _safe_asset_filename(filename, f"planimetria.{extension}")
         path = (
             f"{tenant_id}/rilievo-{rilievo_id}/planimetria/"
-            f"originale-{uuid4()}-{safe_name}"
+            f"originale-{stable_asset_id or uuid4()}-{safe_name}"
         )
     elif tipo == "planimetria_preview":
         if len(content) > 15 * 1024 * 1024:
@@ -210,7 +212,10 @@ async def salva_asset(
         if mime != "image/png":
             raise HTTPException(status_code=415, detail="La preview deve essere PNG")
         bucket = "planimetrie"
-        path = f"{tenant_id}/rilievo-{rilievo_id}/planimetria/" f"preview-{uuid4()}.png"
+        path = (
+            f"{tenant_id}/rilievo-{rilievo_id}/planimetria/"
+            f"preview-{stable_asset_id or uuid4()}.png"
+        )
     elif tipo in {"foto_generale", "foto_ambiente"}:
         if len(content) > 15 * 1024 * 1024:
             raise HTTPException(
@@ -229,10 +234,23 @@ async def salva_asset(
             folder = f"ambiente-{room_uuid}"
         else:
             folder = "generali"
-        path = f"{tenant_id}/rilievo-{rilievo_id}/{folder}/" f"{uuid4()}.{extension}"
+        path = (
+            f"{tenant_id}/rilievo-{rilievo_id}/{folder}/"
+            f"{stable_asset_id or uuid4()}.{extension}"
+        )
     else:
         raise HTTPException(status_code=422, detail="Tipo asset rilievo non valido")
-    await asyncio.to_thread(upload_asset, bucket, path, content, mime)
+    if stable_asset_id:
+        await asyncio.to_thread(
+            upload_asset,
+            bucket,
+            path,
+            content,
+            mime,
+            upsert=True,
+        )
+    else:
+        await asyncio.to_thread(upload_asset, bucket, path, content, mime)
     return {"bucket": bucket, "path": path, "mime_type": mime}
 
 

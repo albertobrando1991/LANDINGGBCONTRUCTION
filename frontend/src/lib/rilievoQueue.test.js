@@ -9,9 +9,15 @@ jest.mock("idb-keyval", () => ({
 }));
 
 import {
+  createOfflineRilievo,
   enqueueRilievoOperation,
   listRilievoOperations,
+  promoteCachedRilievo,
+  readCachedRilievo,
+  resolveRilievoId,
+  saveRilievoIdResolution,
   syncRilievoOperations,
+  upsertCachedRilievo,
 } from "./rilievoQueue";
 
 const RILIEVO_ID = "10000000-0000-4000-8000-000000000001";
@@ -83,4 +89,77 @@ test("conserva offline tavola, planimetria e foto generali", async () => {
   expect(queued.kind).toBe("tavola");
   expect(queued.plan_file).toBe(plan);
   expect(queued.photos[0].blob).toBe(photo);
+});
+
+test("ordina creazione, contenuti e completamento dello stesso rilievo", async () => {
+  await enqueueRilievoOperation("gbconstruction", {
+    kind: "rilievo-stato",
+    entity_id: RILIEVO_ID,
+    rilievo_id: RILIEVO_ID,
+    body: { stato: "completato" },
+  });
+  await enqueueRilievoOperation("gbconstruction", roomOperation());
+  await enqueueRilievoOperation("gbconstruction", {
+    kind: "rilievo-crea",
+    entity_id: RILIEVO_ID,
+    rilievo_id: RILIEVO_ID,
+    body: { client_uuid: RILIEVO_ID, cliente: "Cliente" },
+  });
+
+  const queued = await listRilievoOperations("gbconstruction");
+  expect(queued.map((item) => item.kind)).toEqual([
+    "rilievo-crea",
+    "ambiente",
+    "rilievo-stato",
+  ]);
+});
+
+test("non completa un rilievo se una dipendenza precedente fallisce", async () => {
+  await enqueueRilievoOperation("gbconstruction", roomOperation());
+  await enqueueRilievoOperation("gbconstruction", {
+    kind: "rilievo-stato",
+    entity_id: RILIEVO_ID,
+    rilievo_id: RILIEVO_ID,
+    body: { stato: "completato" },
+  });
+  const sent = [];
+  const result = await syncRilievoOperations(
+    "gbconstruction",
+    async (operation) => {
+      sent.push(operation.kind);
+      if (operation.kind === "ambiente") throw new Error("upload non riuscito");
+    },
+  );
+
+  expect(sent).toEqual(["ambiente"]);
+  expect(result.failures).toHaveLength(2);
+  expect(result.failures[1].blocked).toBe(true);
+  expect(await listRilievoOperations("gbconstruction")).toHaveLength(2);
+});
+
+test("mantiene la risoluzione locale-server e promuove la cache", async () => {
+  const local = createOfflineRilievo(
+    {
+      client_uuid: RILIEVO_ID,
+      cliente: "Cliente offline",
+      data_rilievo: "2026-08-17",
+    },
+    RILIEVO_ID,
+  );
+  await upsertCachedRilievo("gbconstruction", local);
+  const serverId = "40000000-0000-4000-8000-000000000001";
+  await saveRilievoIdResolution("gbconstruction", RILIEVO_ID, serverId);
+  const promoted = await promoteCachedRilievo("gbconstruction", RILIEVO_ID, {
+    id: serverId,
+    client_uuid: RILIEVO_ID,
+    cliente: "Cliente offline",
+    stato: "bozza",
+  });
+
+  expect(await resolveRilievoId("gbconstruction", RILIEVO_ID)).toBe(serverId);
+  expect(promoted.offline_pending).toBe(false);
+  expect(await readCachedRilievo("gbconstruction", RILIEVO_ID)).toBeUndefined();
+  expect((await readCachedRilievo("gbconstruction", serverId)).id).toBe(
+    serverId,
+  );
 });

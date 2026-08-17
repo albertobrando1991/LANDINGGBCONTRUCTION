@@ -97,3 +97,18 @@ test("richiede al backend una URL temporanea per riaprire la planimetria", async
     { bucket: "planimetrie", paths: [path] },
   );
 });
+
+test("invia un identificatore asset stabile per rendere idempotente il retry", async () => {
+  const assetId = "30000000-0000-4000-8000-000000000001";
+  client.post.mockResolvedValueOnce({
+    data: {
+      path: `${TENANT}/rilievo-${RILIEVO}/planimetria/originale.png`,
+      mime_type: "image/png",
+    },
+  });
+  const file = new File(["png"], "casa.png", { type: "image/png" });
+
+  await uploadRilievoPlan({ rilievoId: RILIEVO, file, assetId });
+
+  expect(client.post.mock.calls[0][1].get("client_asset_uuid")).toBe(assetId);
+});

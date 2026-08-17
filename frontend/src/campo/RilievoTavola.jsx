@@ -26,16 +26,18 @@ import { toast } from "sonner";
 import { formatApiErrorDetail } from "@/lib/api";
 import {
   compressCampoPhoto,
-  createRilievoPhotoUrls,
   MAX_RILIEVO_GENERAL_PHOTOS,
   uploadRilievoGeneralPhotos,
 } from "@/lib/campoPhotos";
 import {
   createRilievoPlanPreview,
-  createRilievoPlanUrl,
   uploadRilievoPlan,
   validateRilievoPlan,
 } from "@/lib/rilievoAssets";
+import {
+  loadOfflinePhotoPreviews,
+  loadOfflinePlanPreview,
+} from "@/lib/rilievoOffline";
 import { saveRilievoTavola } from "@/lib/rilievoApi";
 import { mapLimit } from "@/lib/network";
 import {
@@ -87,6 +89,20 @@ const TOOLS = [
 function uuid() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `elemento-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function assetUuid() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = char === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+function isRetryable(error) {
+  const status = error?.response?.status;
+  return !error?.response || status === 408 || status === 429 || status >= 500;
 }
 
 function clamp(value) {
@@ -342,6 +358,7 @@ export default function RilievoTavola({
   locked,
   onSaved,
   onQueueChanged,
+  onSaveStateChange,
 }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
@@ -397,6 +414,10 @@ export default function RilievoTavola({
   const [panning, setPanning] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const persistedVersion = `${rilievo?.id || ""}:${rilievo?.updated_at || ""}`;
+
+  useEffect(() => {
+    onSaveStateChange?.(saveState);
+  }, [onSaveStateChange, saveState]);
 
   const updateZoomOutputs = useCallback((nextView) => {
     const label = `${Math.round(nextView.zoom * 100)}%`;
@@ -461,7 +482,12 @@ export default function RilievoTavola({
         queued.plan_file
           ? {
               file: queued.plan_file,
-              previewBlob: queued.plan_preview || queued.plan_file,
+              previewBlob:
+                queued.plan_preview ||
+                (queued.plan_file.type === "application/pdf"
+                  ? null
+                  : queued.plan_file),
+              assetId: queued.plan_asset_id || assetUuid(),
             }
           : null,
       );
@@ -483,8 +509,14 @@ export default function RilievoTavola({
           return;
         }
         const path = asset.planimetria_preview_path || asset.planimetria_path;
-        const url = await createRilievoPlanUrl(path, rilievo.id);
-        if (active) setBackgroundUrl(url);
+        const preview = await loadOfflinePlanPreview({
+          tenantSlug: slug,
+          path,
+          rilievoId: rilievo.id,
+          isOnline: isOnline && !rilievo.offline_pending,
+        });
+        localUrl = preview.local ? preview.url : "";
+        if (active) setBackgroundUrl(preview.url);
       } catch {
         if (active) setBackgroundUrl("");
       }
@@ -499,6 +531,9 @@ export default function RilievoTavola({
     asset.planimetria_preview_path,
     pendingPlan,
     rilievo.id,
+    rilievo.offline_pending,
+    isOnline,
+    slug,
   ]);
 
   useEffect(() => {
@@ -519,13 +554,23 @@ export default function RilievoTavola({
 
   useEffect(() => {
     let active = true;
-    createRilievoPhotoUrls(photoPaths, rilievo.id)
-      .then((items) => active && setSavedPhotos(items))
+    let localUrls = [];
+    loadOfflinePhotoPreviews({
+      tenantSlug: slug,
+      paths: photoPaths,
+      rilievoId: rilievo.id,
+      isOnline: isOnline && !rilievo.offline_pending,
+    })
+      .then((items) => {
+        localUrls = items.filter((item) => item.local).map((item) => item.url);
+        if (active) setSavedPhotos(items);
+      })
       .catch(() => active && setSavedPhotos([]));
     return () => {
       active = false;
+      localUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [photoPaths, rilievo.id]);
+  }, [isOnline, photoPaths, rilievo.id, rilievo.offline_pending, slug]);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -944,15 +989,13 @@ export default function RilievoTavola({
     if (!file) return;
     try {
       validateRilievoPlan(file);
-      if (file.type === "application/pdf" && !isOnline) {
-        throw new Error("Per preparare la preview PDF serve una connessione.");
-      }
       setBusy(true);
-      const previewBlob = await createRilievoPlanPreview({
-        rilievoId: rilievo.id,
-        file,
-      });
-      setPendingPlan({ file, previewBlob });
+      const previewBlob =
+        file.type === "application/pdf" &&
+        (!isOnline || rilievo.offline_pending)
+          ? null
+          : await createRilievoPlanPreview({ rilievoId: rilievo.id, file });
+      setPendingPlan({ file, previewBlob, assetId: assetUuid() });
       resetView();
       setSaveState("modificato");
     } catch (error) {
@@ -1022,48 +1065,55 @@ export default function RilievoTavola({
     setSaveState(isOnline ? "salvataggio" : "in_attesa");
     try {
       let body = payload;
-      if (isOnline) {
-        if (pendingPlan?.file) {
-          body = {
-            ...body,
-            ...(await uploadRilievoPlan({
+      if (isOnline && !rilievo.offline_pending) {
+        try {
+          if (pendingPlan?.file) {
+            body = {
+              ...body,
+              ...(await uploadRilievoPlan({
+                user,
+                rilievoId: rilievo.id,
+                file: pendingPlan.file,
+                previewBlob: pendingPlan.previewBlob,
+                assetId: pendingPlan.assetId,
+              })),
+            };
+          }
+          if (pendingPhotos.length) {
+            const paths = await uploadRilievoGeneralPhotos({
               user,
               rilievoId: rilievo.id,
-              file: pendingPlan.file,
-              previewBlob: pendingPlan.previewBlob,
-            })),
-          };
-        }
-        if (pendingPhotos.length) {
-          const paths = await uploadRilievoGeneralPhotos({
-            user,
-            rilievoId: rilievo.id,
-            photos: pendingPhotos,
-            onProgress: ({ uploaded, total }) =>
-              setPhotoProgress(
-                `Upload foto · ${total ? Math.round((uploaded / total) * 100) : 0}%`,
-              ),
+              photos: pendingPhotos,
+              onProgress: ({ uploaded, total }) =>
+                setPhotoProgress(
+                  `Upload foto · ${total ? Math.round((uploaded / total) * 100) : 0}%`,
+                ),
+            });
+            body = {
+              ...body,
+              foto_paths: Array.from(new Set([...photoPaths, ...paths])),
+            };
+          }
+          const saved = await saveRilievoTavola(rilievo.id, body);
+          setPendingPlan(null);
+          setPendingPhotos([]);
+          setPhotoProgress("");
+          setAsset({
+            planimetria_path: saved.planimetria_path || null,
+            planimetria_preview_path: saved.planimetria_preview_path || null,
+            planimetria_filename: saved.planimetria_filename || null,
+            planimetria_mime_type: saved.planimetria_mime_type || null,
           });
-          body = {
-            ...body,
-            foto_paths: Array.from(new Set([...photoPaths, ...paths])),
-          };
+          setPhotoPaths(saved.foto_paths || []);
+          setSaveState("salvato");
+          onSaved(saved);
+          toast.success("Tavola e foto del rilievo salvate");
+          return;
+        } catch (error) {
+          if (!isRetryable(error)) throw error;
         }
-        const saved = await saveRilievoTavola(rilievo.id, body);
-        setPendingPlan(null);
-        setPendingPhotos([]);
-        setPhotoProgress("");
-        setAsset({
-          planimetria_path: saved.planimetria_path || null,
-          planimetria_preview_path: saved.planimetria_preview_path || null,
-          planimetria_filename: saved.planimetria_filename || null,
-          planimetria_mime_type: saved.planimetria_mime_type || null,
-        });
-        setPhotoPaths(saved.foto_paths || []);
-        setSaveState("salvato");
-        onSaved(saved);
-        toast.success("Tavola e foto del rilievo salvate");
-      } else {
+      }
+      {
         await enqueueRilievoOperation(slug, {
           kind: "tavola",
           entity_id: rilievo.id,
@@ -1071,6 +1121,7 @@ export default function RilievoTavola({
           body,
           plan_file: pendingPlan?.file || null,
           plan_preview: pendingPlan?.previewBlob || null,
+          plan_asset_id: pendingPlan?.assetId || null,
           photos: pendingPhotos,
         });
         onQueueChanged((await listRilievoOperations(slug)).length);

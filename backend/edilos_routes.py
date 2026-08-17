@@ -1493,6 +1493,7 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
             "foto_ambiente",
         ] = Form(...),
         ambiente_client_uuid: Optional[str] = Form(default=None),
+        client_asset_uuid: Optional[UUID] = Form(default=None),
     ):
         user = await _user(request, db)
         canonical_id = str(tenancy.uuid_or_400(rilievo_id, "Rilievo"))
@@ -1508,6 +1509,9 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 content_type=file.content_type or "application/octet-stream",
                 content=content,
                 ambiente_client_uuid=ambiente_client_uuid,
+                asset_client_uuid=(
+                    str(client_asset_uuid) if client_asset_uuid else None
+                ),
             )
 
     @api.post("/campo/rilievi/{rilievo_id}/assets/urls")

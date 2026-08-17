@@ -1,4 +1,4 @@
-const CACHE_NAME = "gb-app-v2";
+const CACHE_NAME = "gb-app-v3";
 const SHELL = ["/", "/manifest.json", "/campo.webmanifest", "/favicon.svg"];
 
 async function precacheApplication() {

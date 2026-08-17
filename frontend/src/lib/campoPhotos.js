@@ -261,6 +261,7 @@ export async function uploadRilievoPhotos({
     const form = new FormData();
     form.append("tipo", "foto_ambiente");
     form.append("ambiente_client_uuid", ambienteClientUuid);
+    form.append("client_asset_uuid", photo.id);
     form.append("file", photo.blob, photo.name || "foto.jpg");
     const size = photo.size || photo.blob.size;
     const { data } = await client.post(
@@ -286,6 +287,7 @@ export async function uploadRilievoGeneralPhotos({
   return mapLimit(photos, 3, async (photo, index) => {
     const form = new FormData();
     form.append("tipo", "foto_generale");
+    form.append("client_asset_uuid", photo.id);
     form.append("file", photo.blob, photo.name || "foto.jpg");
     const size = photo.size || photo.blob.size;
     const { data } = await client.post(
