@@ -236,15 +236,28 @@ def test_elimina_computo_rimuove_la_sola_bozza_preventivo():
         {"id": UUID(computo_id), "numero": "C-001", "tipo": "estimativo", "stato": "bozza"},
         {"id": UUID(computo_id), "numero": "C-001"},
     ]
-    conn.fetchval.side_effect = [False, False, False]
+    preventivo_id = UUID("20000000-0000-4000-8000-000000000001")
+    conn.fetchval.side_effect = [False, False, False, False]
+    conn.fetch.side_effect = [[{"id": preventivo_id}], [], []]
 
     result = asyncio.run(
         boq_service.elimina_computo(conn, tenant_id, computo_id)
     )
 
-    assert result == {"ok": True, "id": computo_id, "numero": "C-001"}
-    assert conn.execute.await_count == 1
-    assert "stato = 'bozza'" in conn.execute.await_args.args[0]
+    assert result == {
+        "ok": True,
+        "id": computo_id,
+        "numero": "C-001",
+        "preventivi_eliminati": 1,
+        "contratti_eliminati": 0,
+        "documenti_eliminati": 0,
+        "_storage_paths": [],
+    }
+    assert conn.execute.await_count == 3
+    executed_sql = [call.args[0] for call in conn.execute.await_args_list]
+    assert "scelte_pagamento_cliente" in executed_sql[0]
+    assert "preventivo_clienti" in executed_sql[1]
+    assert "delete from public.preventivi" in executed_sql[2]
     assert "tenant_id = $1::uuid" in conn.fetchrow.await_args.args[0]
 
 
@@ -269,6 +282,70 @@ def test_elimina_computo_blocca_preventivo_finalizzato():
 
     assert exc.value.status_code == 409
     assert "preventivo" in exc.value.detail.lower()
+    conn.execute.assert_not_awaited()
+
+
+def test_elimina_preventivo_rimuove_contratto_documenti_e_scelta_pagamento():
+    tenant_id = "a0000000-0000-4000-8000-000000000001"
+    preventivo_id = "20000000-0000-4000-8000-000000000001"
+    computo_id = "10000000-0000-4000-8000-000000000001"
+    contratto_id = UUID("30000000-0000-4000-8000-000000000001")
+    documento_id = UUID("40000000-0000-4000-8000-000000000001")
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "id": UUID(preventivo_id),
+        "numero": "P-001",
+        "computo_id": UUID(computo_id),
+    }
+    conn.fetchval.return_value = False
+    conn.fetch.side_effect = [
+        [{"id": contratto_id}],
+        [{"id": documento_id, "storage_path": f"{tenant_id}/contratto.pdf"}],
+    ]
+
+    result = asyncio.run(
+        boq_service.elimina_preventivo(conn, tenant_id, preventivo_id)
+    )
+
+    assert result == {
+        "ok": True,
+        "id": preventivo_id,
+        "numero": "P-001",
+        "computo_id": computo_id,
+        "preventivi_eliminati": 1,
+        "contratti_eliminati": 1,
+        "documenti_eliminati": 1,
+        "_storage_paths": [f"{tenant_id}/contratto.pdf"],
+    }
+    executed_sql = [call.args[0] for call in conn.execute.await_args_list]
+    assert "update public.documenti_cliente" in executed_sql[0]
+    assert "delete from public.documenti_cliente" in executed_sql[1]
+    assert "delete from public.contratti" in executed_sql[2]
+    assert "delete from public.scelte_pagamento_cliente" in executed_sql[3]
+    assert "delete from public.preventivo_clienti" in executed_sql[4]
+    assert "delete from public.preventivi" in executed_sql[5]
+
+
+def test_elimina_preventivo_blocca_piano_pagamento_operativo():
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "id": UUID("20000000-0000-4000-8000-000000000001"),
+        "numero": "P-001",
+        "computo_id": UUID("10000000-0000-4000-8000-000000000001"),
+    }
+    conn.fetchval.return_value = True
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            boq_service.elimina_preventivo(
+                conn,
+                "a0000000-0000-4000-8000-000000000001",
+                "20000000-0000-4000-8000-000000000001",
+            )
+        )
+
+    assert exc.value.status_code == 409
+    assert "piano di pagamento" in exc.value.detail.lower()
     conn.execute.assert_not_awaited()
 
 

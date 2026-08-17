@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   FileClock,
   FileSignature,
   FileText,
+  Loader2,
   Mail,
   MessageCircle,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import client, { extractErrorDetail } from "@/lib/api";
@@ -19,6 +21,7 @@ import PreventivoLifecycleModal from "@/dashboard/PreventivoLifecycleModal";
 
 export default function Preventivi() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedPreventivo, setSelectedPreventivo] = useState(null);
   const { data: list = [], isLoading } = useQuery({
@@ -26,6 +29,49 @@ export default function Preventivi() {
     queryFn: async () => (await client.get("/preventivi")).data,
     refetchInterval: 30000,
   });
+
+  const eliminaPreventivo = useMutation({
+    mutationFn: async (preventivo) =>
+      (
+        await client.delete(
+          preventivo.source === "edilos"
+            ? `/preventivi/${preventivo.id}`
+            : `/leads/${preventivo.id}/with-artifacts`,
+        )
+      ).data,
+    onSuccess: (result, preventivo) => {
+      queryClient.setQueryData(["preventivi"], (current = []) =>
+        current.filter(
+          (item) =>
+            !(
+              item.id === preventivo.id &&
+              (item.source || "legacy") === (preventivo.source || "legacy")
+            ),
+        ),
+      );
+      queryClient.invalidateQueries({ queryKey: ["preventivi"] });
+      queryClient.invalidateQueries({ queryKey: ["lead-counts"] });
+      const documenti = result?.documenti_eliminati || 0;
+      const contratti = result?.contratti_eliminati || 0;
+      toast.success(
+        preventivo.source === "edilos"
+          ? `Preventivo eliminato con ${contratti} contratti e ${documenti} documenti collegati`
+          : "Preventivo e lead collegato eliminati",
+      );
+    },
+    onError: async (error) => toast.error(await extractErrorDetail(error)),
+  });
+
+  const confermaEliminazione = (preventivo) => {
+    const label = preventivo.numero || preventivo.cliente || preventivo.id;
+    const detail =
+      preventivo.source === "edilos"
+        ? "Verranno eliminati anche contratto, versioni, accessi cliente, scelta di pagamento e documentazione collegata."
+        : "Questo e un preventivo del vecchio archivio: verra eliminato anche il lead collegato e i suoi documenti tecnici.";
+    if (window.confirm(`Eliminare definitivamente ${label}? ${detail}`)) {
+      eliminaPreventivo.mutate(preventivo);
+    }
+  };
 
   const openPreventivo = (preventivo) => {
     navigate(
@@ -109,6 +155,9 @@ export default function Preventivi() {
                 const bozzaModificabile =
                   preventivo.stato_documento === "bozza" &&
                   preventivo.computo_stato !== "confermato";
+                const isDeleting =
+                  eliminaPreventivo.isPending &&
+                  eliminaPreventivo.variables?.id === preventivo.id;
                 return (
                   <tr
                     key={`${preventivo.source || "legacy"}-${preventivo.id}`}
@@ -238,6 +287,21 @@ export default function Preventivi() {
                             <MessageCircle className="h-4 w-4" />
                           </span>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => confermaEliminazione(preventivo)}
+                          disabled={eliminaPreventivo.isPending}
+                          aria-label={`Elimina preventivo ${preventivo.numero || preventivo.cliente}`}
+                          className="inline-flex items-center gap-1 rounded-lg border border-danger/40 px-2 py-1 text-[10px] font-display uppercase text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Elimina preventivo e documentazione collegata"
+                        >
+                          {isDeleting ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                          Elimina
+                        </button>
                       </div>
                     </td>
                   </tr>

@@ -58,10 +58,27 @@ from contratto_appalto_pdf import (
 )
 from preventivo_pdf import genera_pdf_preventivo
 from sal_pdf import genera_pdf_sal
+from system_jobs.client_documents import remove_document
 
 router = APIRouter(tags=["edilos"])
 logger = logging.getLogger("gb.edilos")
 EMAIL_ADDRESS_ADAPTER = TypeAdapter(EmailStr)
+
+
+async def _cleanup_deleted_document_storage(result: dict) -> dict:
+    """Rimuove i file gia scollegati dal database senza esporne i percorsi."""
+    paths = list(dict.fromkeys(result.pop("_storage_paths", []) or []))
+    failed = 0
+    for path in paths:
+        try:
+            await asyncio.to_thread(remove_document, path)
+        except Exception as exc:
+            failed += 1
+            logger.warning("File documento non rimosso dallo storage: %s", exc)
+    result["file_storage_eliminati"] = len(paths) - failed
+    if failed:
+        result["file_storage_non_eliminati"] = failed
+    return result
 
 
 def _token(request: Request) -> str:
@@ -1037,7 +1054,10 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                     status_code=403,
                     detail="Solo owner e admin possono eliminare un computo",
                 )
-            return await boq_service.elimina_computo(conn, tenant["id"], computo_id)
+            result = await boq_service.elimina_computo(
+                conn, tenant["id"], computo_id
+            )
+        return await _cleanup_deleted_document_storage(result)
 
     @api.post("/computi/{computo_id}/voci")
     async def add_voce(request: Request, computo_id: str, body: AggiungiVoceBody):
@@ -2637,6 +2657,21 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                     "Content-Disposition": f'inline; filename="{prev.get("numero") or "preventivo"}.pdf"'
                 },
             )
+
+    @api.delete("/preventivi/{preventivo_id}")
+    async def delete_preventivo(request: Request, preventivo_id: str):
+        user = await _user(request, db)
+        preventivo_uuid = str(tenancy.uuid_or_400(preventivo_id, "Preventivo"))
+        async with get_tenant_conn(request, user) as (conn, tenant):
+            if tenant.get("role") not in {"owner", "admin"}:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Solo owner e admin possono eliminare un preventivo",
+                )
+            result = await boq_service.elimina_preventivo(
+                conn, tenant["id"], preventivo_uuid
+            )
+        return await _cleanup_deleted_document_storage(result)
 
     @api.get("/preventivi/{preventivo_id}/contratto/pdf")
     async def contratto_appalto_pdf(request: Request, preventivo_id: str):

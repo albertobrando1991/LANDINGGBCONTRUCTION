@@ -419,14 +419,17 @@ async def elimina_computo(
             detail="Il computo ha un preventivo gia inviato o finalizzato e non puo essere eliminato",
         )
 
-    await conn.execute(
+    quote_rows = await conn.fetch(
         """
-        delete from public.preventivi
+        select id from public.preventivi
         where tenant_id = $1::uuid and computo_id = $2::uuid and stato = 'bozza'
+        for update
         """,
         tenant_id,
         computo_id,
     )
+    quote_ids = [row["id"] for row in quote_rows]
+    artifacts = await _elimina_preventivi_collegati(conn, tenant_id, quote_ids)
     deleted = await conn.fetchrow(
         """
         delete from public.computi
@@ -438,7 +441,167 @@ async def elimina_computo(
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Computo non trovato")
-    return {"ok": True, "id": str(deleted["id"]), "numero": deleted["numero"]}
+    return {
+        "ok": True,
+        "id": str(deleted["id"]),
+        "numero": deleted["numero"],
+        **artifacts,
+    }
+
+
+async def _elimina_preventivi_collegati(
+    conn: asyncpg.Connection,
+    tenant_id: str,
+    quote_ids: list,
+) -> dict:
+    """Elimina documenti e workflow dipendenti prima dei preventivi.
+
+    I piani di pagamento rappresentano contabilita operativa e non vengono mai
+    rimossi implicitamente. Gli altri artefatti sono parte del fascicolo del
+    preventivo e vengono eliminati nella stessa transazione database.
+    """
+    if not quote_ids:
+        return {
+            "preventivi_eliminati": 0,
+            "contratti_eliminati": 0,
+            "documenti_eliminati": 0,
+            "_storage_paths": [],
+        }
+
+    has_payment_plan = await conn.fetchval(
+        """
+        select exists(
+          select 1 from public.piani_pagamento
+          where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])
+        )
+        """,
+        tenant_id,
+        quote_ids,
+    )
+    if has_payment_plan:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Il preventivo ha un piano di pagamento operativo: "
+                "archivialo prima di eliminare il preventivo"
+            ),
+        )
+
+    contract_rows = await conn.fetch(
+        """
+        select id from public.contratti
+        where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])
+        """,
+        tenant_id,
+        quote_ids,
+    )
+    contract_ids = [row["id"] for row in contract_rows]
+    document_rows = await conn.fetch(
+        """
+        select id, storage_path
+        from public.documenti_cliente
+        where tenant_id = $1::uuid
+          and (
+            preventivo_id = any($2::uuid[])
+            or contratto_id = any($3::uuid[])
+          )
+        """,
+        tenant_id,
+        quote_ids,
+        contract_ids,
+    )
+    document_ids = [row["id"] for row in document_rows]
+    storage_paths = [
+        row["storage_path"] for row in document_rows if row.get("storage_path")
+    ]
+
+    if document_ids:
+        await conn.execute(
+            """
+            update public.documenti_cliente
+            set documento_originale_id = null
+            where tenant_id = $1::uuid
+              and documento_originale_id = any($2::uuid[])
+            """,
+            tenant_id,
+            document_ids,
+        )
+        await conn.execute(
+            """
+            delete from public.documenti_cliente
+            where tenant_id = $1::uuid and id = any($2::uuid[])
+            """,
+            tenant_id,
+            document_ids,
+        )
+
+    if contract_ids:
+        await conn.execute(
+            """
+            delete from public.contratti
+            where tenant_id = $1::uuid and id = any($2::uuid[])
+            """,
+            tenant_id,
+            contract_ids,
+        )
+    await conn.execute(
+        """
+        delete from public.scelte_pagamento_cliente
+        where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])
+        """,
+        tenant_id,
+        quote_ids,
+    )
+    await conn.execute(
+        """
+        delete from public.preventivo_clienti
+        where tenant_id = $1::uuid and preventivo_id = any($2::uuid[])
+        """,
+        tenant_id,
+        quote_ids,
+    )
+    await conn.execute(
+        """
+        delete from public.preventivi
+        where tenant_id = $1::uuid and id = any($2::uuid[])
+        """,
+        tenant_id,
+        quote_ids,
+    )
+    return {
+        "preventivi_eliminati": len(quote_ids),
+        "contratti_eliminati": len(contract_ids),
+        "documenti_eliminati": len(document_ids),
+        "_storage_paths": storage_paths,
+    }
+
+
+async def elimina_preventivo(
+    conn: asyncpg.Connection, tenant_id: str, preventivo_id: str
+) -> dict:
+    preventivo = await conn.fetchrow(
+        """
+        select id, numero, computo_id
+        from public.preventivi
+        where tenant_id = $1::uuid and id = $2::uuid
+        for update
+        """,
+        tenant_id,
+        preventivo_id,
+    )
+    if not preventivo:
+        raise HTTPException(status_code=404, detail="Preventivo non trovato")
+
+    artifacts = await _elimina_preventivi_collegati(
+        conn, tenant_id, [preventivo["id"]]
+    )
+    return {
+        "ok": True,
+        "id": str(preventivo["id"]),
+        "numero": preventivo["numero"],
+        "computo_id": str(preventivo["computo_id"]),
+        **artifacts,
+    }
 
 
 async def aggiungi_voce(

@@ -515,7 +515,7 @@ export default function Computi() {
                         computo.numero || String(computo.id).slice(0, 8);
                       if (
                         window.confirm(
-                          `Eliminare definitivamente il computo ${label}? La bozza preventivo collegata verra eliminata insieme.`,
+                          `Eliminare definitivamente il computo ${label}? La bozza preventivo collegata, il contratto e la relativa documentazione verranno eliminati insieme.`,
                         )
                       ) {
                         elimina.mutate(computo);
