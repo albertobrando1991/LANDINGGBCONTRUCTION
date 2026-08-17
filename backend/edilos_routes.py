@@ -58,7 +58,10 @@ from contratto_appalto_pdf import (
 )
 from preventivo_pdf import genera_pdf_preventivo
 from sal_pdf import genera_pdf_sal
-from system_jobs.client_documents import remove_document
+from system_jobs.client_documents import (
+    remove_document,
+    validated_contract_payload_for_document,
+)
 
 router = APIRouter(tags=["edilos"])
 logger = logging.getLogger("gb.edilos")
@@ -2296,8 +2299,8 @@ def register_edilos_routes(api: APIRouter, db, get_tenant_conn):
                 mime = "application/pdf"
                 filename = f"{payload.get('numero') or 'preventivo'}.pdf"
             else:
-                payload = await contract_workflow_service.validated_contract_payload(
-                    conn, tenant["id"], str(document["preventivo_id"])
+                payload = await validated_contract_payload_for_document(
+                    tenant["id"], doc_uuid
                 )
                 tenant_pdf = {**tenant, "piva": payload["tenant_piva"]}
                 content = genera_pdf_contratto(

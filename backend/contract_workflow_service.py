@@ -871,6 +871,14 @@ async def validate_contract(
     conn, tenant_id: str, preventivo_id: str, actor_id: str
 ) -> dict:
     preventivo = await _preventivo(conn, tenant_id, preventivo_id)
+    if preventivo.get("stato") == "bozza":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Invia nuovamente il preventivo al cliente prima di validare "
+                "e pubblicare il contratto"
+            ),
+        )
     if preventivo.get("computo_stato") != "confermato":
         raise HTTPException(
             status_code=409, detail="Conferma il computo prima di validare il contratto"

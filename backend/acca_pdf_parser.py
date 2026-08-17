@@ -198,14 +198,10 @@ def parse_acca_pdf(pdf_bytes: bytes) -> dict:
             status_code=422,
             detail="Totale finale ACCA non riconosciuto: importazione annullata",
         )
-    if calculated_total != total_document.quantize(Decimal("0.01")):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Il PDF non quadra: estrazione parziale o totale finale non coerente "
-                f"({calculated_total} / {total_document})"
-            ),
-        )
+    declared_total = total_document.quantize(Decimal("0.01"))
+    extraction_incomplete = (
+        abs(calculated_total - declared_total) > Decimal("0.05")
+    )
     if any(item["numero"] != index for index, item in enumerate(items, 1)):
         raise HTTPException(
             status_code=422,
@@ -215,5 +211,10 @@ def parse_acca_pdf(pdf_bytes: bytes) -> dict:
         "voci": items,
         "n_voci": len(items),
         "totale_pdf": calculated_total,
+        "totale_documento_dichiarato": declared_total,
+        "scostamento_estrazione": (declared_total - calculated_total).quantize(
+            Decimal("0.01")
+        ),
+        "estrazione_incompleta": extraction_incomplete,
         "n_da_verificare": sum(not item["coerente"] for item in items),
     }

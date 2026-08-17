@@ -265,3 +265,32 @@ def test_valida_con_jsonb_restituito_come_stringa():
 
     assert result["contratto"]["numero"] == "CTR-2026-001"
     assert conn.execute.await_count == 1
+
+
+def test_valida_blocca_un_preventivo_riaperto_in_bozza(monkeypatch):
+    conn = AsyncMock()
+    monkeypatch.setattr(
+        workflow,
+        "_preventivo",
+        AsyncMock(
+            return_value={
+                "id": "preventivo-id",
+                "stato": "bozza",
+                "computo_stato": "confermato",
+            }
+        ),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(
+            workflow.validate_contract(
+                conn,
+                "tenant-id",
+                "preventivo-id",
+                "00000000-0000-0000-0000-000000000001",
+            )
+        )
+
+    assert error.value.status_code == 409
+    assert "invia nuovamente" in error.value.detail.lower()
+    conn.fetchrow.assert_not_awaited()

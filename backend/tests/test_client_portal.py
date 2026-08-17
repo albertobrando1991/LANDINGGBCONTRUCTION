@@ -13,7 +13,7 @@ import client_portal_service
 import contract_workflow_service
 import edilos_routes
 from server import api
-from system_jobs import client_invites
+from system_jobs import client_documents, client_invites
 
 TENANT_ID = "a0000000-0000-4000-8000-000000000001"
 CANTIERE_ID = "10000000-0000-4000-8000-000000000001"
@@ -26,6 +26,35 @@ def _endpoint(path: str, method: str):
         if route.path == path and method in route.methods:
             return route.endpoint
     raise AssertionError(f"Route {method} {path} non registrata")
+
+
+def test_payload_contratto_cliente_usa_documento_gia_autorizzato(monkeypatch):
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {"preventivo_id": "preventivo-id"}
+    payload = {"contratto": {"id": "contratto-id"}}
+
+    class SystemConnection:
+        async def __aenter__(self):
+            return conn
+
+        async def __aexit__(self, *_args):
+            return False
+
+    monkeypatch.setattr("db.system_conn", lambda: SystemConnection())
+    validated = AsyncMock(return_value=payload)
+    monkeypatch.setattr(
+        contract_workflow_service, "validated_contract_payload", validated
+    )
+
+    result = asyncio.run(
+        client_documents.validated_contract_payload_for_document(
+            TENANT_ID, "documento-id"
+        )
+    )
+
+    assert result == payload
+    assert "tipo = 'contratto'" in conn.fetchrow.await_args.args[0]
+    validated.assert_awaited_once_with(conn, TENANT_ID, "preventivo-id")
 
 
 def test_route_portale_complete_sono_registrate():

@@ -944,6 +944,7 @@ async def importa_computo_acca(
     matched_count = 0
     unclassified_count = 0
     total_gb = Decimal("0")
+    extraction_incomplete = bool(parsed.get("estrazione_incompleta"))
     for item in parsed["voci"]:
         code = str(item.get("codice") or f"ACCA-{item['numero']:03d}")
         match = _abbina_voce_acca(item, candidates_by_code)
@@ -990,10 +991,20 @@ async def importa_computo_acca(
             price,
             fase,
             fase_ordine,
-            not bool(match),
-            bool(match),
+            not bool(match) or extraction_incomplete,
+            bool(match) and not extraction_incomplete,
         )
-    pending_count = len(parsed["voci"]) - matched_count
+    pending_count = (
+        len(parsed["voci"])
+        if extraction_incomplete
+        else len(parsed["voci"]) - matched_count
+    )
+    extraction_note = ""
+    if extraction_incomplete:
+        extraction_note = (
+            " | Estrazione parziale: "
+            f"{parsed['totale_pdf']}/{parsed.get('totale_documento_dichiarato')}"
+        )
     await conn.execute(
         """
         update public.computi
@@ -1005,6 +1016,7 @@ async def importa_computo_acca(
             f"Prezzi GB abbinati: {matched_count}/{parsed['n_voci']} | "
             f"Da verificare: {pending_count} | "
             f"Fasi da classificare a mano: {unclassified_count}"
+            f"{extraction_note}"
         ),
         "bozza" if pending_count == 0 else "ai_da_revisionare",
         computo_id,
@@ -1015,6 +1027,11 @@ async def importa_computo_acca(
         "file": filename,
         "n_voci": parsed["n_voci"],
         "totale_pdf": float(parsed["totale_pdf"]),
+        "totale_documento_dichiarato": float(
+            parsed.get("totale_documento_dichiarato", parsed["totale_pdf"])
+        ),
+        "scostamento_estrazione": float(parsed.get("scostamento_estrazione", 0)),
+        "estrazione_incompleta": extraction_incomplete,
         "totale_gb": float(total_gb),
         "n_prezzi_gb": matched_count,
         "n_da_verificare": pending_count,
@@ -1022,11 +1039,15 @@ async def importa_computo_acca(
         "criterio": "codice tariffa + unita di misura, match univoco",
     }
     result["automazione"] = {
-        "pronto_preventivo": pending_count == 0 and bool(context["lead_id"]),
+        "pronto_preventivo": (
+            pending_count == 0
+            and not extraction_incomplete
+            and bool(context["lead_id"])
+        ),
         "cliente_associato": bool(context["lead_id"] or context["cliente_id"]),
         "cantiere_associato": bool(context["cantiere_id"]),
         "prezzario_associato": bool(selected_prezzario_id),
-        "richiede_revisione": pending_count > 0,
+        "richiede_revisione": pending_count > 0 or extraction_incomplete,
     }
     return result
 
@@ -1685,6 +1706,16 @@ async def riapri_computo_preventivo(
             """,
             preventivo["id"],
             tenant_id,
+        )
+        await conn.execute(
+            """
+            update public.scelte_pagamento_cliente
+            set stato = 'revocata', updated_at = now()
+            where tenant_id = $1::uuid and preventivo_id = $2::uuid
+              and stato = 'confermata'
+            """,
+            tenant_id,
+            preventivo["id"],
         )
         await conn.execute(
             """

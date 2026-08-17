@@ -369,6 +369,13 @@ export default function Computi() {
         navigate(`/dashboard/computi/${computo.id}`);
         return;
       }
+      if (extraction.estrazione_incompleta) {
+        toast.warning(
+          `${extraction.n_voci || 0} voci recuperate, ma il totale estratto (${formatEuro(extraction.totale_pdf)}) non coincide con il totale dichiarato nel PDF (${formatEuro(extraction.totale_documento_dichiarato)}). Il computo e stato importato in revisione: controlla le voci mancanti prima di confermarlo.`,
+        );
+        navigate(`/dashboard/computi/${computo.id}`);
+        return;
+      }
       if (Number(extraction.n_da_verificare || 0) > 0) {
         toast.warning(
           `${extraction.n_prezzi_gb || 0}/${extraction.n_voci || 0} prezzi GB abbinati. Verifica le voci evidenziate.`,

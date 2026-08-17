@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import client, { extractErrorDetail } from "@/lib/api";
+import { downloadBlob } from "@/lib/downloadBlob";
 import { formatEuro } from "@/lib/format";
 
 const DOCUMENT_TYPES = [
@@ -220,12 +221,10 @@ export default function ContractEditor() {
       const response = await client.get(`/preventivi/${id}/contratto/pdf`, {
         responseType: "blob",
       });
-      const url = URL.createObjectURL(response.data);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${data?.contratto?.numero || "contratto"}.pdf`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(
+        response.data,
+        `${data?.contratto?.numero || "contratto"}.pdf`,
+      );
     } catch (error) {
       toast.error(await extractErrorDetail(error));
     }
@@ -237,12 +236,7 @@ export default function ContractEditor() {
         `/documenti-cliente/${item.id}/download`,
         { responseType: "blob" },
       );
-      const url = URL.createObjectURL(response.data);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = item.nome_file || item.titolo;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(response.data, item.nome_file || item.titolo);
     } catch (error) {
       toast.error(await extractErrorDetail(error));
     }

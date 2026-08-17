@@ -56,6 +56,8 @@ def test_riapertura_aggiorna_lo_stesso_preventivo(monkeypatch):
     statements = "\n".join(call.args[0].lower() for call in conn.execute.await_args_list)
     assert "update public.preventivi" in statements
     assert "set stato = 'bozza'" in statements
+    assert "update public.scelte_pagamento_cliente" in statements
+    assert "set stato = 'revocata'" in statements
     assert "update public.computi" in statements
     assert "insert into public.preventivi" not in statements
     assert result["preventivo_id"] == str(preventivo_id)

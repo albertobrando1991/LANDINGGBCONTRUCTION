@@ -61,7 +61,7 @@ T O T A L E   euro
     assert "pagina successiva" in result["voci"][1]["descrizione"]
 
 
-def test_rejects_partial_extraction_when_final_total_does_not_match():
+def test_imports_partial_extraction_as_incomplete_draft():
     data = _pdf(
         """PriMus by ACCA software S.p.A.
 1
@@ -75,11 +75,13 @@ T O T A L E   euro
 200,00"""
     )
 
-    with pytest.raises(HTTPException) as error:
-        parse_acca_pdf(data)
+    result = parse_acca_pdf(data)
 
-    assert error.value.status_code == 422
-    assert "non quadra" in error.value.detail
+    assert result["n_voci"] == 1
+    assert result["totale_pdf"] == Decimal("100.00")
+    assert result["totale_documento_dichiarato"] == Decimal("200.00")
+    assert result["scostamento_estrazione"] == Decimal("100.00")
+    assert result["estrazione_incompleta"] is True
 
 
 def test_rejects_non_primus_pdf():
