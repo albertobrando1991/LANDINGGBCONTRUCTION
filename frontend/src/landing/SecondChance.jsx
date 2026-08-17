@@ -6,13 +6,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { CANTIERE_VIDEOS } from "@/lib/assets";
 import client, { formatApiErrorDetail } from "@/lib/api";
-
-const PROJECTS = CANTIERE_VIDEOS.map((project, index) => ({
-  ...project,
-  tall: index === 0 || index === 3 || index === 6,
-}));
 
 const FAQ = [
   {
@@ -66,64 +60,12 @@ export default function SecondChance() {
 
   return (
     <section
-      id="progetti"
+      id="faq"
       className="home-deferred-section py-20 bg-surface px-6"
     >
       <div className="max-w-7xl mx-auto">
-        <p className="font-display font-semibold uppercase tracking-[0.3em] text-xs text-brand mb-3">
-          I nostri lavori
-        </p>
-        <h2 className="font-display font-bold uppercase text-4xl md:text-6xl tracking-tight text-ink mb-10">
-          Progetti realizzati a Napoli e in Campania.
-        </h2>
-
-        {/* Masonry-like grid */}
-        <div className="columns-2 md:columns-3 gap-4 [&>*]:mb-4">
-          {PROJECTS.map((p, i) => (
-            <div
-              key={i}
-              className={`relative break-inside-avoid rounded-2xl overflow-hidden border border-stroke group ${p.tall ? "h-80" : "h-56"}`}
-            >
-              <img
-                src={p.previewPoster || p.poster}
-                alt={`Copertina video cantiere ${p.nome}`}
-                width="480"
-                height="852"
-                className="home-video-poster home-video-poster--gallery w-full h-full object-cover"
-                loading="lazy"
-                fetchPriority="low"
-                decoding="async"
-                onLoad={(event) => {
-                  event.currentTarget.dataset.loaded = "true";
-                }}
-                onError={(event) => {
-                  const image = event.currentTarget;
-                  if (image.dataset.fallback !== "true") {
-                    image.dataset.fallback = "true";
-                    image.src = p.poster;
-                    return;
-                  }
-                  image.dataset.loaded = "true";
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/85 to-transparent" />
-              {p.label && (
-                <div className="absolute top-3 left-3 font-display font-semibold uppercase tracking-wider text-[10px] bg-brand text-white px-2 py-1 rounded">
-                  {p.label}
-                </div>
-              )}
-              <div className="absolute bottom-4 left-4">
-                <div className="font-display font-semibold uppercase text-sm text-brand">
-                  {p.nome}
-                </div>
-                <div className="font-body text-xs text-ink/70">{p.citta}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
         {/* FAQ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mt-20">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           <div>
             <h3 className="font-display font-bold uppercase text-2xl md:text-3xl text-ink mb-6">
               Domande frequenti

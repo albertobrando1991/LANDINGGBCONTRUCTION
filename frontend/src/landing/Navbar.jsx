@@ -8,7 +8,7 @@ import { openBooking } from "@/lib/booking";
 const LINKS = [
   { label: "Home", id: "hero" },
   { label: "Servizi", id: "configuratore" },
-  { label: "Progetti", id: "progetti" },
+  { label: "FAQ", id: "faq" },
   { label: "Preventivo AI", id: "configuratore" },
 ];
 
