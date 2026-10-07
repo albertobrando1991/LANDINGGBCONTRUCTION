@@ -10,6 +10,7 @@ import { Calendar, Clock, X, Check, Loader2, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import client, { formatApiErrorDetail } from "@/lib/api";
 import { BOOKING_EVENT } from "@/lib/booking";
+import { WHATSAPP } from "@/lib/assets";
 
 const WEEKDAYS = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 const MONTHS = [
@@ -40,6 +41,7 @@ export default function BookingModal() {
   const [ctx, setCtx] = useState({});
   const [slots, setSlots] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState(false);
   const [selected, setSelected] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
@@ -52,11 +54,13 @@ export default function BookingModal() {
 
   const loadSlots = useCallback(async () => {
     setLoading(true);
+    setSlotsError(false);
     try {
       const { data } = await client.get("/public/sopralluoghi/slots");
       setSlots(data || []);
     } catch {
       setSlots([]);
+      setSlotsError(true);
     } finally {
       setLoading(false);
     }
@@ -257,13 +261,32 @@ export default function BookingModal() {
                   >
                     Carico le disponibilità…
                   </div>
-                ) : days.length === 0 ? (
+                ) : slotsError || days.length === 0 ? (
                   <div className="py-8 text-center">
-                    <p className="font-body text-fog">
-                      Al momento non ci sono slot disponibili. Lascia i tuoi
-                      dati nel preventivo: ti ricontattiamo per fissare il
-                      sopralluogo.
+                    <p className="font-body text-fog" role={slotsError ? "alert" : "status"}>
+                      {slotsError
+                        ? "Non riusciamo a caricare il calendario. Riprova oppure contattaci per concordare il sopralluogo."
+                        : "Al momento non ci sono orari prenotabili online. Contattaci per concordare il sopralluogo."}
                     </p>
+                    <div className="mt-5 flex flex-wrap justify-center gap-3">
+                      {slotsError && (
+                        <button
+                          type="button"
+                          onClick={loadSlots}
+                          className="min-h-11 rounded-full border border-stroke px-5 py-3 font-display text-sm text-ink"
+                        >
+                          Riprova
+                        </button>
+                      )}
+                      <a
+                        href={`${WHATSAPP}?text=${encodeURIComponent("Vorrei concordare un sopralluogo per una ristrutturazione.")}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex min-h-11 items-center rounded-full bg-brand px-5 py-3 font-display text-sm text-white"
+                      >
+                        Contattaci su WhatsApp
+                      </a>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-4">

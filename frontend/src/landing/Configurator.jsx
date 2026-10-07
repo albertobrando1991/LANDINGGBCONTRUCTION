@@ -181,7 +181,7 @@ export default function Configurator({ onComplete }) {
 
   return (
     <section
-      id="configuratore"
+      aria-label="Configura la tua stima"
       className="relative min-h-screen touch-pan-y overflow-x-clip bg-bg px-5 py-20 sm:px-6"
     >
       <div className="absolute inset-0 blueprint-grid opacity-[0.03]" />
@@ -192,10 +192,10 @@ export default function Configurator({ onComplete }) {
             Stima intelligente GB
           </p>
           <h2 className="font-display font-bold uppercase text-4xl md:text-6xl tracking-tight text-ink">
-            Configura. <span className="text-brand">Visualizza.</span> Ricevi.
+            Configura. <span className="text-brand">Confronta.</span> Scegli.
           </h2>
           <p className="font-body text-fog mt-3">
-            60 secondi. 6 domande. Tre proposte personalizzate.
+            6 domande sul tuo immobile per una stima orientativa su tre livelli.
           </p>
         </div>
 

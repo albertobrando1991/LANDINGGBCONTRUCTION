@@ -1,5 +1,4 @@
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
-import LoadingScreen from "@/landing/LoadingScreen";
 import Navbar from "@/landing/Navbar";
 import ImmersiveHero from "@/landing/ImmersiveHero";
 import BookingModal from "@/landing/BookingModal";
@@ -29,7 +28,6 @@ function SectionFallback({ label = "Caricamento sezione" }) {
 }
 
 export default function Landing() {
-  const [loading, setLoading] = useState(true);
   // Nuovo ordine: prima i dati e il lead, poi (opzionale) l'analisi planimetria.
   const [phase, setPhase] = useState("config"); // config | details | gate | output | architect
   const [config, setConfig] = useState(null);
@@ -37,12 +35,12 @@ export default function Landing() {
   const flowRef = useRef(null);
 
   useEffect(() => {
-    document.title = "GB Construction | Ristrutturazioni";
+    document.title = "GB Construction | Ristrutturazioni a Napoli e in Campania";
   }, []);
 
   const scrollFlow = () => {
     setTimeout(() => {
-      scheduleSmoothScrollToElement(flowRef.current, { offset: 86 });
+      scheduleSmoothScrollToElement(flowRef.current, { offset: 86, focus: true });
     }, 80);
   };
 
@@ -109,7 +107,6 @@ export default function Landing() {
 
   return (
     <div className="bg-bg text-ink min-h-screen pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-0">
-      {loading && <LoadingScreen onDone={() => setLoading(false)} />}
       <StaticNavbar />
       <StaticImmersiveHero />
       <Suspense fallback={<SectionFallback label="Caricamento progetti" />}>
@@ -117,17 +114,21 @@ export default function Landing() {
         <Packages />
       </Suspense>
 
-      <div ref={flowRef}>
+      <div id="configuratore" ref={flowRef} tabIndex={-1} className="outline-none" aria-label="Stima della ristrutturazione">
         <Suspense
           fallback={<SectionFallback label="Caricamento configuratore" />}
         >
-          {phase === "config" && <Configurator onComplete={handleConfigDone} />}
-          {phase === "details" && (
-            <QuickDetails
-              baseConfig={config}
-              onComplete={handleDetailsDone}
-              onBack={handleDetailsBack}
-            />
+          <div hidden={phase !== "config"}>
+            <Configurator onComplete={handleConfigDone} />
+          </div>
+          {config && (
+            <div hidden={phase !== "details"}>
+              <QuickDetails
+                baseConfig={config}
+                onComplete={handleDetailsDone}
+                onBack={handleDetailsBack}
+              />
+            </div>
           )}
           {phase === "gate" && (
             <ContactGate config={config} onSubmit={handleGateSubmit} />

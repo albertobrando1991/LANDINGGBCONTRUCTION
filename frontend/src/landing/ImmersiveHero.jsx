@@ -853,7 +853,7 @@ function AnimatedImmersiveHero({ prefersReducedMotion }) {
     <section
       id="hero"
       ref={wrapRef}
-      className="relative h-[1250svh] bg-bg md:h-[1100vh]"
+      className="relative h-[450svh] bg-bg md:h-[650vh]"
     >
       <div
         ref={pinRef}
@@ -976,16 +976,27 @@ function AnimatedImmersiveHero({ prefersReducedMotion }) {
 
         <div
           ref={hintRef}
-          className="absolute inset-0 z-30 flex flex-col items-center justify-center text-center px-6 pointer-events-none"
+          className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/55 text-center px-6 pointer-events-none"
         >
           <div className="font-display font-semibold uppercase tracking-[0.18em] md:tracking-[0.3em] text-[10px] md:text-xs text-brand mb-4 max-w-[92vw]">
             GB Construction - Napoli &amp; Campania
           </div>
           <h2 className="font-display font-bold uppercase text-[clamp(2rem,9vw,4.5rem)] md:text-6xl lg:text-7xl text-ink/90 leading-[0.95] max-w-[92vw] md:max-w-3xl">
-            <span className="block">Entra nel tuo</span>
-            <span className="block text-brand">progetto.</span>
+            <span className="block">Ristrutturazioni a Napoli</span>
+            <span className="block text-brand">e in Campania.</span>
           </h2>
-          <div className="mt-10 flex flex-col items-center gap-2">
+          <p className="mt-5 max-w-xl font-body text-sm text-white/90 md:text-base">
+            Dalla progettazione al cantiere. Scopri le nostre soluzioni o richiedi subito una stima gratuita.
+          </p>
+          <button
+            type="button"
+            data-testid="hero-start-stima"
+            onClick={scrollToConfig}
+            className="pointer-events-auto mt-7 inline-flex min-h-12 items-center gap-2 rounded-full bg-brand px-7 py-3 font-display text-sm font-semibold uppercase tracking-wider text-white"
+          >
+            Richiedi una stima <ArrowRight className="h-4 w-4" aria-hidden />
+          </button>
+          <div className="mt-6 flex flex-col items-center gap-2">
             <span className="font-display uppercase tracking-[0.3em] text-[10px] text-fog">
               Scorri per trasformare
             </span>

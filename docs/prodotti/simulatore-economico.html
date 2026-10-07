@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Presenza e Gestione — simulatore economico</title>
+  <style>
+    :root{color-scheme:light;font-family:system-ui,sans-serif;color:#182b35;background:#f1f4f6}*{box-sizing:border-box}body{margin:0;padding:32px 20px}main{max-width:1180px;margin:auto}h1{font-size:clamp(26px,4vw,40px);letter-spacing:-.04em;margin:12px 0}h2{font-size:23px;margin:0 0 18px}p{line-height:1.6}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.15em;color:#366b75}.note{color:#536571;max-width:85ch}.controls,.columns{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:24px 0}.card{background:white;border:1px solid #dce4e8;border-radius:16px;padding:24px}label{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:12px 0;font-size:14px}input{width:118px;flex-shrink:0;font:inherit;padding:9px;border:1px solid #a4b5bf;border-radius:7px}input:focus{outline:3px solid #badade;border-color:#236273}.results{border-top:1px solid #dae3e8;margin-top:20px;padding-top:10px}.result{display:flex;justify-content:space-between;gap:12px;padding:9px 0}.result strong{font-variant-numeric:tabular-nums}.positive{color:#146747}.negative{color:#b32629}.big{font-size:27px}.small{font-size:13px}.summary{background:#153d49;color:white}.summary .note{color:#cee0e7}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}.metric span{display:block;font-size:13px;margin-bottom:8px}.metric strong{font-size:28px}button{background:#153d49;color:white;font:inherit;border:0;border-radius:8px;padding:12px 18px;cursor:pointer}a{color:#245d71}.summary .positive{color:#91e0bb}.summary .negative{color:#ffb2ab}footer{margin-top:24px}.warning{color:#a72c2c;font-weight:600}@media(max-width:720px){.columns,.controls,.grid{grid-template-columns:1fr}.card{padding:20px}body{padding:20px 12px}.big{font-size:23px}}@media print{body{background:white;padding:0}button{display:none}.card{break-inside:avoid}.summary{background:white;color:#182b35}.summary .note{color:#536571}}
+  </style>
+</head>
+<body><main>
+  <div class="eyebrow">Dossier di prodotto · 7 ottobre 2026</div>
+  <h1>Quanto sostengono i due prodotti?</h1>
+  <p class="note">Modifica le ipotesi per vedere contributi e costi. Importi in euro, al netto delle imposte. I valori iniziali sono ipotesi di pianificazione: non fatture, prezzi di mercato o previsioni di utile. Nessun dato viene inviato o salvato automaticamente.</p>
+  <form id="model">
+    <div class="controls card">
+      <label>Costo operativo del lavoro (€/ora)<input id="hour" type="number" min="0" step="1" value="40"></label>
+      <label>Costi fissi aggiuntivi (€/mese)<input id="fixed" type="number" min="0" step="50" value="1800"></label>
+    </div>
+    <div class="columns">
+      <section class="card"><h2>Presenza</h2>
+        <label>Prezzo avvio (€)<input id="p-setup" type="number" min="0" value="1900"></label>
+        <label>Canone (€/mese)<input id="p-price" type="number" min="0" value="99"></label>
+        <label>Ore di consegna<input id="p-hours" type="number" min="0" step="0.5" value="26"></label>
+        <label>Altri costi avvio (€)<input id="p-once" type="number" min="0" value="60"></label>
+        <label>Acquisizione per cliente (€)<input id="p-cac" type="number" min="0" value="250"></label>
+        <label>Infrastruttura (€/mese)<input id="p-cloud" type="number" min="0" value="20"></label>
+        <label>Assistenza (ore/mese)<input id="p-support" type="number" min="0" step="0.25" value="0.5"></label>
+        <label>Riserva manutenzione (€/mese)<input id="p-reserve" type="number" min="0" value="10"></label>
+        <label>Clienti attivi<input id="p-count" type="number" min="0" step="1" value="10"></label>
+        <div id="p-results" class="results" aria-live="polite"></div>
+      </section>
+      <section class="card"><h2>Gestione</h2>
+        <label>Prezzo avvio (€)<input id="g-setup" type="number" min="0" value="4900"></label>
+        <label>Canone (€/mese)<input id="g-price" type="number" min="0" value="349"></label>
+        <label>Ore di consegna<input id="g-hours" type="number" min="0" step="0.5" value="64"></label>
+        <label>Altri costi avvio (€)<input id="g-once" type="number" min="0" value="140"></label>
+        <label>Acquisizione per cliente (€)<input id="g-cac" type="number" min="0" value="600"></label>
+        <label>Infrastruttura (€/mese)<input id="g-cloud" type="number" min="0" value="100"></label>
+        <label>Assistenza (ore/mese)<input id="g-support" type="number" min="0" step="0.25" value="1.5"></label>
+        <label>Riserva manutenzione (€/mese)<input id="g-reserve" type="number" min="0" value="25"></label>
+        <label>Clienti attivi<input id="g-count" type="number" min="0" step="1" value="5"></label>
+        <div id="g-results" class="results" aria-live="polite"></div>
+      </section>
+    </div>
+    <p id="input-error" class="warning" role="alert" hidden>Inserisci valori non negativi e numeri interi per i clienti.</p>
+    <button type="reset">Ripristina ipotesi iniziali</button>
+  </form>
+  <section class="card summary" style="margin-top:24px" aria-live="polite">
+    <h2>Portafoglio attivo · mese intero</h2>
+    <div class="grid">
+      <div class="metric"><span>Ricavi ricorrenti</span><strong id="mrr"></strong></div>
+      <div class="metric"><span>Costi diretti</span><strong id="costs"></strong></div>
+      <div class="metric"><span>Dopo costi diretti e fissi</span><strong id="balance"></strong></div>
+    </div>
+    <p id="support" class="note"></p>
+    <p class="note small">Non è utile netto. Sono esclusi imposte, investimento iniziale, nuovi costi commerciali del mese e costi non specificati. I ricavi di avvio non entrano nei ricavi ricorrenti.</p>
+  </section>
+  <section class="card" style="margin-top:20px"><h2>Come leggere i risultati</h2>
+    <p>Contributo avvio = prezzo avvio − ore × costo orario − altri costi avvio − acquisizione. Costo mensile = infrastruttura + ore assistenza × costo orario + riserva. Contributo mensile = canone − costo mensile.</p>
+    <p>Primo anno = contributo avvio + 12 contributi mensili, prima dei costi fissi. Pareggio solo con quel prodotto = costi fissi / contributo mensile, arrotondato al cliente successivo. Non assume crescita, rinnovi o abbandoni.</p>
+    <p>L'infrastruttura è un budget in euro inserito manualmente: le tariffe ufficiali dei provider sono in USD e non sono convertite automaticamente. Il tempo di assistenza è il rischio principale da misurare nei piloti.</p>
+  </section>
+  <footer class="note small">Fonti dei minimi cloud e ipotesi dettagliate: <a href="02_MODELLO_ECONOMICO.md">modello economico</a>. I costi fissi devono escludere voci già conteggiate come costi diretti.</footer>
+</main>
+<script>
+  const euros = new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',maximumFractionDigits:0});
+  const number = new Intl.NumberFormat('it-IT',{maximumFractionDigits:2});
+  const el = id => document.getElementById(id);
+  const val = id => Number(el(id).value);
+  const signed = n => n < 0 ? 'negative' : 'positive';
+  function product(prefix) {
+    const get = key => val(prefix+'-'+key);
+    const cost = get('cloud') + get('support') * val('hour') + get('reserve');
+    const monthly = get('price') - cost;
+    const setup = get('setup') - get('hours') * val('hour') - get('once') - get('cac');
+    const margin = get('price') > 0 ? number.format(monthly/get('price')*100)+'%' : 'non definito';
+    const breakEven = val('fixed') === 0 ? '0' : monthly > 0 ? number.format(Math.ceil(val('fixed')/monthly)) : 'non raggiungibile';
+    el(prefix+'-results').innerHTML =
+      '<div class="result"><span>Contributo avvio dopo CAC</span><strong class="'+signed(setup)+'">'+euros.format(setup)+'</strong></div>'+
+      '<div class="result"><span>Costo diretto mensile</span><strong>'+euros.format(cost)+'</strong></div>'+
+      '<div class="result"><span>Contributo mensile</span><strong class="big '+signed(monthly)+'">'+euros.format(monthly)+'</strong></div>'+
+      '<div class="result"><span>Contributo / canone</span><strong>'+margin+'</strong></div>'+
+      '<div class="result"><span>Contributo primo anno</span><strong>'+euros.format(setup+12*monthly)+'</strong></div>'+
+      '<div class="result"><span>Clienti per coprire i costi fissi</span><strong>'+breakEven+'</strong></div>';
+    return {revenue:get('count')*get('price'),cost:get('count')*cost,support:get('count')*get('support')};
+  }
+  function update() {
+    const invalid = [...document.querySelectorAll('input')].some(input => input.value === '' || !input.validity.valid);
+    el('input-error').hidden = !invalid;
+    if (invalid) {
+      for (const id of ['p-results','g-results','mrr','costs','balance','support']) el(id).textContent = 'Dati da completare';
+      return;
+    }
+    const p = product('p'), g = product('g');
+    const revenue = p.revenue+g.revenue, costs=p.cost+g.cost, balance=revenue-costs-val('fixed');
+    el('mrr').textContent=euros.format(revenue);
+    el('costs').textContent=euros.format(costs);
+    el('balance').textContent=euros.format(balance);
+    el('balance').className=signed(balance);
+    el('support').textContent='Assistenza ordinaria stimata: '+number.format(p.support+g.support)+' ore/mese. Costi fissi aggiuntivi: '+euros.format(val('fixed'))+'/mese.';
+  }
+  el('model').addEventListener('input',update);
+  el('model').addEventListener('submit',event=>event.preventDefault());
+  el('model').addEventListener('reset',()=>requestAnimationFrame(update));
+  update();
+</script>
+</body></html>

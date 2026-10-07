@@ -1,13 +1,13 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 import { openBooking } from "@/lib/booking";
 
-// Link originali della navbar — non rimuovere né rinominare
+// Ogni voce porta a una sezione distinta della pagina.
 const LINKS = [
   { label: "Home", id: "hero" },
-  { label: "Servizi", id: "configuratore" },
+  { label: "Servizi", id: "soluzioni" },
   { label: "Progetti", id: "progetti" },
   { label: "Preventivo AI", id: "configuratore" },
 ];
@@ -18,6 +18,8 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
   const menuId = useId();
+  const menuRef = useRef(null);
+  const menuToggleRef = useRef(null);
 
   useEffect(() => {
     let ticking = false;
@@ -38,11 +40,25 @@ export default function Navbar() {
     if (!menuOpen) return undefined;
 
     const previousOverflow = document.body.style.overflow;
+    const menuToggle = menuToggleRef.current;
     document.body.style.overflow = "hidden";
     document.documentElement.classList.add("is-scroll-locked");
+    menuRef.current?.querySelector("li button")?.focus();
 
     const onKey = (event) => {
       if (event.key === "Escape") setMenuOpen(false);
+      if (event.key !== "Tab") return;
+      const buttons = menuRef.current?.querySelectorAll("button:not([disabled])");
+      if (!buttons?.length) return;
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
 
@@ -50,6 +66,7 @@ export default function Navbar() {
       document.body.style.overflow = previousOverflow;
       document.documentElement.classList.remove("is-scroll-locked");
       document.removeEventListener("keydown", onKey);
+      menuToggle?.focus({ preventScroll: true });
     };
   }, [menuOpen]);
 
@@ -57,7 +74,7 @@ export default function Navbar() {
     setActive(label);
     setMenuOpen(false);
     requestAnimationFrame(() => {
-      scheduleSmoothScrollToElement(document.getElementById(id));
+      scheduleSmoothScrollToElement(document.getElementById(id), { focus: id === "configuratore" });
     });
   };
 
@@ -109,7 +126,7 @@ export default function Navbar() {
               data-testid="nav-cta-sopralluogo"
               onClick={() => {
                 setMenuOpen(false);
-                openBooking();
+                requestAnimationFrame(() => openBooking());
               }}
               className="relative inline-flex items-center gap-1 rounded-full bg-surface px-3 py-2 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-ink transition-colors group-hover:bg-surface-2 sm:text-xs md:px-4 md:tracking-[0.15em] min-h-10 touch-manipulation"
             >
@@ -134,6 +151,7 @@ export default function Navbar() {
           <button
             type="button"
             data-testid="nav-mobile-menu"
+            ref={menuToggleRef}
             aria-expanded={menuOpen}
             aria-controls={menuId}
             aria-label={menuOpen ? "Chiudi menu" : "Apri menu"}
@@ -152,9 +170,11 @@ export default function Navbar() {
       {/* Menu mobile — replica esatta dei LINKS originali + CTA */}
       <div
         id={menuId}
+        ref={menuRef}
         role="dialog"
         aria-modal="true"
         aria-label="Menu di navigazione"
+        hidden={!menuOpen}
         className={`fixed inset-0 z-40 md:hidden ${
           menuOpen ? "pointer-events-auto" : "pointer-events-none"
         }`}
@@ -200,7 +220,7 @@ export default function Navbar() {
               type="button"
               onClick={() => {
                 setMenuOpen(false);
-                openBooking();
+                requestAnimationFrame(() => openBooking());
               }}
               className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-brand px-5 py-3.5 font-display text-sm font-semibold uppercase tracking-wider text-white touch-manipulation"
             >

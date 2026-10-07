@@ -163,7 +163,7 @@ export default function Footer() {
         </div>
         <div className="flex items-center gap-2 font-display uppercase tracking-[0.15em] text-xs text-ink">
           <span className="w-2.5 h-2.5 rounded-full bg-success animate-pulse-dot" />
-          Sopralluoghi disponibili questa settimana
+          Sopralluoghi gratuiti su appuntamento
         </div>
         <div className="font-body text-xs text-fog text-center">
           P.IVA 09965211213 · © 2026 GB Construction S.R.L.S. · Casalnuovo di

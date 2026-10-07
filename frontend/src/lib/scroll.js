@@ -34,7 +34,8 @@ export function cancelSmoothScroll() {
 export function smoothScrollToElement(target, options = {}) {
   if (typeof window === "undefined" || !target) return;
 
-  const { offset = getFixedNavOffset(), behavior = "smooth" } = options;
+  const { offset = getFixedNavOffset(), behavior = "smooth", focus = false } = options;
+  if (focus) target.focus?.({ preventScroll: true });
   const targetTop = Math.max(
     0,
     Math.round(target.getBoundingClientRect().top + window.scrollY - offset),

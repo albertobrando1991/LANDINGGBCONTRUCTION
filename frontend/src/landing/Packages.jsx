@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Maximize2, ArrowRight } from "lucide-react";
 import Tilt3D from "@/components/Tilt3D";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { PROPOSAL_POSTERS } from "@/lib/assets";
 import { scheduleSmoothScrollToElement } from "@/lib/scroll";
 
@@ -10,6 +10,7 @@ const PACKAGES = [
     key: "essenziale",
     name: "Soluzione Essenziale",
     tag: "Pratica. Concreta. Subito.",
+    description: "Rinnova impianti e finiture mantenendo la disposizione degli ambienti. Forniture escluse.",
     accent: "text-brand",
     ring: "hover:border-brand",
   },
@@ -17,6 +18,7 @@ const PACKAGES = [
     key: "premium",
     name: "Soluzione Premium",
     tag: "Trasforma. Ridisegna. Personalizza.",
+    description: "Ridisegna gli spazi con una nuova distribuzione interna e finiture di qualità. Forniture escluse.",
     accent: "text-ink",
     ring: "hover:border-fog",
     badge: "Più scelto",
@@ -25,6 +27,7 @@ const PACKAGES = [
     key: "luxury",
     name: "Soluzione Luxury",
     tag: "Tutto incluso. Chiavi in mano.",
+    description: "La soluzione Premium con sanitari, rubinetterie, porte, pavimenti e illuminazione inclusi da capitolato.",
     accent: "text-gold",
     ring: "hover:border-gold",
   },
@@ -32,9 +35,11 @@ const PACKAGES = [
 
 export default function Packages() {
   const [selected, setSelected] = useState(null);
+  const continueToConfig = useRef(false);
+  const openerRef = useRef(null);
 
   const scrollToConfig = () =>
-    scheduleSmoothScrollToElement(document.getElementById("configuratore"));
+    scheduleSmoothScrollToElement(document.getElementById("configuratore"), { focus: true });
 
   return (
     <section
@@ -60,7 +65,10 @@ export default function Packages() {
               <Tilt3D max={9} radius="rounded-3xl">
                 <button
                   data-testid={`package-${p.key}`}
-                  onClick={() => setSelected(p)}
+                  onClick={(event) => {
+                    openerRef.current = event.currentTarget;
+                    setSelected(p);
+                  }}
                   className={`group relative block w-full bg-bg border border-stroke ${p.ring} transition-colors text-left`}
                 >
                   {p.badge && (
@@ -93,6 +101,9 @@ export default function Packages() {
                 <p className="font-display uppercase tracking-wider text-xs text-fog mt-1">
                   {p.tag}
                 </p>
+                <p className="mt-3 font-body text-sm leading-relaxed text-fog">
+                  {p.description}
+                </p>
                 <button
                   onClick={scrollToConfig}
                   data-testid={`package-cta-${p.key}`}
@@ -111,10 +122,22 @@ export default function Packages() {
         <DialogContent
           className="max-w-xl bg-surface border-stroke p-2 max-h-[92vh] overflow-y-auto"
           data-testid="package-dialog"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            if (continueToConfig.current) {
+              continueToConfig.current = false;
+              scrollToConfig();
+            } else {
+              openerRef.current?.focus({ preventScroll: true });
+            }
+          }}
         >
           <DialogTitle className="sr-only">
             {selected ? selected.name : "Soluzione GB"}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {selected?.description}
+          </DialogDescription>
           {selected && (
             <>
               <img
@@ -123,7 +146,10 @@ export default function Packages() {
                 className="w-full h-auto rounded-xl"
               />
               <button
-                onClick={scrollToConfig}
+                onClick={() => {
+                  continueToConfig.current = true;
+                  setSelected(null);
+                }}
                 className="mt-3 mb-1 w-full bg-brand text-white rounded-full py-3 font-display font-semibold uppercase tracking-wider inline-flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform"
               >
                 Avvia la stima gratuita <ArrowRight className="w-4 h-4" />
