@@ -48,7 +48,7 @@ export default function SocialProof() {
   }, [autoplay, isSectionVisible, selectedVideo]);
 
   return (
-    <section id="progetti" ref={sectionRef} className="py-12 md:py-16 px-6 bg-bg" aria-label="Progetti e cantieri">
+    <section id="cantieri-in-evidenza" ref={sectionRef} className="py-12 md:py-16 px-6 bg-bg" aria-label="Progetti e cantieri">
       <div className="max-w-7xl mx-auto">
         <p className="font-display font-semibold uppercase tracking-[0.2em] text-sm text-fog mb-8 text-center">
           Già scelta da 200+ clienti in Campania

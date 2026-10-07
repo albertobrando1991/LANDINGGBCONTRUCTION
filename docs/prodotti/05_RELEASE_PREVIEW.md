@@ -10,6 +10,8 @@ Sono inclusi gli interventi su calendario, configuratore, pacchetti, menu, hero,
 
 Il dossier e il simulatore sono versionati in `docs/prodotti`: non vengono inseriti nella landing pubblica di GB Construction. Le specifiche dei due prodotti rimangono proposte da realizzare, con costi e prezzi da validare.
 
+Su `develop`, `SecondChance.jsx` contiene già la sezione `progetti`. Il menu conserva questa destinazione; al carosello iniziale è assegnato `cantieri-in-evidenza`, evitando un identificatore duplicato fra le due sezioni.
+
 ## Verifiche sul pacchetto destinato alla preview
 
 - Installazione riproducibile con `npm ci --legacy-peer-deps` dal lockfile di `develop`.
